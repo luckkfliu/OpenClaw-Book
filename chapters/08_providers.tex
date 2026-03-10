@@ -1,0 +1,2574 @@
+\chapter{模型提供商}
+
+% === 源文件: providers/anthropic.md ===
+\section{Anthropic（Claude）}
+
+
+Anthropic 构建了 \textbf{Claude} 模型系列，并通过 API 提供访问。
+在 OpenClaw 中，你可以使用 API 密钥或 \textbf{setup-token} 进行认证。
+
+\subsection{选项 A：Anthropic API 密钥}
+
+
+\textbf{适用于：} 标准 API 访问和按用量计费。
+在 Anthropic Console 中创建你的 API 密钥。
+
+\subsubsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard
+# 选择：Anthropic API key
+
+# 或非交互式
+openclaw onboard --anthropic-api-key "$ANTHROPIC_API_KEY"
+\end{lstlisting}
+
+
+\subsubsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { ANTHROPIC_API_KEY: "sk-ant-..." },
+  agents: { defaults: { model: { primary: "anthropic/claude-opus-4-5" } } },
+}
+\end{lstlisting}
+
+
+\subsection{提示缓存（Anthropic API）}
+
+
+OpenClaw 支持 Anthropic 的提示缓存功能。这是\textbf{仅限 API}；订阅认证不支持缓存设置。
+
+\subsubsection{配置}
+
+
+在模型配置中使用 \texttt{cacheRetention} 参数：
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+值 & 缓存时长 & 描述 \\
+\hline
+\texttt{none} & 无缓存 & 禁用提示缓存 \\
+\hline
+\texttt{short} & 5 分钟 & API 密钥认证的默认值 \\
+\hline
+\texttt{long} & 1 小时 & 扩展缓存（需要 beta 标志） \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "anthropic/claude-opus-4-5": {
+          params: { cacheRetention: "long" },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{默认值}
+
+
+使用 Anthropic API 密钥认证时，OpenClaw 会自动为所有 Anthropic 模型应用 \texttt{cacheRetention: "short"}（5 分钟缓存）。你可以通过在配置中显式设置 \texttt{cacheRetention} 来覆盖此设置。
+
+\subsubsection{旧版参数}
+
+
+为了向后兼容，仍支持旧版 \texttt{cacheControlTtl} 参数：
+
+\begin{itemize}
+  \item \texttt{"5m"} 映射到 \texttt{short}
+  \item \texttt{"1h"} 映射到 \texttt{long}
+\end{itemize}
+
+
+我们建议迁移到新的 \texttt{cacheRetention} 参数。
+
+OpenClaw 在 Anthropic API 请求中包含 \texttt{extended-cache-ttl-2025-04-11} beta 标志；
+如果你覆盖提供商头信息，请保留它（参见 \href{/gateway/configuration}{/gateway/configuration}）。
+
+\subsection{选项 B：Claude setup-token}
+
+
+\textbf{适用于：} 使用你的 Claude 订阅。
+
+\subsubsection{在哪里获取 setup-token}
+
+
+setup-token 由 \textbf{Claude Code CLI} 创建，而不是 Anthropic Console。你可以在\textbf{任何机器}上运行：
+
+\begin{lstlisting}[language=bash]
+claude setup-token
+\end{lstlisting}
+
+
+将令牌粘贴到 OpenClaw（向导：\textbf{Anthropic token (paste setup-token)}），或在 Gateway 网关主机上运行：
+
+\begin{lstlisting}[language=bash]
+openclaw models auth setup-token --provider anthropic
+\end{lstlisting}
+
+
+如果你在不同的机器上生成了令牌，请粘贴它：
+
+\begin{lstlisting}[language=bash]
+openclaw models auth paste-token --provider anthropic
+\end{lstlisting}
+
+
+\subsubsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+# 在新手引导期间粘贴 setup-token
+openclaw onboard --auth-choice setup-token
+\end{lstlisting}
+
+
+\subsubsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "anthropic/claude-opus-4-5" } } },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 使用 \texttt{claude setup-token} 生成 setup-token 并粘贴，或在 Gateway 网关主机上运行 \texttt{openclaw models auth setup-token}。
+  \item 如果你在 Claude 订阅上看到"OAuth token refresh failed …"，请使用 setup-token 重新认证。参见 \href{/gateway/troubleshooting\#oauth-token-refresh-failed-anthropic-claude-subscription}{/gateway/troubleshooting\#oauth-token-refresh-failed-anthropic-claude-subscription}。
+  \item 认证详情 + 重用规则在 \href{/concepts/oauth}{/concepts/oauth}。
+\end{itemize}
+
+
+\subsection{故障排除}
+
+
+\textbf{401 错误/令牌突然失效}
+
+\begin{itemize}
+  \item Claude 订阅认证可能过期或被撤销。重新运行 \texttt{claude setup-token}
+\end{itemize}
+
+并将其粘贴到 \textbf{Gateway 网关主机}。
+\begin{itemize}
+  \item 如果 Claude CLI 登录在不同的机器上，在 Gateway 网关主机上使用
+\end{itemize}
+
+\texttt{openclaw models auth paste-token --provider anthropic}。
+
+\textbf{No API key found for provider "anthropic"}
+
+\begin{itemize}
+  \item 认证是\textbf{按智能体}的。新智能体不会继承主智能体的密钥。
+  \item 为该智能体重新运行新手引导，或在 Gateway 网关主机上粘贴 setup-token / API 密钥，
+\end{itemize}
+
+然后使用 \texttt{openclaw models status} 验证。
+
+\textbf{No credentials found for profile \texttt{anthropic:default}}
+
+\begin{itemize}
+  \item 运行 \texttt{openclaw models status} 查看哪个认证配置文件处于活动状态。
+  \item 重新运行新手引导，或为该配置文件粘贴 setup-token / API 密钥。
+\end{itemize}
+
+
+\textbf{No available auth profile (all in cooldown/unavailable)}
+
+\begin{itemize}
+  \item 检查 \texttt{openclaw models status --json} 中的 \texttt{auth.unusableProfiles}。
+  \item 添加另一个 Anthropic 配置文件或等待冷却期结束。
+\end{itemize}
+
+
+更多信息：\href{/gateway/troubleshooting}{/gateway/troubleshooting} 和 \href{/help/faq}{/help/faq}。
+
+
+\clearpage
+
+% === 源文件: providers/bedrock.md ===
+\section{Amazon Bedrock}
+
+
+OpenClaw 可以通过 pi‑ai 的 \textbf{Bedrock Converse} 流式提供商使用 \textbf{Amazon Bedrock} 模型。Bedrock 认证使用 \textbf{AWS SDK 默认凭证链}，而非 API 密钥。
+
+\subsection{pi‑ai 支持的功能}
+
+
+\begin{itemize}
+  \item 提供商：\texttt{amazon-bedrock}
+  \item API：\texttt{bedrock-converse-stream}
+  \item 认证：AWS 凭证（环境变量、共享配置或实例角色）
+  \item 区域：\texttt{AWS\_REGION} 或 \texttt{AWS\_DEFAULT\_REGION}（默认：\texttt{us-east-1}）
+\end{itemize}
+
+
+\subsection{自动模型发现}
+
+
+如果检测到 AWS 凭证，OpenClaw 可以自动发现支持\textbf{流式传输}和\textbf{文本输出}的 Bedrock 模型。发现功能使用 \texttt{bedrock:ListFoundationModels}，并会被缓存（默认：1 小时）。
+
+配置选项位于 \texttt{models.bedrockDiscovery} 下：
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    bedrockDiscovery: {
+      enabled: true,
+      region: "us-east-1",
+      providerFilter: ["anthropic", "amazon"],
+      refreshInterval: 3600,
+      defaultContextWindow: 32000,
+      defaultMaxTokens: 4096,
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{enabled} 在存在 AWS 凭证时默认为 \texttt{true}。
+  \item \texttt{region} 默认为 \texttt{AWS\_REGION} 或 \texttt{AWS\_DEFAULT\_REGION}，然后是 \texttt{us-east-1}。
+  \item \texttt{providerFilter} 匹配 Bedrock 提供商名称（例如 \texttt{anthropic}）。
+  \item \texttt{refreshInterval} 单位为秒；设置为 \texttt{0} 可禁用缓存。
+  \item \texttt{defaultContextWindow}（默认：\texttt{32000}）和 \texttt{defaultMaxTokens}（默认：\texttt{4096}）用于已发现的模型（如果你知道模型限制，可以覆盖这些值）。
+\end{itemize}
+
+
+\subsection{设置（手动）}
+
+
+\begin{enumerate}
+  \item 确保 AWS 凭证在 \textbf{Gateway 网关主机}上可用：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+export AWS_ACCESS_KEY_ID="AKIA..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_REGION="us-east-1"
+# 可选：
+export AWS_SESSION_TOKEN="..."
+export AWS_PROFILE="your-profile"
+# 可选（Bedrock API 密钥/Bearer 令牌）：
+export AWS_BEARER_TOKEN_BEDROCK="..."
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 在配置中添加 Bedrock 提供商和模型（无需 \texttt{apiKey}）：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      "amazon-bedrock": {
+        baseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com",
+        api: "bedrock-converse-stream",
+        auth: "aws-sdk",
+        models: [
+          {
+            id: "anthropic.claude-opus-4-5-20251101-v1:0",
+            name: "Claude Opus 4.5 (Bedrock)",
+            reasoning: true,
+            input: ["text", "image"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 200000,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+  agents: {
+    defaults: {
+      model: { primary: "amazon-bedrock/anthropic.claude-opus-4-5-20251101-v1:0" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{EC2 实例角色}
+
+
+当在附加了 IAM 角色的 EC2 实例上运行 OpenClaw 时，AWS SDK 会自动使用实例元数据服务（IMDS）进行认证。但是，OpenClaw 的凭证检测目前只检查环境变量，不检查 IMDS 凭证。
+
+\textbf{解决方法：} 设置 \texttt{AWS\_PROFILE=default} 以表明 AWS 凭证可用。实际认证仍然通过 IMDS 使用实例角色。
+
+\begin{lstlisting}[language=bash]
+# 添加到 ~/.bashrc 或你的 shell 配置文件
+export AWS_PROFILE=default
+export AWS_REGION=us-east-1
+\end{lstlisting}
+
+
+EC2 实例角色\textbf{所需的 IAM 权限}：
+
+\begin{itemize}
+  \item \texttt{bedrock:InvokeModel}
+  \item \texttt{bedrock:InvokeModelWithResponseStream}
+  \item \texttt{bedrock:ListFoundationModels}（用于自动发现）
+\end{itemize}
+
+
+或者附加托管策略 \texttt{AmazonBedrockFullAccess}。
+
+\textbf{快速设置：}
+
+\begin{lstlisting}[language=bash]
+# 1. 创建 IAM 角色和实例配置文件
+aws iam create-role --role-name EC2-Bedrock-Access \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "ec2.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }]
+  }'
+
+aws iam attach-role-policy --role-name EC2-Bedrock-Access \
+  --policy-arn arn:aws:iam::aws:policy/AmazonBedrockFullAccess
+
+aws iam create-instance-profile --instance-profile-name EC2-Bedrock-Access
+aws iam add-role-to-instance-profile \
+  --instance-profile-name EC2-Bedrock-Access \
+  --role-name EC2-Bedrock-Access
+
+# 2. 附加到你的 EC2 实例
+aws ec2 associate-iam-instance-profile \
+  --instance-id i-xxxxx \
+  --iam-instance-profile Name=EC2-Bedrock-Access
+
+# 3. 在 EC2 实例上启用发现功能
+openclaw config set models.bedrockDiscovery.enabled true
+openclaw config set models.bedrockDiscovery.region us-east-1
+
+# 4. 设置解决方法所需的环境变量
+echo 'export AWS_PROFILE=default' >> ~/.bashrc
+echo 'export AWS_REGION=us-east-1' >> ~/.bashrc
+source ~/.bashrc
+
+# 5. 验证模型已被发现
+openclaw models list
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item Bedrock 需要在你的 AWS 账户/区域中启用\textbf{模型访问}。
+  \item 自动发现需要 \texttt{bedrock:ListFoundationModels} 权限。
+  \item 如果你使用配置文件，请在 Gateway 网关主机上设置 \texttt{AWS\_PROFILE}。
+  \item OpenClaw 按以下顺序获取凭证来源：\texttt{AWS\_BEARER\_TOKEN\_BEDROCK}，然后是 \texttt{AWS\_ACCESS\_KEY\_ID} + \texttt{AWS\_SECRET\_ACCESS\_KEY}，然后是 \texttt{AWS\_PROFILE}，最后是默认的 AWS SDK 链。
+  \item 推理支持取决于模型；请查看 Bedrock 模型卡了解当前功能。
+  \item 如果你更喜欢托管密钥流程，也可以在 Bedrock 前面放置一个 OpenAI 兼容的代理，并将其配置为 OpenAI 提供商。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/claude-max-api-proxy.md ===
+\section{Claude Max API 代理}
+
+
+\textbf{claude-max-api-proxy} 是一个社区工具，将你的 Claude Max/Pro 订阅暴露为 OpenAI 兼容的 API 端点。这使你可以将订阅与任何支持 OpenAI API 格式的工具配合使用。
+
+\subsection{为什么使用它？}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+方式 & 费用 & 适用场景 \\
+\hline
+Anthropic API & 按 token 计费（Opus 约 \$15/M 输入，\$75/M 输出） & 生产应用、高流量场景 \\
+\hline
+Claude Max 订阅 & 每月固定 \$200 & 个人使用、开发、无限用量 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+如果你有 Claude Max 订阅并希望与 OpenAI 兼容工具配合使用，这个代理可以帮你节省大量费用。
+
+\subsection{工作原理}
+
+
+\begin{lstlisting}
+你的应用 → claude-max-api-proxy → Claude Code CLI → Anthropic（通过订阅）
+     （OpenAI 格式）              （转换格式）           （使用你的登录凭据）
+\end{lstlisting}
+
+
+该代理：
+
+\begin{enumerate}
+  \item 在 \texttt{http://localhost:3456/v1/chat/completions} 接受 OpenAI 格式的请求
+  \item 将其转换为 Claude Code CLI 命令
+  \item 以 OpenAI 格式返回响应（支持流式传输）
+\end{enumerate}
+
+
+\subsection{安装}
+
+
+\begin{lstlisting}[language=bash]
+# 需要 Node.js 20+ 和 Claude Code CLI
+npm install -g claude-max-api-proxy
+
+# 验证 Claude CLI 已认证
+claude --version
+\end{lstlisting}
+
+
+\subsection{使用方法}
+
+
+\subsubsection{启动服务器}
+
+
+\begin{lstlisting}[language=bash]
+claude-max-api
+# 服务器运行在 http://localhost:3456
+\end{lstlisting}
+
+
+\subsubsection{测试}
+
+
+\begin{lstlisting}[language=bash]
+# 健康检查
+curl http://localhost:3456/health
+
+# 列出模型
+curl http://localhost:3456/v1/models
+
+# 聊天补全
+curl http://localhost:3456/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+\end{lstlisting}
+
+
+\subsubsection{与 OpenClaw 配合使用}
+
+
+你可以将 OpenClaw 指向该代理作为自定义 OpenAI 兼容端点：
+
+\begin{lstlisting}[language=json]
+{
+  env: {
+    OPENAI_API_KEY: "not-needed",
+    OPENAI_BASE_URL: "http://localhost:3456/v1",
+  },
+  agents: {
+    defaults: {
+      model: { primary: "openai/claude-opus-4" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{可用模型}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+模型 ID & 对应模型 \\
+\hline
+\texttt{claude-opus-4} & Claude Opus 4 \\
+\hline
+\texttt{claude-sonnet-4} & Claude Sonnet 4 \\
+\hline
+\texttt{claude-haiku-4} & Claude Haiku 4 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{macOS 自动启动}
+
+
+创建 LaunchAgent 以自动运行代理：
+
+\begin{lstlisting}[language=bash]
+cat > ~/Library/LaunchAgents/com.claude-max-api.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claude-max-api</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/usr/local/lib/node_modules/claude-max-api-proxy/dist/server/standalone.js</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:~/.local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
+EOF
+
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-max-api.plist
+\end{lstlisting}
+
+
+\subsection{链接}
+
+
+\begin{itemize}
+  \item \textbf{npm:} https://www.npmjs.com/package/claude-max-api-proxy
+  \item \textbf{GitHub:} https://github.com/atalovesyou/claude-max-api-proxy
+  \item \textbf{Issues:} https://github.com/atalovesyou/claude-max-api-proxy/issues
+\end{itemize}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 这是一个\textbf{社区工具}，并非由 Anthropic 或 OpenClaw 官方支持
+  \item 需要有效的 Claude Max/Pro 订阅并已认证 Claude Code CLI
+  \item 代理在本地运行，不会将数据发送到任何第三方服务器
+  \item 完全支持流式响应
+\end{itemize}
+
+
+\subsection{另请参阅}
+
+
+\begin{itemize}
+  \item \href{/providers/anthropic}{Anthropic 提供商} - OpenClaw 与 Claude 的原生集成，使用 setup-token 或 API 密钥
+  \item \href{/providers/openai}{OpenAI 提供商} - 适用于 OpenAI/Codex 订阅
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/deepgram.md ===
+\section{Deepgram（音频转录）}
+
+
+Deepgram 是一个语音转文字 API。在 OpenClaw 中，它通过 \texttt{tools.media.audio} 用于\textbf{接收音频/语音消息的转录}。
+
+启用后，OpenClaw 会将音频文件上传到 Deepgram，并将转录文本注入回复管道（\texttt{\{\{Transcript\}\}} + \texttt{[Audio]} 块）。这\textbf{不是流式}处理；它使用的是预录音转录端点。
+
+网站：https://deepgram.com
+文档：https://developers.deepgram.com
+
+\subsection{快速开始}
+
+
+\begin{enumerate}
+  \item 设置你的 API 密钥：
+\end{enumerate}
+
+
+\begin{lstlisting}
+DEEPGRAM_API_KEY=dg_...
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 启用提供商：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [{ provider: "deepgram", model: "nova-3" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{选项}
+
+
+\begin{itemize}
+  \item \texttt{model}：Deepgram 模型 ID（默认：\texttt{nova-3}）
+  \item \texttt{language}：语言提示（可选）
+  \item \texttt{tools.media.audio.providerOptions.deepgram.detect\_language}：启用语言检测（可选）
+  \item \texttt{tools.media.audio.providerOptions.deepgram.punctuate}：启用标点符号（可选）
+  \item \texttt{tools.media.audio.providerOptions.deepgram.smart\_format}：启用智能格式化（可选）
+\end{itemize}
+
+
+带语言参数的示例：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [{ provider: "deepgram", model: "nova-3", language: "en" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+带 Deepgram 选项的示例：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        providerOptions: {
+          deepgram: {
+            detect_language: true,
+            punctuate: true,
+            smart_format: true,
+          },
+        },
+        models: [{ provider: "deepgram", model: "nova-3" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 认证遵循标准提供商认证顺序；\texttt{DEEPGRAM\_API\_KEY} 是最简单的方式。
+  \item 使用代理时，可通过 \texttt{tools.media.audio.baseUrl} 和 \texttt{tools.media.audio.headers} 覆盖端点或请求头。
+  \item 输出遵循与其他提供商相同的音频规则（大小限制、超时、转录文本注入）。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/github-copilot.md ===
+\section{GitHub Copilot}
+
+
+\subsection{什么是 GitHub Copilot？}
+
+
+GitHub Copilot 是 GitHub 的 AI 编程助手。它为你的 GitHub 账户和订阅计划提供 Copilot 模型的访问权限。OpenClaw 可以通过两种不同的方式将 Copilot 用作模型提供商。
+
+\subsection{在 OpenClaw 中使用 Copilot 的两种方式}
+
+
+\subsubsection{1）内置 GitHub Copilot 提供商（github-copilot）}
+
+
+使用原生设备登录流程获取 GitHub 令牌，然后在 OpenClaw 运行时将其兑换为 Copilot API 令牌。这是\textbf{默认}且最简单的方式，因为它不需要 VS Code。
+
+\subsubsection{2）Copilot Proxy 插件（copilot-proxy）}
+
+
+使用 \textbf{Copilot Proxy} VS Code 扩展作为本地桥接。OpenClaw 与代理的 \texttt{/v1} 端点通信，并使用你在其中配置的模型列表。当你已经在 VS Code 中运行 Copilot Proxy 或需要通过它进行路由时，选择此方式。你必须启用该插件并保持 VS Code 扩展运行。
+
+使用 GitHub Copilot 作为模型提供商（\texttt{github-copilot}）。登录命令运行 GitHub 设备流程，保存认证配置文件，并更新你的配置以使用该配置文件。
+
+\subsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models auth login-github-copilot
+\end{lstlisting}
+
+
+系统会提示你访问一个 URL 并输入一次性代码。请保持终端打开直到流程完成。
+
+\subsubsection{可选参数}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models auth login-github-copilot --profile-id github-copilot:work
+openclaw models auth login-github-copilot --yes
+\end{lstlisting}
+
+
+\subsection{设置默认模型}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models set github-copilot/gpt-4o
+\end{lstlisting}
+
+
+\subsubsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "github-copilot/gpt-4o" } } },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 需要交互式 TTY；请直接在终端中运行。
+  \item Copilot 模型的可用性取决于你的订阅计划；如果某个模型被拒绝，请尝试其他 ID（例如 \texttt{github-copilot/gpt-4.1}）。
+  \item 登录会将 GitHub 令牌存储在认证配置文件中，并在 OpenClaw 运行时将其兑换为 Copilot API 令牌。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/glm.md ===
+\section{GLM 模型}
+
+
+GLM 是一个\textbf{模型系列}（而非公司），通过 Z.AI 平台提供。在 OpenClaw 中，GLM 模型通过 \texttt{zai} 提供商访问，模型 ID 格式如 \texttt{zai/glm-4.7}。
+
+\subsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice zai-api-key
+\end{lstlisting}
+
+
+\subsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { ZAI_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "zai/glm-4.7" } } },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item GLM 版本和可用性可能会变化；请查阅 Z.AI 的文档获取最新信息。
+  \item 示例模型 ID 包括 \texttt{glm-4.7} 和 \texttt{glm-4.6}。
+  \item 有关提供商的详细信息，请参阅 \href{/providers/zai}{/providers/zai}。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/index.md ===
+\section{模型提供商}
+
+
+OpenClaw 可以使用许多 LLM 提供商。选择一个提供商，进行认证，然后将默认模型设置为 \texttt{provider/model}。
+
+正在寻找聊天渠道文档（WhatsApp/Telegram/Discord/Slack/Mattermost（插件）等）？参见\href{/channels}{渠道}。
+
+\subsection{亮点：Venice（Venice AI）}
+
+
+Venice 是我们推荐的 Venice AI 设置，用于隐私优先的推理，并可选择使用 Opus 处理困难任务。
+
+\begin{itemize}
+  \item 默认：\texttt{venice/llama-3.3-70b}
+  \item 最佳综合：\texttt{venice/claude-opus-45}（Opus 仍然是最强的）
+\end{itemize}
+
+
+参见 \href{/providers/venice}{Venice AI}。
+
+\subsection{快速开始}
+
+
+\begin{enumerate}
+  \item 与提供商进行认证（通常通过 \texttt{openclaw onboard}）。
+  \item 设置默认模型：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "anthropic/claude-opus-4-5" } } },
+}
+\end{lstlisting}
+
+
+\subsection{提供商文档}
+
+
+\begin{itemize}
+  \item \href{/providers/bedrock}{Amazon Bedrock}
+  \item \href{/providers/anthropic}{Anthropic（API + Claude Code CLI）}
+  \item \href{/providers/glm}{GLM 模型}
+  \item \href{/providers/minimax}{MiniMax}
+  \item \href{/providers/moonshot}{Moonshot AI（Kimi + Kimi Coding）}
+  \item \href{/providers/ollama}{Ollama（本地模型）}
+  \item \href{/providers/openai}{OpenAI（API + Codex）}
+  \item \href{/providers/opencode}{OpenCode Zen}
+  \item \href{/providers/openrouter}{OpenRouter}
+  \item \href{/providers/qwen}{Qwen（OAuth）}
+  \item \href{/providers/venice}{Venice（Venice AI，注重隐私）}
+  \item \href{/providers/xiaomi}{Xiaomi}
+  \item \href{/providers/zai}{Z.AI}
+\end{itemize}
+
+
+\subsection{转录提供商}
+
+
+\begin{itemize}
+  \item \href{/providers/deepgram}{Deepgram（音频转录）}
+\end{itemize}
+
+
+\subsection{社区工具}
+
+
+\begin{itemize}
+  \item \href{/providers/claude-max-api-proxy}{Claude Max API Proxy} - 将 Claude Max/Pro 订阅作为 OpenAI 兼容的 API 端点使用
+\end{itemize}
+
+
+有关完整的提供商目录（xAI、Groq、Mistral 等）和高级配置，
+参见\href{/concepts/model-providers}{模型提供商}。
+
+
+\clearpage
+
+% === 源文件: providers/minimax.md ===
+\section{MiniMax}
+
+
+MiniMax 是一家构建 \textbf{M2/M2.1} 模型系列的 AI 公司。当前面向编程的版本是 \textbf{MiniMax M2.1}（2025 年 12 月 23 日），专为现实世界的复杂任务而构建。
+
+来源：\href{https://www.minimax.io/news/minimax-m21}{MiniMax M2.1 发布说明}
+
+\subsection{模型概述（M2.1）}
+
+
+MiniMax 强调 M2.1 的以下改进：
+
+\begin{itemize}
+  \item 更强的\textbf{多语言编程}能力（Rust、Java、Go、C++、Kotlin、Objective-C、TS/JS）。
+  \item 更好的 \textbf{Web/应用开发}和美观输出质量（包括原生移动端）。
+  \item 改进的\textbf{复合指令}处理，适用于办公风格的工作流程，基于交错思考和集成约束执行。
+  \item \textbf{更简洁的响应}，更低的 token 使用量和更快的迭代循环。
+  \item 更强的\textbf{工具/智能体框架}兼容性和上下文管理（Claude Code、Droid/Factory AI、Cline、Kilo Code、Roo Code、BlackBox）。
+  \item 更高质量的\textbf{对话和技术写作}输出。
+\end{itemize}
+
+
+\subsection{MiniMax M2.1 vs MiniMax M2.1 Lightning}
+
+
+\begin{itemize}
+  \item \textbf{速度：} Lightning 是 MiniMax 定价文档中的"快速"变体。
+  \item \textbf{成本：} 定价显示相同的输入成本，但 Lightning 的输出成本更高。
+  \item \textbf{编程计划路由：} Lightning 后端在 MiniMax 编程计划中不能直接使用。MiniMax 自动将大多数请求路由到 Lightning，但在流量高峰期会回退到常规 M2.1 后端。
+\end{itemize}
+
+
+\subsection{选择设置方式}
+
+
+\subsubsection{MiniMax OAuth（编程计划）— 推荐}
+
+
+\textbf{适用于：} 通过 OAuth 快速设置 MiniMax 编程计划，无需 API 密钥。
+
+启用内置 OAuth 插件并进行认证：
+
+\begin{lstlisting}[language=bash]
+openclaw plugins enable minimax-portal-auth  # 如果已加载则跳过
+openclaw gateway restart  # 如果 Gateway 网关已在运行则重启
+openclaw onboard --auth-choice minimax-portal
+\end{lstlisting}
+
+
+系统会提示你选择端点：
+
+\begin{itemize}
+  \item \textbf{Global} - 国际用户（\texttt{api.minimax.io}）
+  \item \textbf{CN} - 中国用户（\texttt{api.minimaxi.com}）
+\end{itemize}
+
+
+详情参见 \href{https://github.com/openclaw/openclaw/tree/main/extensions/minimax-portal-auth}{MiniMax OAuth 插件 README}。
+
+\subsubsection{MiniMax M2.1（API 密钥）}
+
+
+\textbf{适用于：} 使用 Anthropic 兼容 API 的托管 MiniMax。
+
+通过 CLI 配置：
+
+\begin{itemize}
+  \item 运行 \texttt{openclaw configure}
+  \item 选择 \textbf{Model/auth}
+  \item 选择 \textbf{MiniMax M2.1}
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { MINIMAX_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "minimax/MiniMax-M2.1" } } },
+  models: {
+    mode: "merge",
+    providers: {
+      minimax: {
+        baseUrl: "https://api.minimax.io/anthropic",
+        apiKey: "${MINIMAX_API_KEY}",
+        api: "anthropic-messages",
+        models: [
+          {
+            id: "MiniMax-M2.1",
+            name: "MiniMax M2.1",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 15, output: 60, cacheRead: 2, cacheWrite: 10 },
+            contextWindow: 200000,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{MiniMax M2.1 作为备用（Opus 为主）}
+
+
+\textbf{适用于：} 保持 Opus 4.5 为主模型，故障时切换到 MiniMax M2.1。
+
+\begin{lstlisting}[language=json]
+{
+  env: { MINIMAX_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      models: {
+        "anthropic/claude-opus-4-5": { alias: "opus" },
+        "minimax/MiniMax-M2.1": { alias: "minimax" },
+      },
+      model: {
+        primary: "anthropic/claude-opus-4-5",
+        fallbacks: ["minimax/MiniMax-M2.1"],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{可选：通过 LM Studio 本地运行（手动）}
+
+
+\textbf{适用于：} 使用 LM Studio 进行本地推理。
+我们在强大硬件（例如台式机/服务器）上使用 LM Studio 的本地服务器运行 MiniMax M2.1 时看到了出色的效果。
+
+通过 \texttt{openclaw.json} 手动配置：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "lmstudio/minimax-m2.1-gs32" },
+      models: { "lmstudio/minimax-m2.1-gs32": { alias: "Minimax" } },
+    },
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      lmstudio: {
+        baseUrl: "http://127.0.0.1:1234/v1",
+        apiKey: "lmstudio",
+        api: "openai-responses",
+        models: [
+          {
+            id: "minimax-m2.1-gs32",
+            name: "MiniMax M2.1 GS32",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 196608,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{通过 openclaw configure 配置}
+
+
+使用交互式配置向导设置 MiniMax，无需编辑 JSON：
+
+\begin{enumerate}
+  \item 运行 \texttt{openclaw configure}。
+  \item 选择 \textbf{Model/auth}。
+  \item 选择 \textbf{MiniMax M2.1}。
+  \item 在提示时选择你的默认模型。
+\end{enumerate}
+
+
+\subsection{配置选项}
+
+
+\begin{itemize}
+  \item \texttt{models.providers.minimax.baseUrl}：推荐使用 \texttt{https://api.minimax.io/anthropic}（Anthropic 兼容）；\texttt{https://api.minimax.io/v1} 可选用于 OpenAI 兼容的负载。
+  \item \texttt{models.providers.minimax.api}：推荐使用 \texttt{anthropic-messages}；\texttt{openai-completions} 可选用于 OpenAI 兼容的负载。
+  \item \texttt{models.providers.minimax.apiKey}：MiniMax API 密钥（\texttt{MINIMAX\_API\_KEY}）。
+  \item \texttt{models.providers.minimax.models}：定义 \texttt{id}、\texttt{name}、\texttt{reasoning}、\texttt{contextWindow}、\texttt{maxTokens}、\texttt{cost}。
+  \item \texttt{agents.defaults.models}：为你想要在允许列表中的模型设置别名。
+  \item \texttt{models.mode}：如果你想将 MiniMax 与内置模型一起添加，保持 \texttt{merge}。
+\end{itemize}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 模型引用格式为 \texttt{minimax/}。
+  \item 编程计划使用量 API：\texttt{https://api.minimaxi.com/v1/api/openplatform/coding\_plan/remains}（需要编程计划密钥）。
+  \item 如果需要精确的成本跟踪，请更新 \texttt{models.json} 中的定价值。
+  \item MiniMax 编程计划推荐链接（9 折优惠）：https://platform.minimax.io/subscribe/coding-plan?code=DbXJTRClnb\&source=link
+  \item 参见 \href{/concepts/model-providers}{/concepts/model-providers} 了解提供商规则。
+  \item 使用 \texttt{openclaw models list} 和 \texttt{openclaw models set minimax/MiniMax-M2.1} 切换模型。
+\end{itemize}
+
+
+\subsection{故障排除}
+
+
+\subsubsection{"Unknown model: minimax/MiniMax-M2.1"}
+
+
+这通常意味着 \textbf{MiniMax 提供商未配置}（没有提供商条目，也没有找到 MiniMax 认证配置文件/环境变量密钥）。此检测的修复在 \textbf{2026.1.12} 中（撰写本文时尚未发布）。修复方法：
+
+\begin{itemize}
+  \item 升级到 \textbf{2026.1.12}（或从源码 \texttt{main} 分支运行），然后重启 Gateway 网关。
+  \item 运行 \texttt{openclaw configure} 并选择 \textbf{MiniMax M2.1}，或
+  \item 手动添加 \texttt{models.providers.minimax} 块，或
+  \item 设置 \texttt{MINIMAX\_API\_KEY}（或 MiniMax 认证配置文件）以便注入提供商。
+\end{itemize}
+
+
+确保模型 id \textbf{区分大小写}：
+
+\begin{itemize}
+  \item \texttt{minimax/MiniMax-M2.1}
+  \item \texttt{minimax/MiniMax-M2.1-lightning}
+\end{itemize}
+
+
+然后重新检查：
+
+\begin{lstlisting}[language=bash]
+openclaw models list
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === 源文件: providers/models.md ===
+\section{模型提供商}
+
+
+OpenClaw 可以使用许多 LLM 提供商。选择一个，进行认证，然后将默认模型设置为 \texttt{provider/model}。
+
+\subsection{推荐：Venice（Venice AI）}
+
+
+Venice 是我们推荐的 Venice AI 设置，用于隐私优先的推理，并可选择使用 Opus 处理最困难的任务。
+
+\begin{itemize}
+  \item 默认：\texttt{venice/llama-3.3-70b}
+  \item 最佳综合：\texttt{venice/claude-opus-45}（Opus 仍然是最强的）
+\end{itemize}
+
+
+参见 \href{/providers/venice}{Venice AI}。
+
+\subsection{快速开始（两个步骤）}
+
+
+\begin{enumerate}
+  \item 与提供商认证（通常通过 \texttt{openclaw onboard}）。
+  \item 设置默认模型：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "anthropic/claude-opus-4-5" } } },
+}
+\end{lstlisting}
+
+
+\subsection{支持的提供商（入门集）}
+
+
+\begin{itemize}
+  \item \href{/providers/openai}{OpenAI（API + Codex）}
+  \item \href{/providers/anthropic}{Anthropic（API + Claude Code CLI）}
+  \item \href{/providers/openrouter}{OpenRouter}
+  \item \href{/providers/vercel-ai-gateway}{Vercel AI Gateway}
+  \item \href{/providers/moonshot}{Moonshot AI（Kimi + Kimi Coding）}
+  \item \href{/providers/synthetic}{Synthetic}
+  \item \href{/providers/opencode}{OpenCode Zen}
+  \item \href{/providers/zai}{Z.AI}
+  \item \href{/providers/glm}{GLM 模型}
+  \item \href{/providers/minimax}{MiniMax}
+  \item \href{/providers/venice}{Venice（Venice AI）}
+  \item \href{/providers/bedrock}{Amazon Bedrock}
+\end{itemize}
+
+
+有关完整的提供商目录（xAI、Groq、Mistral 等）和高级配置，请参阅\href{/concepts/model-providers}{模型提供商}。
+
+
+\clearpage
+
+% === 源文件: providers/moonshot.md ===
+\section{Moonshot AI (Kimi)}
+
+
+Moonshot 提供兼容 OpenAI 端点的 Kimi API。配置提供商并将默认模型设置为 \texttt{moonshot/kimi-k2.5}，或使用 Kimi Coding 的 \texttt{kimi-coding/k2p5}。
+
+当前 Kimi K2 模型 ID：
+\{/\_ moonshot-kimi-k2-ids:start \_/\}
+
+\begin{itemize}
+  \item \texttt{kimi-k2.5}
+  \item \texttt{kimi-k2-0905-preview}
+  \item \texttt{kimi-k2-turbo-preview}
+  \item \texttt{kimi-k2-thinking}
+  \item \texttt{kimi-k2-thinking-turbo}
+\end{itemize}
+
+\{/\_ moonshot-kimi-k2-ids:end \_/\}
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice moonshot-api-key
+\end{lstlisting}
+
+
+Kimi Coding：
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice kimi-code-api-key
+\end{lstlisting}
+
+
+注意：Moonshot 和 Kimi Coding 是独立的提供商。密钥不可互换，端点不同，模型引用也不同（Moonshot 使用 \texttt{moonshot/...}，Kimi Coding 使用 \texttt{kimi-coding/...}）。
+
+\subsection{配置片段（Moonshot API）}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { MOONSHOT_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      model: { primary: "moonshot/kimi-k2.5" },
+      models: {
+        // moonshot-kimi-k2-aliases:start
+        "moonshot/kimi-k2.5": { alias: "Kimi K2.5" },
+        "moonshot/kimi-k2-0905-preview": { alias: "Kimi K2" },
+        "moonshot/kimi-k2-turbo-preview": { alias: "Kimi K2 Turbo" },
+        "moonshot/kimi-k2-thinking": { alias: "Kimi K2 Thinking" },
+        "moonshot/kimi-k2-thinking-turbo": { alias: "Kimi K2 Thinking Turbo" },
+        // moonshot-kimi-k2-aliases:end
+      },
+    },
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      moonshot: {
+        baseUrl: "https://api.moonshot.ai/v1",
+        apiKey: "${MOONSHOT_API_KEY}",
+        api: "openai-completions",
+        models: [
+          // moonshot-kimi-k2-models:start
+          {
+            id: "kimi-k2.5",
+            name: "Kimi K2.5",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          {
+            id: "kimi-k2-0905-preview",
+            name: "Kimi K2 0905 Preview",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          {
+            id: "kimi-k2-turbo-preview",
+            name: "Kimi K2 Turbo",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          {
+            id: "kimi-k2-thinking",
+            name: "Kimi K2 Thinking",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          {
+            id: "kimi-k2-thinking-turbo",
+            name: "Kimi K2 Thinking Turbo",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          // moonshot-kimi-k2-models:end
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Kimi Coding}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { KIMI_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      model: { primary: "kimi-coding/k2p5" },
+      models: {
+        "kimi-coding/k2p5": { alias: "Kimi K2.5" },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item Moonshot 模型引用使用 \texttt{moonshot/}。Kimi Coding 模型引用使用 \texttt{kimi-coding/}。
+  \item 如有需要，可在 \texttt{models.providers} 中覆盖定价和上下文元数据。
+  \item 如果 Moonshot 发布了某个模型的不同上下文限制，请相应调整 \texttt{contextWindow}。
+  \item 如需使用中国端点，请使用 \texttt{https://api.moonshot.cn/v1}。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/ollama.md ===
+\section{Ollama}
+
+
+Ollama 是一个本地 LLM 运行时，可以轻松在你的机器上运行开源模型。OpenClaw 通过 Ollama 的 OpenAI 兼容 API 进行集成，并且当你通过 \texttt{OLLAMA\_API\_KEY}（或认证配置）启用且未定义显式的 \texttt{models.providers.ollama} 条目时，可以\textbf{自动发现支持工具调用的模型}。
+
+\subsection{快速开始}
+
+
+\begin{enumerate}
+  \item 安装 Ollama：https://ollama.ai
+\end{enumerate}
+
+
+\begin{enumerate}
+  \item 拉取模型：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+ollama pull llama3.3
+# 或
+ollama pull qwen2.5-coder:32b
+# 或
+ollama pull deepseek-r1:32b
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 为 OpenClaw 启用 Ollama（任意值即可；Ollama 不需要真实密钥）：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+# 设置环境变量
+export OLLAMA_API_KEY="ollama-local"
+
+# 或在配置文件中设置
+openclaw config set models.providers.ollama.apiKey "ollama-local"
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 使用 Ollama 模型：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "ollama/llama3.3" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{模型发现（隐式提供商）}
+
+
+当你设置了 \texttt{OLLAMA\_API\_KEY}（或认证配置）且\textbf{未}定义 \texttt{models.providers.ollama} 时，OpenClaw 会从本地 Ollama 实例 \texttt{http://127.0.0.1:11434} 发现模型：
+
+\begin{itemize}
+  \item 查询 \texttt{/api/tags} 和 \texttt{/api/show}
+  \item 仅保留报告了 \texttt{tools} 能力的模型
+  \item 当模型报告 \texttt{thinking} 时标记为 \texttt{reasoning}
+  \item 在可用时从 \texttt{model\_info[".context\_length"]} 读取 \texttt{contextWindow}
+  \item 将 \texttt{maxTokens} 设置为上下文窗口的 10 倍
+  \item 所有费用设置为 \texttt{0}
+\end{itemize}
+
+
+这样无需手动配置模型条目，同时保持目录与 Ollama 的能力对齐。
+
+查看可用模型：
+
+\begin{lstlisting}[language=bash]
+ollama list
+openclaw models list
+\end{lstlisting}
+
+
+要添加新模型，只需通过 Ollama 拉取：
+
+\begin{lstlisting}[language=bash]
+ollama pull mistral
+\end{lstlisting}
+
+
+新模型将被自动发现并可供使用。
+
+如果你显式设置了 \texttt{models.providers.ollama}，自动发现将被跳过，你必须手动定义模型（见下文）。
+
+\subsection{配置}
+
+
+\subsubsection{基本设置（隐式发现）}
+
+
+启用 Ollama 最简单的方式是通过环境变量：
+
+\begin{lstlisting}[language=bash]
+export OLLAMA_API_KEY="ollama-local"
+\end{lstlisting}
+
+
+\subsubsection{显式设置（手动模型）}
+
+
+在以下情况使用显式配置：
+
+\begin{itemize}
+  \item Ollama 运行在其他主机/端口上。
+  \item 你想强制指定上下文窗口或模型列表。
+  \item 你想包含未报告工具支持的模型。
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      ollama: {
+        // 使用包含 /v1 的主机地址以兼容 OpenAI API
+        baseUrl: "http://ollama-host:11434/v1",
+        apiKey: "ollama-local",
+        api: "openai-completions",
+        models: [
+          {
+            id: "llama3.3",
+            name: "Llama 3.3",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 8192,
+            maxTokens: 8192 * 10
+          }
+        ]
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+如果设置了 \texttt{OLLAMA\_API\_KEY}，你可以在提供商条目中省略 \texttt{apiKey}，OpenClaw 会自动填充以进行可用性检查。
+
+\subsubsection{自定义基础 URL（显式配置）}
+
+
+如果 Ollama 运行在不同的主机或端口上（显式配置会禁用自动发现，因此需要手动定义模型）：
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      ollama: {
+        apiKey: "ollama-local",
+        baseUrl: "http://ollama-host:11434/v1",
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{模型选择}
+
+
+配置完成后，所有 Ollama 模型即可使用：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: {
+        primary: "ollama/llama3.3",
+        fallbacks: ["ollama/qwen2.5-coder:32b"],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{高级用法}
+
+
+\subsubsection{推理模型}
+
+
+当 Ollama 在 \texttt{/api/show} 中报告 \texttt{thinking} 时，OpenClaw 会将模型标记为具有推理能力：
+
+\begin{lstlisting}[language=bash]
+ollama pull deepseek-r1:32b
+\end{lstlisting}
+
+
+\subsubsection{模型费用}
+
+
+Ollama 免费且在本地运行，因此所有模型费用均设置为 \$0。
+
+\subsubsection{上下文窗口}
+
+
+对于自动发现的模型，OpenClaw 会使用 Ollama 报告的上下文窗口（如果可用），否则默认为 \texttt{8192}。你可以在显式提供商配置中覆盖 \texttt{contextWindow} 和 \texttt{maxTokens}。
+
+\subsection{故障排除}
+
+
+\subsubsection{Ollama 未被检测到}
+
+
+确保 Ollama 正在运行，且你已设置 \texttt{OLLAMA\_API\_KEY}（或认证配置），并且\textbf{未}定义显式的 \texttt{models.providers.ollama} 条目：
+
+\begin{lstlisting}[language=bash]
+ollama serve
+\end{lstlisting}
+
+
+同时确认 API 可访问：
+
+\begin{lstlisting}[language=bash]
+curl http://localhost:11434/api/tags
+\end{lstlisting}
+
+
+\subsubsection{没有可用模型}
+
+
+OpenClaw 仅自动发现报告了工具支持的模型。如果你的模型未列出，可以：
+
+\begin{itemize}
+  \item 拉取一个支持工具调用的模型，或
+  \item 在 \texttt{models.providers.ollama} 中显式定义该模型。
+\end{itemize}
+
+
+添加模型：
+
+\begin{lstlisting}[language=bash]
+ollama list  # 查看已安装的模型
+ollama pull llama3.3  # 拉取模型
+\end{lstlisting}
+
+
+\subsubsection{连接被拒绝}
+
+
+检查 Ollama 是否在正确的端口上运行：
+
+\begin{lstlisting}[language=bash]
+# 检查 Ollama 是否在运行
+ps aux | grep ollama
+
+# 或重启 Ollama
+ollama serve
+\end{lstlisting}
+
+
+\subsection{另请参阅}
+
+
+\begin{itemize}
+  \item \href{/concepts/model-providers}{模型提供商} - 所有提供商概览
+  \item \href{/concepts/models}{模型选择} - 如何选择模型
+  \item \href{/gateway/configuration}{配置} - 完整配置参考
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/openai.md ===
+\section{OpenAI}
+
+
+OpenAI 提供 GPT 模型的开发者 API。Codex 支持\textbf{ChatGPT 登录}进行订阅访问，或\textbf{API 密钥}登录进行按量计费访问。Codex 云端需要 ChatGPT 登录。
+
+\subsection{方式 A：OpenAI API 密钥（OpenAI Platform）}
+
+
+\textbf{适用于：}直接 API 访问和按量计费。
+从 OpenAI 控制台获取你的 API 密钥。
+
+\subsubsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice openai-api-key
+# 或非交互式
+openclaw onboard --openai-api-key "$OPENAI_API_KEY"
+\end{lstlisting}
+
+
+\subsubsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { OPENAI_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "openai/gpt-5.2" } } },
+}
+\end{lstlisting}
+
+
+\subsection{方式 B：OpenAI Code（Codex）订阅}
+
+
+\textbf{适用于：}使用 ChatGPT/Codex 订阅访问而非 API 密钥。
+Codex 云端需要 ChatGPT 登录，而 Codex CLI 支持 ChatGPT 或 API 密钥登录。
+
+\subsubsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+# 在向导中运行 Codex OAuth
+openclaw onboard --auth-choice openai-codex
+
+# 或直接运行 OAuth
+openclaw models auth login --provider openai-codex
+\end{lstlisting}
+
+
+\subsubsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "openai-codex/gpt-5.2" } } },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 模型引用始终使用 \texttt{provider/model} 格式（参见 \href{/concepts/models}{/concepts/models}）。
+  \item 认证详情和复用规则请参阅 \href{/concepts/oauth}{/concepts/oauth}。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/opencode.md ===
+\section{OpenCode Zen}
+
+
+OpenCode Zen 是由 OpenCode 团队推荐的一组\textbf{精选模型列表}，适用于编程智能体。它是一个可选的托管模型访问路径，使用 API 密钥和 \texttt{opencode} 提供商。Zen 目前处于测试阶段。
+
+\subsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice opencode-zen
+# 或非交互式
+openclaw onboard --opencode-zen-api-key "$OPENCODE_API_KEY"
+\end{lstlisting}
+
+
+\subsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { OPENCODE_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "opencode/claude-opus-4-5" } } },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 也支持 \texttt{OPENCODE\_ZEN\_API\_KEY}。
+  \item 你需要登录 Zen，添加账单信息，然后复制你的 API 密钥。
+  \item OpenCode Zen 按请求计费；详情请查看 OpenCode 控制台。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/openrouter.md ===
+\section{OpenRouter}
+
+
+OpenRouter 提供了一个\textbf{统一 API}，通过单一端点和 API 密钥将请求路由到多种模型。它兼容 OpenAI，因此大多数 OpenAI SDK 只需切换 base URL 即可使用。
+
+\subsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice apiKey --token-provider openrouter --token "$OPENROUTER_API_KEY"
+\end{lstlisting}
+
+
+\subsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { OPENROUTER_API_KEY: "sk-or-..." },
+  agents: {
+    defaults: {
+      model: { primary: "openrouter/anthropic/claude-sonnet-4-5" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 模型引用格式为 \texttt{openrouter//}。
+  \item 更多模型/提供商选项，请参阅\href{/concepts/model-providers}{模型提供商}。
+  \item OpenRouter 底层使用 Bearer 令牌和你的 API 密钥进行认证。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/qianfan.md ===
+\section{千帆（Qianfan）}
+
+
+该页面是英文文档的中文占位版本，完整内容请先参考英文版：\href{/providers/qianfan}{Qianfan}。
+
+
+\clearpage
+
+% === 源文件: providers/qwen.md ===
+\section{Qwen}
+
+
+Qwen 为 Qwen Coder 和 Qwen Vision 模型提供免费层 OAuth 流程（每天 2,000 次请求，受 Qwen 速率限制约束）。
+
+\subsection{启用插件}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins enable qwen-portal-auth
+\end{lstlisting}
+
+
+启用后重启 Gateway 网关。
+
+\subsection{认证}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models auth login --provider qwen-portal --set-default
+\end{lstlisting}
+
+
+这会运行 Qwen 设备码 OAuth 流程并将提供商条目写入你的 \texttt{models.json}（加上一个 \texttt{qwen} 别名以便快速切换）。
+
+\subsection{模型 ID}
+
+
+\begin{itemize}
+  \item \texttt{qwen-portal/coder-model}
+  \item \texttt{qwen-portal/vision-model}
+\end{itemize}
+
+
+切换模型：
+
+\begin{lstlisting}[language=bash]
+openclaw models set qwen-portal/coder-model
+\end{lstlisting}
+
+
+\subsection{复用 Qwen Code CLI 登录}
+
+
+如果你已经使用 Qwen Code CLI 登录，OpenClaw 会在加载认证存储时从 \texttt{\textasciitilde{}/.qwen/oauth\_creds.json} 同步凭证。你仍然需要一个 \texttt{models.providers.qwen-portal} 条目（使用上面的登录命令创建一个）。
+
+\subsection{注意}
+
+
+\begin{itemize}
+  \item 令牌自动刷新；如果刷新失败或访问被撤销，请重新运行登录命令。
+  \item 默认基础 URL：\texttt{https://portal.qwen.ai/v1}（如果 Qwen 提供不同的端点，使用 \texttt{models.providers.qwen-portal.baseUrl} 覆盖）。
+  \item 参阅\href{/concepts/model-providers}{模型提供商}了解提供商级别的规则。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/synthetic.md ===
+\section{Synthetic}
+
+
+Synthetic 提供兼容 Anthropic 的端点。OpenClaw 将其注册为 \texttt{synthetic} 提供商，并使用 Anthropic Messages API。
+
+\subsection{快速设置}
+
+
+\begin{enumerate}
+  \item 设置 \texttt{SYNTHETIC\_API\_KEY}（或运行以下向导）。
+  \item 运行新手引导：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice synthetic-api-key
+\end{lstlisting}
+
+
+默认模型设置为：
+
+\begin{lstlisting}
+synthetic/hf:MiniMaxAI/MiniMax-M2.1
+\end{lstlisting}
+
+
+\subsection{配置示例}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { SYNTHETIC_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      model: { primary: "synthetic/hf:MiniMaxAI/MiniMax-M2.1" },
+      models: { "synthetic/hf:MiniMaxAI/MiniMax-M2.1": { alias: "MiniMax M2.1" } },
+    },
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      synthetic: {
+        baseUrl: "https://api.synthetic.new/anthropic",
+        apiKey: "${SYNTHETIC_API_KEY}",
+        api: "anthropic-messages",
+        models: [
+          {
+            id: "hf:MiniMaxAI/MiniMax-M2.1",
+            name: "MiniMax M2.1",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 192000,
+            maxTokens: 65536,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意：OpenClaw 的 Anthropic 客户端会自动在 base URL 后追加 \texttt{/v1}，因此请使用 \texttt{https://api.synthetic.new/anthropic}（而非 \texttt{/anthropic/v1}）。如果 Synthetic 更改了其 base URL，请覆盖 \texttt{models.providers.synthetic.baseUrl}。
+
+\subsection{模型目录}
+
+
+以下所有模型的费用均为 \texttt{0}（输入/输出/缓存）。
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+模型 ID & 上下文窗口 & 最大令牌数 & 推理 & 输入 \\
+\hline
+\texttt{hf:MiniMaxAI/MiniMax-M2.1} & 192000 & 65536 & false & text \\
+\hline
+\texttt{hf:moonshotai/Kimi-K2-Thinking} & 256000 & 8192 & true & text \\
+\hline
+\texttt{hf:zai-org/GLM-4.7} & 198000 & 128000 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-R1-0528} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3-0324} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3.1} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3.1-Terminus} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3.2} & 159000 & 8192 & false & text \\
+\hline
+\texttt{hf:meta-llama/Llama-3.3-70B-Instruct} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8} & 524000 & 8192 & false & text \\
+\hline
+\texttt{hf:moonshotai/Kimi-K2-Instruct-0905} & 256000 & 8192 & false & text \\
+\hline
+\texttt{hf:openai/gpt-oss-120b} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:Qwen/Qwen3-235B-A22B-Instruct-2507} & 256000 & 8192 & false & text \\
+\hline
+\texttt{hf:Qwen/Qwen3-Coder-480B-A35B-Instruct} & 256000 & 8192 & false & text \\
+\hline
+\texttt{hf:Qwen/Qwen3-VL-235B-A22B-Instruct} & 250000 & 8192 & false & text + image \\
+\hline
+\texttt{hf:zai-org/GLM-4.5} & 128000 & 128000 & false & text \\
+\hline
+\texttt{hf:zai-org/GLM-4.6} & 198000 & 128000 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:Qwen/Qwen3-235B-A22B-Thinking-2507} & 256000 & 8192 & true & text \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 模型引用格式为 \texttt{synthetic/}。
+  \item 如果启用了模型允许列表（\texttt{agents.defaults.models}），请添加你计划使用的所有模型。
+  \item 参阅\href{/concepts/model-providers}{模型提供商}了解提供商规则。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/venice.md ===
+\section{Venice AI（Venice 精选）}
+
+
+\textbf{Venice} 是我们精选的 Venice 隐私优先推理配置，支持可选的匿名化访问专有模型。
+
+Venice AI 提供注重隐私的 AI 推理服务，支持无审查模型，并可通过其匿名代理访问主流专有模型。所有推理默认私密——不会用你的数据训练，不会记录日志。
+
+\subsection{为什么在 OpenClaw 中使用 Venice}
+
+
+\begin{itemize}
+  \item \textbf{私密推理}，适用于开源模型（无日志记录）。
+  \item 需要时可使用\textbf{无审查模型}。
+  \item 在质量重要时，可\textbf{匿名访问}专有模型（Opus/GPT/Gemini）。
+  \item 兼容 OpenAI 的 \texttt{/v1} 端点。
+\end{itemize}
+
+
+\subsection{隐私模式}
+
+
+Venice 提供两种隐私级别——理解这一点是选择模型的关键：
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+模式 & 描述 & 模型 \\
+\hline
+\textbf{私密} & 完全私密。提示词/回复\textbf{从不存储或记录}。临时性处理。 & Llama、Qwen、DeepSeek、Venice Uncensored 等 \\
+\hline
+\textbf{匿名化} & 通过 Venice 代理转发并剥离元数据。底层提供商（OpenAI、Anthropic）收到的是匿名化请求。 & Claude、GPT、Gemini、Grok、Kimi、MiniMax \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{功能特性}
+
+
+\begin{itemize}
+  \item \textbf{注重隐私}：可选择"私密"（完全私密）和"匿名化"（代理转发）模式
+  \item \textbf{无审查模型}：访问无内容限制的模型
+  \item \textbf{主流模型访问}：通过 Venice 匿名代理使用 Claude、GPT-5.2、Gemini、Grok
+  \item \textbf{兼容 OpenAI API}：标准 \texttt{/v1} 端点，易于集成
+  \item \textbf{流式输出}：✅ 所有模型均支持
+  \item \textbf{函数调用}：✅ 部分模型支持（请检查模型能力）
+  \item \textbf{视觉}：✅ 具有视觉能力的模型支持
+  \item \textbf{无硬性速率限制}：极端使用情况下可能触发公平使用限流
+\end{itemize}
+
+
+\subsection{设置}
+
+
+\subsubsection{1. 获取 API 密钥}
+
+
+\begin{enumerate}
+  \item 在 \href{https://venice.ai}{venice.ai} 注册
+  \item 前往 \textbf{Settings → API Keys → Create new key}
+  \item 复制你的 API 密钥（格式：\texttt{vapi\_xxxxxxxxxxxx}）
+\end{enumerate}
+
+
+\subsubsection{2. 配置 OpenClaw}
+
+
+\textbf{方案 A：环境变量}
+
+\begin{lstlisting}[language=bash]
+export VENICE_API_KEY="vapi_xxxxxxxxxxxx"
+\end{lstlisting}
+
+
+\textbf{方案 B：交互式设置（推荐）}
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice venice-api-key
+\end{lstlisting}
+
+
+这将：
+
+\begin{enumerate}
+  \item 提示输入你的 API 密钥（或使用已有的 \texttt{VENICE\_API\_KEY}）
+  \item 显示所有可用的 Venice 模型
+  \item 让你选择默认模型
+  \item 自动配置提供商
+\end{enumerate}
+
+
+\textbf{方案 C：非交互式}
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --auth-choice venice-api-key \
+  --venice-api-key "vapi_xxxxxxxxxxxx"
+\end{lstlisting}
+
+
+\subsubsection{3. 验证设置}
+
+
+\begin{lstlisting}[language=bash]
+openclaw chat --model venice/llama-3.3-70b "Hello, are you working?"
+\end{lstlisting}
+
+
+\subsection{模型选择}
+
+
+设置完成后，OpenClaw 会显示所有可用的 Venice 模型。根据你的需求选择：
+
+\begin{itemize}
+  \item \textbf{默认（我们的推荐）}：\texttt{venice/llama-3.3-70b}，私密且性能均衡。
+  \item \textbf{最佳整体质量}：\texttt{venice/claude-opus-45}，适合复杂任务（Opus 仍然是最强的）。
+  \item \textbf{隐私}：选择"私密"模型以获得完全私密的推理。
+  \item \textbf{能力}：选择"匿名化"模型以通过 Venice 代理访问 Claude、GPT、Gemini。
+\end{itemize}
+
+
+随时更改默认模型：
+
+\begin{lstlisting}[language=bash]
+openclaw models set venice/claude-opus-45
+openclaw models set venice/llama-3.3-70b
+\end{lstlisting}
+
+
+列出所有可用模型：
+
+\begin{lstlisting}[language=bash]
+openclaw models list | grep venice
+\end{lstlisting}
+
+
+\subsection{通过 openclaw configure 配置}
+
+
+\begin{enumerate}
+  \item 运行 \texttt{openclaw configure}
+  \item 选择 \textbf{Model/auth}
+  \item 选择 \textbf{Venice AI}
+\end{enumerate}
+
+
+\subsection{应该使用哪个模型？}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+使用场景 & 推荐模型 & 原因 \\
+\hline
+\textbf{通用对话} & \texttt{llama-3.3-70b} & 综合表现好，完全私密 \\
+\hline
+\textbf{最佳整体质量} & \texttt{claude-opus-45} & Opus 在复杂任务上仍然最强 \\
+\hline
+\textbf{隐私 + Claude 品质} & \texttt{claude-opus-45} & 通过匿名代理获得最佳推理能力 \\
+\hline
+\textbf{编程} & \texttt{qwen3-coder-480b-a35b-instruct} & 代码优化，262k 上下文 \\
+\hline
+\textbf{视觉任务} & \texttt{qwen3-vl-235b-a22b} & 最佳私密视觉模型 \\
+\hline
+\textbf{无审查} & \texttt{venice-uncensored} & 无内容限制 \\
+\hline
+\textbf{快速 + 低成本} & \texttt{qwen3-4b} & 轻量级，仍有不错能力 \\
+\hline
+\textbf{复杂推理} & \texttt{deepseek-v3.2} & 推理能力强，私密 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{可用模型（共 25 个）}
+
+
+\subsubsection{私密模型（15 个）— 完全私密，无日志记录}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+模型 ID & 名称 & 上下文（token） & 特性 \\
+\hline
+\texttt{llama-3.3-70b} & Llama 3.3 70B & 131k & 通用 \\
+\hline
+\texttt{llama-3.2-3b} & Llama 3.2 3B & 131k & 快速，轻量 \\
+\hline
+\texttt{hermes-3-llama-3.1-405b} & Hermes 3 Llama 3.1 405B & 131k & 复杂任务 \\
+\hline
+\texttt{qwen3-235b-a22b-thinking-2507} & Qwen3 235B Thinking & 131k & 推理 \\
+\hline
+\texttt{qwen3-235b-a22b-instruct-2507} & Qwen3 235B Instruct & 131k & 通用 \\
+\hline
+\texttt{qwen3-coder-480b-a35b-instruct} & Qwen3 Coder 480B & 262k & 编程 \\
+\hline
+\texttt{qwen3-next-80b} & Qwen3 Next 80B & 262k & 通用 \\
+\hline
+\texttt{qwen3-vl-235b-a22b} & Qwen3 VL 235B & 262k & 视觉 \\
+\hline
+\texttt{qwen3-4b} & Venice Small (Qwen3 4B) & 32k & 快速，推理 \\
+\hline
+\texttt{deepseek-v3.2} & DeepSeek V3.2 & 163k & 推理 \\
+\hline
+\texttt{venice-uncensored} & Venice Uncensored & 32k & 无审查 \\
+\hline
+\texttt{mistral-31-24b} & Venice Medium (Mistral) & 131k & 视觉 \\
+\hline
+\texttt{google-gemma-3-27b-it} & Gemma 3 27B Instruct & 202k & 视觉 \\
+\hline
+\texttt{openai-gpt-oss-120b} & OpenAI GPT OSS 120B & 131k & 通用 \\
+\hline
+\texttt{zai-org-glm-4.7} & GLM 4.7 & 202k & 推理，多语言 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{匿名化模型（10 个）— 通过 Venice 代理}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+模型 ID & 原始模型 & 上下文（token） & 特性 \\
+\hline
+\texttt{claude-opus-45} & Claude Opus 4.5 & 202k & 推理，视觉 \\
+\hline
+\texttt{claude-sonnet-45} & Claude Sonnet 4.5 & 202k & 推理，视觉 \\
+\hline
+\texttt{openai-gpt-52} & GPT-5.2 & 262k & 推理 \\
+\hline
+\texttt{openai-gpt-52-codex} & GPT-5.2 Codex & 262k & 推理，视觉 \\
+\hline
+\texttt{gemini-3-pro-preview} & Gemini 3 Pro & 202k & 推理，视觉 \\
+\hline
+\texttt{gemini-3-flash-preview} & Gemini 3 Flash & 262k & 推理，视觉 \\
+\hline
+\texttt{grok-41-fast} & Grok 4.1 Fast & 262k & 推理，视觉 \\
+\hline
+\texttt{grok-code-fast-1} & Grok Code Fast 1 & 262k & 推理，编程 \\
+\hline
+\texttt{kimi-k2-thinking} & Kimi K2 Thinking & 262k & 推理 \\
+\hline
+\texttt{minimax-m21} & MiniMax M2.1 & 202k & 推理 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{模型发现}
+
+
+当设置了 \texttt{VENICE\_API\_KEY} 时，OpenClaw 会自动从 Venice API 发现模型。如果 API 不可达，则回退到静态目录。
+
+\texttt{/models} 端点是公开的（列出模型无需认证），但推理需要有效的 API 密钥。
+
+\subsection{流式输出与工具支持}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+功能 & 支持情况 \\
+\hline
+\textbf{流式输出} & ✅ 所有模型 \\
+\hline
+\textbf{函数调用} & ✅ 大多数模型（请检查 API 中的 \texttt{supportsFunctionCalling}） \\
+\hline
+\textbf{视觉/图像} & ✅ 标记为"视觉"特性的模型 \\
+\hline
+\textbf{JSON 模式} & ✅ 通过 \texttt{response\_format} 支持 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{定价}
+
+
+Venice 使用积分制。请查看 \href{https://venice.ai/pricing}{venice.ai/pricing} 了解当前费率：
+
+\begin{itemize}
+  \item \textbf{私密模型}：通常成本较低
+  \item \textbf{匿名化模型}：与直接 API 定价相近 + 少量 Venice 费用
+\end{itemize}
+
+
+\subsection{对比：Venice 与直接 API}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+方面 & Venice（匿名化） & 直接 API \\
+\hline
+\textbf{隐私} & 剥离元数据，匿名化 & 关联你的账户 \\
+\hline
+\textbf{延迟} & +10-50ms（代理） & 直连 \\
+\hline
+\textbf{功能} & 支持大部分功能 & 完整功能 \\
+\hline
+\textbf{计费} & Venice 积分 & 提供商计费 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{使用示例}
+
+
+\begin{lstlisting}[language=bash]
+# 使用默认私密模型
+openclaw chat --model venice/llama-3.3-70b
+
+# 通过 Venice 使用 Claude（匿名化）
+openclaw chat --model venice/claude-opus-45
+
+# 使用无审查模型
+openclaw chat --model venice/venice-uncensored
+
+# 使用视觉模型处理图像
+openclaw chat --model venice/qwen3-vl-235b-a22b
+
+# 使用编程模型
+openclaw chat --model venice/qwen3-coder-480b-a35b-instruct
+\end{lstlisting}
+
+
+\subsection{故障排除}
+
+
+\subsubsection{API 密钥无法识别}
+
+
+\begin{lstlisting}[language=bash]
+echo $VENICE_API_KEY
+openclaw models list | grep venice
+\end{lstlisting}
+
+
+确保密钥以 \texttt{vapi\_} 开头。
+
+\subsubsection{模型不可用}
+
+
+Venice 模型目录会动态更新。运行 \texttt{openclaw models list} 查看当前可用的模型。部分模型可能暂时离线。
+
+\subsubsection{连接问题}
+
+
+Venice API 地址为 \texttt{https://api.venice.ai/api/v1}。确保你的网络允许 HTTPS 连接。
+
+\subsection{配置文件示例}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { VENICE_API_KEY: "vapi_..." },
+  agents: { defaults: { model: { primary: "venice/llama-3.3-70b" } } },
+  models: {
+    mode: "merge",
+    providers: {
+      venice: {
+        baseUrl: "https://api.venice.ai/api/v1",
+        apiKey: "${VENICE_API_KEY}",
+        api: "openai-completions",
+        models: [
+          {
+            id: "llama-3.3-70b",
+            name: "Llama 3.3 70B",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 131072,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{链接}
+
+
+\begin{itemize}
+  \item \href{https://venice.ai}{Venice AI}
+  \item \href{https://docs.venice.ai}{API 文档}
+  \item \href{https://venice.ai/pricing}{定价}
+  \item \href{https://status.venice.ai}{状态页}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/vercel-ai-gateway.md ===
+\section{Vercel AI Gateway}
+
+
+\href{https://vercel.com/ai-gateway}{Vercel AI Gateway} 提供了一个统一的 API，通过单一端点访问数百个模型。
+
+\begin{itemize}
+  \item 提供商：\texttt{vercel-ai-gateway}
+  \item 认证：\texttt{AI\_GATEWAY\_API\_KEY}
+  \item API：兼容 Anthropic Messages
+\end{itemize}
+
+
+\subsection{快速开始}
+
+
+\begin{enumerate}
+  \item 设置 API 密钥（推荐：为 Gateway 网关存储它）：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice ai-gateway-api-key
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 设置默认模型：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "vercel-ai-gateway/anthropic/claude-opus-4.5" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{非交互式示例}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --mode local \
+  --auth-choice ai-gateway-api-key \
+  --ai-gateway-api-key "$AI_GATEWAY_API_KEY"
+\end{lstlisting}
+
+
+\subsection{环境变量说明}
+
+
+如果 Gateway 网关作为守护进程运行（launchd/systemd），请确保 \texttt{AI\_GATEWAY\_API\_KEY}
+对该进程可用（例如，在 \texttt{\textasciitilde{}/.openclaw/.env} 中或通过
+\texttt{env.shellEnv}）。
+
+
+\clearpage
+
+% === 源文件: providers/xiaomi.md ===
+\section{Xiaomi MiMo}
+
+
+Xiaomi MiMo 是 \textbf{MiMo} 模型的 API 平台。它提供与 OpenAI 和 Anthropic 格式兼容的 REST API，并使用 API 密钥进行身份验证。请在 \href{https://platform.xiaomimimo.com/\#/console/api-keys}{Xiaomi MiMo 控制台} 中创建你的 API 密钥。OpenClaw 使用 \texttt{xiaomi} 提供商配合 Xiaomi MiMo API 密钥。
+
+\subsection{模型概览}
+
+
+\begin{itemize}
+  \item \textbf{mimo-v2-flash}：262144 token 上下文窗口，兼容 Anthropic Messages API。
+  \item 基础 URL：\texttt{https://api.xiaomimimo.com/anthropic}
+  \item 授权方式：\texttt{Bearer \$XIAOMI\_API\_KEY}
+\end{itemize}
+
+
+\subsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice xiaomi-api-key
+# 或非交互式
+openclaw onboard --auth-choice xiaomi-api-key --xiaomi-api-key "$XIAOMI_API_KEY"
+\end{lstlisting}
+
+
+\subsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { XIAOMI_API_KEY: "your-key" },
+  agents: { defaults: { model: { primary: "xiaomi/mimo-v2-flash" } } },
+  models: {
+    mode: "merge",
+    providers: {
+      xiaomi: {
+        baseUrl: "https://api.xiaomimimo.com/anthropic",
+        api: "anthropic-messages",
+        apiKey: "XIAOMI_API_KEY",
+        models: [
+          {
+            id: "mimo-v2-flash",
+            name: "Xiaomi MiMo V2 Flash",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 262144,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{备注}
+
+
+\begin{itemize}
+  \item 模型引用：\texttt{xiaomi/mimo-v2-flash}。
+  \item 当设置了 \texttt{XIAOMI\_API\_KEY}（或存在身份验证配置文件）时，该提供商会自动注入。
+  \item 有关提供商规则，请参阅 \href{/concepts/model-providers}{/concepts/model-providers}。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: providers/zai.md ===
+\section{Z.AI}
+
+
+Z.AI 是 \textbf{GLM} 模型的 API 平台。它为 GLM 提供 REST API，并使用 API 密钥进行身份验证。请在 Z.AI 控制台中创建你的 API 密钥。OpenClaw 通过 \texttt{zai} 提供商配合 Z.AI API 密钥使用。
+
+\subsection{CLI 设置}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice zai-api-key
+# 或非交互式
+openclaw onboard --zai-api-key "$ZAI_API_KEY"
+\end{lstlisting}
+
+
+\subsection{配置片段}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { ZAI_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "zai/glm-4.7" } } },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item GLM 模型以 \texttt{zai/} 的形式提供（例如：\texttt{zai/glm-4.7}）。
+  \item 参阅 \href{/providers/glm}{/providers/glm} 了解模型系列概览。
+  \item Z.AI 使用 Bearer 认证方式配合你的 API 密钥。
+\end{itemize}
+
+
+
+\clearpage

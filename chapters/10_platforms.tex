@@ -1,0 +1,3775 @@
+\chapter{平台支持}
+
+% === 源文件: platforms/android.md ===
+\section{Android 应用（节点）}
+
+
+\subsection{支持概览}
+
+
+\begin{itemize}
+  \item 角色：配套节点应用（Android 不托管 Gateway 网关）。
+  \item 需要 Gateway 网关：是（在 macOS、Linux 或通过 WSL2 的 Windows 上运行）。
+  \item 安装：\href{/start/getting-started}{入门指南} + \href{/gateway/pairing}{配对}。
+  \item Gateway 网关：\href{/gateway}{操作手册} + \href{/gateway/configuration}{配置}。
+  \item 协议：\href{/gateway/protocol}{Gateway 网关协议}（节点 + 控制平面）。
+\end{itemize}
+
+
+\subsection{系统控制}
+
+
+系统控制（launchd/systemd）位于 Gateway 网关主机上。参见 \href{/gateway}{Gateway 网关}。
+
+\subsection{连接操作手册}
+
+
+Android 节点应用 ⇄（mDNS/NSD + WebSocket）⇄ \textbf{Gateway 网关}
+
+Android 直接连接到 Gateway 网关 WebSocket（默认 \texttt{ws://:18789}）并使用 Gateway 网关拥有的配对。
+
+\subsubsection{前置条件}
+
+
+\begin{itemize}
+  \item 你可以在"主"机器上运行 Gateway 网关。
+  \item Android 设备/模拟器可以访问 Gateway 网关 WebSocket：
+  \item 使用 mDNS/NSD 的同一局域网，\textbf{或}
+  \item 使用 Wide-Area Bonjour / unicast DNS-SD 的同一 Tailscale tailnet（见下文），\textbf{或}
+  \item 手动 Gateway 网关主机/端口（回退方案）
+  \item 你可以在 Gateway 网关机器上运行 CLI（\texttt{openclaw}）（或通过 SSH）。
+\end{itemize}
+
+
+\subsubsection{1）启动 Gateway 网关}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway --port 18789 --verbose
+\end{lstlisting}
+
+
+在日志中确认你看到类似内容：
+
+\begin{itemize}
+  \item \texttt{listening on ws://0.0.0.0:18789}
+\end{itemize}
+
+
+对于仅 tailnet 设置（推荐用于维也纳 ⇄ 伦敦），将 Gateway 网关绑定到 tailnet IP：
+
+\begin{itemize}
+  \item 在 Gateway 网关主机的 \texttt{\textasciitilde{}/.openclaw/openclaw.json} 中设置 \texttt{gateway.bind: "tailnet"}。
+  \item 重启 Gateway 网关 / macOS 菜单栏应用。
+\end{itemize}
+
+
+\subsubsection{2）验证发现（可选）}
+
+
+从 Gateway 网关机器：
+
+\begin{lstlisting}[language=bash]
+dns-sd -B _openclaw-gw._tcp local.
+\end{lstlisting}
+
+
+更多调试说明：\href{/gateway/bonjour}{Bonjour}。
+
+\paragraph{通过 unicast DNS-SD 的 Tailnet（维也纳 ⇄ 伦敦）发现}
+
+
+Android NSD/mDNS 发现无法跨网络。如果你的 Android 节点和 Gateway 网关在不同网络但通过 Tailscale 连接，请改用 Wide-Area Bonjour / unicast DNS-SD：
+
+\begin{enumerate}
+  \item 在 Gateway 网关主机上设置 DNS-SD 区域（示例 \texttt{openclaw.internal.}）并发布 \texttt{\_openclaw-gw.\_tcp} 记录。
+  \item 配置 Tailscale split DNS，将你选择的域指向该 DNS 服务器。
+\end{enumerate}
+
+
+详情和示例 CoreDNS 配置：\href{/gateway/bonjour}{Bonjour}。
+
+\subsubsection{3）从 Android 连接}
+
+
+在 Android 应用中：
+
+\begin{itemize}
+  \item 应用通过\textbf{前台服务}（持久通知）保持 Gateway 网关连接活动。
+  \item 打开\textbf{设置}。
+  \item 在\textbf{发现的 Gateway 网关}下，选择你的 Gateway 网关并点击\textbf{连接}。
+  \item 如果 mDNS 被阻止，使用\textbf{高级 → 手动 Gateway 网关}（主机 + 端口）并\textbf{连接（手动）}。
+\end{itemize}
+
+
+首次成功配对后，Android 在启动时自动重连：
+
+\begin{itemize}
+  \item 手动端点（如果启用），否则
+  \item 上次发现的 Gateway 网关（尽力而为）。
+\end{itemize}
+
+
+\subsubsection{4）批准配对（CLI）}
+
+
+在 Gateway 网关机器上：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes pending
+openclaw nodes approve <requestId>
+\end{lstlisting}
+
+
+配对详情：\href{/gateway/pairing}{Gateway 网关配对}。
+
+\subsubsection{5）验证节点已连接}
+
+
+\begin{itemize}
+  \item 通过节点状态：
+\begin{lstlisting}[language=bash]
+  openclaw nodes status
+\end{lstlisting}
+
+  \item 通过 Gateway 网关：
+\begin{lstlisting}[language=bash]
+  openclaw gateway call node.list --params "{}"
+\end{lstlisting}
+
+\end{itemize}
+
+
+\subsubsection{6）聊天 + 历史}
+
+
+Android 节点的 Chat 面板使用 Gateway 网关的\textbf{主会话键}（\texttt{main}），因此历史和回复与 WebChat 和其他客户端共享：
+
+\begin{itemize}
+  \item 历史：\texttt{chat.history}
+  \item 发送：\texttt{chat.send}
+  \item 推送更新（尽力而为）：\texttt{chat.subscribe} → \texttt{event:"chat"}
+\end{itemize}
+
+
+\subsubsection{7）Canvas + 摄像头}
+
+
+\paragraph{Gateway 网关 Canvas 主机（推荐用于 web 内容）}
+
+
+如果你想让节点显示智能体可以在磁盘上编辑的真实 HTML/CSS/JS，请将节点指向 Gateway 网关 canvas 主机。
+
+注意：节点使用 \texttt{canvasHost.port}（默认 \texttt{18793}）上的独立 canvas 主机。
+
+\begin{enumerate}
+  \item 在 Gateway 网关主机上创建 \texttt{\textasciitilde{}/.openclaw/workspace/canvas/index.html}。
+\end{enumerate}
+
+
+\begin{enumerate}
+  \item 将节点导航到它（局域网）：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node "<Android Node>" --command canvas.navigate --params '{"url":"http://<gateway-hostname>.local:18793/__openclaw__/canvas/"}'
+\end{lstlisting}
+
+
+Tailnet（可选）：如果两个设备都在 Tailscale 上，使用 MagicDNS 名称或 tailnet IP 而不是 \texttt{.local}，例如 \texttt{http://:18793/\_\_openclaw\_\_/canvas/}。
+
+此服务器将实时重载客户端注入 HTML 并在文件更改时重新加载。
+A2UI 主机位于 \texttt{http://:18793/\_\_openclaw\_\_/a2ui/}。
+
+Canvas 命令（仅前台）：
+
+\begin{itemize}
+  \item \texttt{canvas.eval}、\texttt{canvas.snapshot}、\texttt{canvas.navigate}（使用 \texttt{\{"url":""\}} 或 \texttt{\{"url":"/"\}} 返回默认脚手架）。\texttt{canvas.snapshot} 返回 \texttt{\{ format, base64 \}}（默认 \texttt{format="jpeg"}）。
+  \item A2UI：\texttt{canvas.a2ui.push}、\texttt{canvas.a2ui.reset}（\texttt{canvas.a2ui.pushJSONL} 遗留别名）
+\end{itemize}
+
+
+摄像头命令（仅前台；权限限制）：
+
+\begin{itemize}
+  \item \texttt{camera.snap}（jpg）
+  \item \texttt{camera.clip}（mp4）
+\end{itemize}
+
+
+参见 \href{/nodes/camera}{Camera 节点} 了解参数和 CLI 助手。
+
+
+\clearpage
+
+% === 源文件: platforms/digitalocean.md ===
+\section{在 DigitalOcean 上运行 OpenClaw}
+
+
+\subsection{目标}
+
+
+以 \textbf{\$6/月}（或使用预留定价 \$4/月）在 DigitalOcean 上运行持久的 OpenClaw Gateway 网关。
+
+如果你想要 \$0/月的选项且不介意 ARM + 特定提供商的设置，请参阅 \href{/platforms/oracle}{Oracle Cloud 指南}。
+
+\subsection{成本比较（2026）}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+提供商 & 方案 & 配置 & 价格/月 & 备注 \\
+\hline
+Oracle Cloud & Always Free ARM & 最高 4 OCPU、24GB RAM & \$0 & ARM，容量有限 / 注册有坑 \\
+\hline
+Hetzner & CX22 & 2 vCPU、4GB RAM & €3.79 (\textasciitilde{}\$4) & 最便宜的付费选项 \\
+\hline
+DigitalOcean & Basic & 1 vCPU、1GB RAM & \$6 & 界面简单，文档完善 \\
+\hline
+Vultr & Cloud Compute & 1 vCPU、1GB RAM & \$6 & 多地区可选 \\
+\hline
+Linode & Nanode & 1 vCPU、1GB RAM & \$5 & 现为 Akamai 旗下 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\textbf{选择提供商：}
+
+\begin{itemize}
+  \item DigitalOcean：最简单的用户体验 + 可预测的设置（本指南）
+  \item Hetzner：性价比高（参见 \href{/install/hetzner}{Hetzner 指南}）
+  \item Oracle Cloud：可以 \$0/月，但更麻烦且仅限 ARM（参见 \href{/platforms/oracle}{Oracle 指南}）
+\end{itemize}
+
+
+\hrulefill
+
+
+\subsection{前提条件}
+
+
+\begin{itemize}
+  \item DigitalOcean 账户（\href{https://m.do.co/c/signup}{注册可获 \$200 免费额度}）
+  \item SSH 密钥对（或愿意使用密码认证）
+  \item 约 20 分钟
+\end{itemize}
+
+
+\subsection{1) 创建 Droplet}
+
+
+\begin{enumerate}
+  \item 登录 \href{https://cloud.digitalocean.com/}{DigitalOcean}
+  \item 点击 \textbf{Create → Droplets}
+  \item 选择：
+\end{enumerate}
+
+\begin{itemize}
+  \item \textbf{Region：} 离你（或你的用户）最近的地区
+  \item \textbf{Image：} Ubuntu 24.04 LTS
+  \item \textbf{Size：} Basic → Regular → \textbf{\$6/mo}（1 vCPU、1GB RAM、25GB SSD）
+  \item \textbf{Authentication：} SSH 密钥（推荐）或密码
+\end{itemize}
+
+\begin{enumerate}
+  \item 点击 \textbf{Create Droplet}
+  \item 记下 IP 地址
+\end{enumerate}
+
+
+\subsection{2) 通过 SSH 连接}
+
+
+\begin{lstlisting}[language=bash]
+ssh root@YOUR_DROPLET_IP
+\end{lstlisting}
+
+
+\subsection{3) 安装 OpenClaw}
+
+
+\begin{lstlisting}[language=bash]
+# Update system
+apt update && apt upgrade -y
+
+# Install Node.js 22
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt install -y nodejs
+
+# Install OpenClaw
+curl -fsSL https://openclaw.ai/install.sh | bash
+
+# Verify
+openclaw --version
+\end{lstlisting}
+
+
+\subsection{4) 运行新手引导}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+
+向导将引导你完成：
+
+\begin{itemize}
+  \item 模型认证（API 密钥或 OAuth）
+  \item 渠道设置（Telegram、WhatsApp、Discord 等）
+  \item Gateway 网关令牌（自动生成）
+  \item 守护进程安装（systemd）
+\end{itemize}
+
+
+\subsection{5) 验证 Gateway 网关}
+
+
+\begin{lstlisting}[language=bash]
+# Check status
+openclaw status
+
+# Check service
+systemctl --user status openclaw-gateway.service
+
+# View logs
+journalctl --user -u openclaw-gateway.service -f
+\end{lstlisting}
+
+
+\subsection{6) 访问控制面板}
+
+
+Gateway 网关默认绑定到 loopback。要访问控制界面：
+
+\textbf{选项 A：SSH 隧道（推荐）}
+
+\begin{lstlisting}[language=bash]
+# From your local machine
+ssh -L 18789:localhost:18789 root@YOUR_DROPLET_IP
+
+# Then open: http://localhost:18789
+\end{lstlisting}
+
+
+\textbf{选项 B：Tailscale Serve（HTTPS，仅 loopback）}
+
+\begin{lstlisting}[language=bash]
+# On the droplet
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up
+
+# Configure Gateway to use Tailscale Serve
+openclaw config set gateway.tailscale.mode serve
+openclaw gateway restart
+\end{lstlisting}
+
+
+打开：\texttt{https:///}
+
+注意事项：
+
+\begin{itemize}
+  \item Serve 保持 Gateway 网关仅 loopback 并通过 Tailscale 身份头进行认证。
+  \item 要改为需要令牌/密码，请设置 \texttt{gateway.auth.allowTailscale: false} 或使用 \texttt{gateway.auth.mode: "password"}。
+\end{itemize}
+
+
+\textbf{选项 C：Tailnet 绑定（不使用 Serve）}
+
+\begin{lstlisting}[language=bash]
+openclaw config set gateway.bind tailnet
+openclaw gateway restart
+\end{lstlisting}
+
+
+打开：\texttt{http://:18789}（需要令牌）。
+
+\subsection{7) 连接你的渠道}
+
+
+\subsubsection{Telegram}
+
+
+\begin{lstlisting}[language=bash]
+openclaw pairing list telegram
+openclaw pairing approve telegram <CODE>
+\end{lstlisting}
+
+
+\subsubsection{WhatsApp}
+
+
+\begin{lstlisting}[language=bash]
+openclaw channels login whatsapp
+# Scan QR code
+\end{lstlisting}
+
+
+参见\href{/channels}{渠道}了解其他提供商。
+
+\hrulefill
+
+
+\subsection{1GB RAM 的优化}
+
+
+\$6 的 droplet 只有 1GB RAM。为了保持运行流畅：
+
+\subsubsection{添加 swap（推荐）}
+
+
+\begin{lstlisting}[language=bash]
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+\end{lstlisting}
+
+
+\subsubsection{使用更轻量的模型}
+
+
+如果遇到 OOM，考虑：
+
+\begin{itemize}
+  \item 使用基于 API 的模型（Claude、GPT）而不是本地模型
+  \item 将 \texttt{agents.defaults.model.primary} 设置为更小的模型
+\end{itemize}
+
+
+\subsubsection{监控内存}
+
+
+\begin{lstlisting}[language=bash]
+free -h
+htop
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{持久化}
+
+
+所有状态存储在：
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/.openclaw/} — 配置、凭证、会话数据
+  \item \texttt{\textasciitilde{}/.openclaw/workspace/} — 工作区（SOUL.md、记忆等）
+\end{itemize}
+
+
+这些在重启后保留。定期备份：
+
+\begin{lstlisting}[language=bash]
+tar -czvf openclaw-backup.tar.gz ~/.openclaw ~/.openclaw/workspace
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{Oracle Cloud 免费替代方案}
+
+
+Oracle Cloud 提供 \textbf{Always Free} ARM 实例，比这里任何付费选项都强大得多 — 每月 \$0。
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+你将获得 & 配置 \\
+\hline
+\textbf{4 OCPUs} & ARM Ampere A1 \\
+\hline
+\textbf{24GB RAM} & 绰绰有余 \\
+\hline
+\textbf{200GB 存储} & 块存储卷 \\
+\hline
+\textbf{永久免费} & 不收取信用卡费用 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\textbf{注意事项：}
+
+\begin{itemize}
+  \item 注册可能有点麻烦（失败了就重试）
+  \item ARM 架构 — 大多数东西都能工作，但有些二进制文件需要 ARM 构建
+\end{itemize}
+
+
+完整设置指南请参阅 \href{/platforms/oracle}{Oracle Cloud}。关于注册技巧和注册流程故障排除，请参阅此\href{https://gist.github.com/rssnyder/51e3cfedd730e7dd5f4a816143b25dbd}{社区指南}。
+
+\hrulefill
+
+
+\subsection{故障排除}
+
+
+\subsubsection{Gateway 网关无法启动}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway status
+openclaw doctor --non-interactive
+journalctl -u openclaw --no-pager -n 50
+\end{lstlisting}
+
+
+\subsubsection{端口已被使用}
+
+
+\begin{lstlisting}[language=bash]
+lsof -i :18789
+kill <PID>
+\end{lstlisting}
+
+
+\subsubsection{内存不足}
+
+
+\begin{lstlisting}[language=bash]
+# Check memory
+free -h
+
+# Add more swap
+# Or upgrade to $12/mo droplet (2GB RAM)
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{另请参阅}
+
+
+\begin{itemize}
+  \item \href{/install/hetzner}{Hetzner 指南} — 更便宜、更强大
+  \item \href{/install/docker}{Docker 安装} — 容器化设置
+  \item \href{/gateway/tailscale}{Tailscale} — 安全远程访问
+  \item \href{/gateway/configuration}{配置} — 完整配置参考
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/index.md ===
+\section{平台}
+
+
+OpenClaw 核心使用 TypeScript 编写。\textbf{Node 是推荐的运行时}。
+不推荐 Bun 用于 Gateway 网关（WhatsApp/Telegram 存在 bug）。
+
+配套应用适用于 macOS（菜单栏应用）和移动节点（iOS/Android）。Windows 和
+Linux 配套应用已在计划中，但 Gateway 网关目前已完全支持。
+Windows 原生配套应用也在计划中；推荐通过 WSL2 使用 Gateway 网关。
+
+\subsection{选择你的操作系统}
+
+
+\begin{itemize}
+  \item macOS：\href{/platforms/macos}{macOS}
+  \item iOS：\href{/platforms/ios}{iOS}
+  \item Android：\href{/platforms/android}{Android}
+  \item Windows：\href{/platforms/windows}{Windows}
+  \item Linux：\href{/platforms/linux}{Linux}
+\end{itemize}
+
+
+\subsection{VPS 和托管}
+
+
+\begin{itemize}
+  \item VPS 中心：\href{/vps}{VPS 托管}
+  \item Fly.io：\href{/install/fly}{Fly.io}
+  \item Hetzner（Docker）：\href{/install/hetzner}{Hetzner}
+  \item GCP（Compute Engine）：\href{/install/gcp}{GCP}
+  \item exe.dev（VM + HTTPS 代理）：\href{/install/exe-dev}{exe.dev}
+\end{itemize}
+
+
+\subsection{常用链接}
+
+
+\begin{itemize}
+  \item 安装指南：\href{/start/getting-started}{入门指南}
+  \item Gateway 网关运行手册：\href{/gateway}{Gateway 网关}
+  \item Gateway 网关配置：\href{/gateway/configuration}{配置}
+  \item 服务状态：\texttt{openclaw gateway status}
+\end{itemize}
+
+
+\subsection{Gateway 网关服务安装（CLI）}
+
+
+使用以下任一方式（均支持）：
+
+\begin{itemize}
+  \item 向导（推荐）：\texttt{openclaw onboard --install-daemon}
+  \item 直接安装：\texttt{openclaw gateway install}
+  \item 配置流程：\texttt{openclaw configure} → 选择 \textbf{Gateway service}
+  \item 修复/迁移：\texttt{openclaw doctor}（提供安装或修复服务）
+\end{itemize}
+
+
+服务目标取决于操作系统：
+
+\begin{itemize}
+  \item macOS：LaunchAgent（\texttt{bot.molt.gateway} 或 \texttt{bot.molt.}；旧版 \texttt{com.openclaw.*}）
+  \item Linux/WSL2：systemd 用户服务（\texttt{openclaw-gateway[-].service}）
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/ios.md ===
+\section{iOS 应用（节点）}
+
+
+可用性：内部预览。iOS 应用尚未公开分发。
+
+\subsection{功能}
+
+
+\begin{itemize}
+  \item 通过 WebSocket（LAN 或 tailnet）连接到 Gateway 网关。
+  \item 暴露节点能力：Canvas、屏幕快照、相机捕获、位置、对话模式、语音唤醒。
+  \item 接收 \texttt{node.invoke} 命令并报告节点状态事件。
+\end{itemize}
+
+
+\subsection{要求}
+
+
+\begin{itemize}
+  \item Gateway 网关运行在另一台设备上（macOS、Linux 或通过 WSL2 的 Windows）。
+  \item 网络路径：
+  \item 通过 Bonjour 的同一 LAN，\textbf{或}
+  \item 通过单播 DNS-SD 的 Tailnet（示例域：\texttt{openclaw.internal.}），\textbf{或}
+  \item 手动主机/端口（备选）。
+\end{itemize}
+
+
+\subsection{快速开始（配对 + 连接）}
+
+
+\begin{enumerate}
+  \item 启动 Gateway 网关：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway --port 18789
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 在 iOS 应用中，打开设置并选择一个已发现的 Gateway 网关（或启用手动主机并输入主机/端口）。
+\end{enumerate}
+
+
+\begin{enumerate}
+  \item 在 Gateway 网关主机上批准配对请求：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes pending
+openclaw nodes approve <requestId>
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 验证连接：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes status
+openclaw gateway call node.list --params "{}"
+\end{lstlisting}
+
+
+\subsection{发现路径}
+
+
+\subsubsection{Bonjour（LAN）}
+
+
+Gateway 网关在 \texttt{local.} 上广播 \texttt{\_openclaw-gw.\_tcp}。iOS 应用会自动列出这些。
+
+\subsubsection{Tailnet（跨网络）}
+
+
+如果 mDNS 被阻止，使用单播 DNS-SD 区域（选择一个域；示例：\texttt{openclaw.internal.}）和 Tailscale 分割 DNS。
+参见 \href{/gateway/bonjour}{Bonjour} 了解 CoreDNS 示例。
+
+\subsubsection{手动主机/端口}
+
+
+在设置中，启用\textbf{手动主机}并输入 Gateway 网关主机 + 端口（默认 \texttt{18789}）。
+
+\subsection{Canvas + A2UI}
+
+
+iOS 节点渲染一个 WKWebView canvas。使用 \texttt{node.invoke} 来驱动它：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node "iOS Node" --command canvas.navigate --params '{"url":"http://<gateway-host>:18793/__openclaw__/canvas/"}'
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item Gateway 网关 canvas 主机服务于 \texttt{/\_\_openclaw\_\_/canvas/} 和 \texttt{/\_\_openclaw\_\_/a2ui/}。
+  \item 当广播了 canvas 主机 URL 时，iOS 节点在连接时自动导航到 A2UI。
+  \item 使用 \texttt{canvas.navigate} 和 \texttt{\{"url":""\}} 返回内置脚手架。
+\end{itemize}
+
+
+\subsubsection{Canvas eval / snapshot}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node "iOS Node" --command canvas.eval --params '{"javaScript":"(() => { const {ctx} = window.__openclaw; ctx.clearRect(0,0,innerWidth,innerHeight); ctx.lineWidth=6; ctx.strokeStyle=\"#ff2d55\"; ctx.beginPath(); ctx.moveTo(40,40); ctx.lineTo(innerWidth-40, innerHeight-40); ctx.stroke(); return \"ok\"; })()"}'
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node "iOS Node" --command canvas.snapshot --params '{"maxWidth":900,"format":"jpeg"}'
+\end{lstlisting}
+
+
+\subsection{语音唤醒 + 对话模式}
+
+
+\begin{itemize}
+  \item 语音唤醒和对话模式在设置中可用。
+  \item iOS 可能会暂停后台音频；当应用不活跃时，将语音功能视为尽力而为。
+\end{itemize}
+
+
+\subsection{常见错误}
+
+
+\begin{itemize}
+  \item \texttt{NODE\_BACKGROUND\_UNAVAILABLE}：将 iOS 应用带到前台（canvas/相机/屏幕命令需要它）。
+  \item \texttt{A2UI\_HOST\_NOT\_CONFIGURED}：Gateway 网关未广播 canvas 主机 URL；检查 \href{/gateway/configuration}{Gateway 网关配置} 中的 \texttt{canvasHost}。
+  \item 配对提示从未出现：运行 \texttt{openclaw nodes pending} 并手动批准。
+  \item 重新安装后重连失败：钥匙串配对令牌已被清除；重新配对节点。
+\end{itemize}
+
+
+\subsection{相关文档}
+
+
+\begin{itemize}
+  \item \href{/gateway/pairing}{配对}
+  \item \href{/gateway/discovery}{设备发现}
+  \item \href{/gateway/bonjour}{Bonjour}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/linux.md ===
+\section{Linux 应用}
+
+
+Gateway 网关在 Linux 上完全支持。\textbf{Node 是推荐的运行时}。
+不推荐 Bun 用于 Gateway 网关（WhatsApp/Telegram 存在 bug）。
+
+原生 Linux 配套应用已在计划中。如果你想帮助构建，欢迎贡献。
+
+\subsection{新手快速路径（VPS）}
+
+
+\begin{enumerate}
+  \item 安装 Node 22+
+  \item \texttt{npm i -g openclaw@latest}
+  \item \texttt{openclaw onboard --install-daemon}
+  \item 从你的笔记本电脑：\texttt{ssh -N -L 18789:127.0.0.1:18789 @}
+  \item 打开 \texttt{http://127.0.0.1:18789/} 并粘贴你的令牌
+\end{enumerate}
+
+
+分步 VPS 指南：\href{/install/exe-dev}{exe.dev}
+
+\subsection{安装}
+
+
+\begin{itemize}
+  \item \href{/start/getting-started}{入门指南}
+  \item \href{/install/updating}{安装与更新}
+  \item 可选流程：\href{/install/bun}{Bun（实验性）}、\href{/install/nix}{Nix}、\href{/install/docker}{Docker}
+\end{itemize}
+
+
+\subsection{Gateway 网关}
+
+
+\begin{itemize}
+  \item \href{/gateway}{Gateway 网关运行手册}
+  \item \href{/gateway/configuration}{配置}
+\end{itemize}
+
+
+\subsection{Gateway 网关服务安装（CLI）}
+
+
+使用以下任一方式：
+
+\begin{lstlisting}
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+
+或：
+
+\begin{lstlisting}
+openclaw gateway install
+\end{lstlisting}
+
+
+或：
+
+\begin{lstlisting}
+openclaw configure
+\end{lstlisting}
+
+
+出现提示时选择 \textbf{Gateway service}。
+
+修复/迁移：
+
+\begin{lstlisting}
+openclaw doctor
+\end{lstlisting}
+
+
+\subsection{系统控制（systemd 用户单元）}
+
+
+OpenClaw 默认安装 systemd \textbf{用户}服务。对于共享或常驻服务器使用\textbf{系统}
+服务。完整的单元示例和指南
+在 \href{/gateway}{Gateway 网关运行手册} 中。
+
+最小设置：
+
+创建 \texttt{\textasciitilde{}/.config/systemd/user/openclaw-gateway[-].service}：
+
+\begin{lstlisting}
+[Unit]
+Description=OpenClaw Gateway (profile: <profile>, v<version>)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/openclaw gateway --port 18789
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+\end{lstlisting}
+
+
+启用它：
+
+\begin{lstlisting}
+systemctl --user enable --now openclaw-gateway[-<profile>].service
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/bundled-gateway.md ===
+\section{macOS 上的 Gateway 网关（外部 launchd）}
+
+
+OpenClaw.app 不再捆绑 Node/Bun 或 Gateway 网关运行时。macOS 应用期望有一个\textbf{外部}的 \texttt{openclaw} CLI 安装，不会将 Gateway 网关作为子进程启动，而是管理一个每用户的 launchd 服务来保持 Gateway 网关运行（或者如果已有本地 Gateway 网关正在运行，则连接到现有的）。
+
+\subsection{安装 CLI（本地模式必需）}
+
+
+你需要在 Mac 上安装 Node 22+，然后全局安装 \texttt{openclaw}：
+
+\begin{lstlisting}[language=bash]
+npm install -g openclaw@<version>
+\end{lstlisting}
+
+
+macOS 应用的\textbf{安装 CLI}按钮通过 npm/pnpm 运行相同的流程（不推荐使用 bun 作为 Gateway 网关运行时）。
+
+\subsection{Launchd（Gateway 网关作为 LaunchAgent）}
+
+
+标签：
+
+\begin{itemize}
+  \item \texttt{bot.molt.gateway}（或 \texttt{bot.molt.}；旧版 \texttt{com.openclaw.*} 可能仍然存在）
+\end{itemize}
+
+
+Plist 位置（每用户）：
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/Library/LaunchAgents/bot.molt.gateway.plist}
+\end{itemize}
+
+（或 \texttt{\textasciitilde{}/Library/LaunchAgents/bot.molt..plist}）
+
+管理者：
+
+\begin{itemize}
+  \item macOS 应用在本地模式下拥有 LaunchAgent 的安装/更新权限。
+  \item CLI 也可以安装它：\texttt{openclaw gateway install}。
+\end{itemize}
+
+
+行为：
+
+\begin{itemize}
+  \item "OpenClaw Active"启用/禁用 LaunchAgent。
+  \item 应用退出\textbf{不会}停止 Gateway 网关（launchd 保持其存活）。
+  \item 如果 Gateway 网关已经在配置的端口上运行，应用会连接到它而不是启动新的。
+\end{itemize}
+
+
+日志：
+
+\begin{itemize}
+  \item launchd stdout/err：\texttt{/tmp/openclaw/openclaw-gateway.log}
+\end{itemize}
+
+
+\subsection{版本兼容性}
+
+
+macOS 应用会检查 Gateway 网关版本与其自身版本是否匹配。如果不兼容，请更新全局 CLI 以匹配应用版本。
+
+\subsection{冒烟测试}
+
+
+\begin{lstlisting}[language=bash]
+openclaw --version
+
+OPENCLAW_SKIP_CHANNELS=1 \
+OPENCLAW_SKIP_CANVAS_HOST=1 \
+openclaw gateway --port 18999 --bind loopback
+\end{lstlisting}
+
+
+然后：
+
+\begin{lstlisting}[language=bash]
+openclaw gateway call health --url ws://127.0.0.1:18999 --timeout 3000
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/canvas.md ===
+\section{Canvas（macOS 应用）}
+
+
+macOS 应用使用 \texttt{WKWebView} 嵌入一个智能体控制的 \textbf{Canvas 面板}。它是一个用于 HTML/CSS/JS、A2UI 和小型交互式界面的轻量级可视化工作区。
+
+\subsection{Canvas 存储位置}
+
+
+Canvas 状态存储在 Application Support 下：
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/Library/Application Support/OpenClaw/canvas//...}
+\end{itemize}
+
+
+Canvas 面板通过\textbf{自定义 URL 方案}提供这些文件：
+
+\begin{itemize}
+  \item \texttt{openclaw-canvas:///}
+\end{itemize}
+
+
+示例：
+
+\begin{itemize}
+  \item \texttt{openclaw-canvas://main/} → \texttt{/main/index.html}
+  \item \texttt{openclaw-canvas://main/assets/app.css} → \texttt{/main/assets/app.css}
+  \item \texttt{openclaw-canvas://main/widgets/todo/} → \texttt{/main/widgets/todo/index.html}
+\end{itemize}
+
+
+如果根目录下没有 \texttt{index.html}，应用会显示一个\textbf{内置脚手架页面}。
+
+\subsection{面板行为}
+
+
+\begin{itemize}
+  \item 无边框、可调整大小的面板，锚定在菜单栏（或鼠标光标）附近。
+  \item 记住每个会话的大小/位置。
+  \item 当本地 canvas 文件更改时自动重新加载。
+  \item 一次只显示一个 Canvas 面板（根据需要切换会话）。
+\end{itemize}
+
+
+可以从设置 → \textbf{允许 Canvas} 禁用 Canvas。禁用时，canvas 节点命令返回 \texttt{CANVAS\_DISABLED}。
+
+\subsection{智能体 API 接口}
+
+
+Canvas 通过 \textbf{Gateway 网关 WebSocket} 暴露，因此智能体可以：
+
+\begin{itemize}
+  \item 显示/隐藏面板
+  \item 导航到路径或 URL
+  \item 执行 JavaScript
+  \item 捕获快照图像
+\end{itemize}
+
+
+CLI 示例：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas present --node <id>
+openclaw nodes canvas navigate --node <id> --url "/"
+openclaw nodes canvas eval --node <id> --js "document.title"
+openclaw nodes canvas snapshot --node <id>
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{canvas.navigate} 接受\textbf{本地 canvas 路径}、\texttt{http(s)} URL 和 \texttt{file://} URL。
+  \item 如果传递 \texttt{"/"}，Canvas 会显示本地脚手架或 \texttt{index.html}。
+\end{itemize}
+
+
+\subsection{Canvas 中的 A2UI}
+
+
+A2UI 由 Gateway 网关 canvas 主机托管并在 Canvas 面板内渲染。
+当 Gateway 网关广播 Canvas 主机时，macOS 应用在首次打开时自动导航到 A2UI 主机页面。
+
+默认 A2UI 主机 URL：
+
+\begin{lstlisting}
+http://<gateway-host>:18793/__openclaw__/a2ui/
+\end{lstlisting}
+
+
+\subsubsection{A2UI 命令（v0.8）}
+
+
+Canvas 目前接受 \textbf{A2UI v0.8} 服务器→客户端消息：
+
+\begin{itemize}
+  \item \texttt{beginRendering}
+  \item \texttt{surfaceUpdate}
+  \item \texttt{dataModelUpdate}
+  \item \texttt{deleteSurface}
+\end{itemize}
+
+
+\texttt{createSurface}（v0.9）不受支持。
+
+CLI 示例：
+
+\begin{lstlisting}[language=bash]
+cat > /tmp/a2ui-v0.8.jsonl <<'EOFA2'
+{"surfaceUpdate":{"surfaceId":"main","components":[{"id":"root","component":{"Column":{"children":{"explicitList":["title","content"]}}}},{"id":"title","component":{"Text":{"text":{"literalString":"Canvas (A2UI v0.8)"},"usageHint":"h1"}}},{"id":"content","component":{"Text":{"text":{"literalString":"If you can read this, A2UI push works."},"usageHint":"body"}}}]}}
+{"beginRendering":{"surfaceId":"main","root":"root"}}
+EOFA2
+
+openclaw nodes canvas a2ui push --jsonl /tmp/a2ui-v0.8.jsonl --node <id>
+\end{lstlisting}
+
+
+快速测试：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas a2ui push --node <id> --text "Hello from A2UI"
+\end{lstlisting}
+
+
+\subsection{从 Canvas 触发智能体运行}
+
+
+Canvas 可以通过深层链接触发新的智能体运行：
+
+\begin{itemize}
+  \item \texttt{openclaw://agent?...}
+\end{itemize}
+
+
+示例（在 JS 中）：
+
+\begin{lstlisting}[language=javascript]
+window.location.href = "openclaw://agent?message=Review%20this%20design";
+\end{lstlisting}
+
+
+除非提供有效密钥，否则应用会提示确认。
+
+\subsection{安全注意事项}
+
+
+\begin{itemize}
+  \item Canvas 方案阻止目录遍历；文件必须位于会话根目录下。
+  \item 本地 Canvas 内容使用自定义方案（不需要 loopback 服务器）。
+  \item 仅在显式导航时允许外部 \texttt{http(s)} URL。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/child-process.md ===
+\section{macOS 上的 Gateway 网关生命周期}
+
+
+macOS 应用\textbf{默认通过 launchd 管理 Gateway 网关}，不会将
+Gateway 网关作为子进程生成。它首先尝试连接到配置端口上已运行的
+Gateway 网关；如果无法访问，它会通过外部 \texttt{openclaw} CLI（无嵌入式运行时）启用 launchd
+服务。这为你提供了可靠的登录时自动启动和崩溃后重启。
+
+子进程模式（由应用直接生成 Gateway 网关）\textbf{目前未使用}。
+如果你需要与 UI 更紧密的耦合，请在终端中手动运行 Gateway 网关。
+
+\subsection{默认行为（launchd）}
+
+
+\begin{itemize}
+  \item 应用安装标记为 \texttt{bot.molt.gateway} 的按用户 LaunchAgent
+\end{itemize}
+
+（使用 \texttt{--profile}/\texttt{OPENCLAW\_PROFILE} 时为 \texttt{bot.molt.}；支持旧版 \texttt{com.openclaw.*}）。
+\begin{itemize}
+  \item 当启用本地模式时，应用确保 LaunchAgent 已加载，并
+\end{itemize}
+
+在需要时启动 Gateway 网关。
+\begin{itemize}
+  \item 日志写入 launchd Gateway 网关日志路径（在调试设置中可见）。
+\end{itemize}
+
+
+常用命令：
+
+\begin{lstlisting}[language=bash]
+launchctl kickstart -k gui/$UID/bot.molt.gateway
+launchctl bootout gui/$UID/bot.molt.gateway
+\end{lstlisting}
+
+
+运行命名配置文件时，将标签替换为 \texttt{bot.molt.}。
+
+\subsection{未签名的开发构建}
+
+
+\texttt{scripts/restart-mac.sh --no-sign} 用于在没有签名密钥时的快速本地构建。为了防止 launchd 指向未签名的中继二进制文件，它：
+
+\begin{itemize}
+  \item 写入 \texttt{\textasciitilde{}/.openclaw/disable-launchagent}。
+\end{itemize}
+
+
+已签名运行的 \texttt{scripts/restart-mac.sh} 会在标记存在时清除此覆盖。要手动重置：
+
+\begin{lstlisting}[language=bash]
+rm ~/.openclaw/disable-launchagent
+\end{lstlisting}
+
+
+\subsection{仅连接模式}
+
+
+要强制 macOS 应用\textbf{永不安装或管理 launchd}，请使用
+\texttt{--attach-only}（或 \texttt{--no-launchd}）启动它。这会设置 \texttt{\textasciitilde{}/.openclaw/disable-launchagent}，
+因此应用只会连接到已运行的 Gateway 网关。你可以在调试设置中切换相同的
+行为。
+
+\subsection{远程模式}
+
+
+远程模式永远不会启动本地 Gateway 网关。应用使用到
+远程主机的 SSH 隧道并通过该隧道连接。
+
+\subsection{为什么我们更喜欢 launchd}
+
+
+\begin{itemize}
+  \item 登录时自动启动。
+  \item 内置的重启/KeepAlive 语义。
+  \item 可预测的日志和监管。
+\end{itemize}
+
+
+如果将来再次需要真正的子进程模式，它应该被记录为
+单独的、明确的仅开发模式。
+
+
+\clearpage
+
+% === 源文件: platforms/mac/dev-setup.md ===
+\section{macOS 开发者设置}
+
+
+本指南涵盖从源代码构建和运行 OpenClaw macOS 应用程序的必要步骤。
+
+\subsection{前置条件}
+
+
+在构建应用之前，确保你已安装以下内容：
+
+\begin{enumerate}
+  \item \textbf{Xcode 26.2+}：Swift 开发所需。
+  \item \textbf{Node.js 22+ \& pnpm}：Gateway 网关、CLI 和打包脚本所需。
+\end{enumerate}
+
+
+\subsection{1. 安装依赖}
+
+
+安装项目范围的依赖：
+
+\begin{lstlisting}[language=bash]
+pnpm install
+\end{lstlisting}
+
+
+\subsection{2. 构建和打包应用}
+
+
+要构建 macOS 应用并将其打包到 \texttt{dist/OpenClaw.app}，运行：
+
+\begin{lstlisting}[language=bash]
+./scripts/package-mac-app.sh
+\end{lstlisting}
+
+
+如果你没有 Apple Developer ID 证书，脚本将自动使用 \textbf{ad-hoc 签名}（\texttt{-}）。
+
+有关开发运行模式、签名标志和 Team ID 故障排除，请参阅 macOS 应用 README：
+https://github.com/openclaw/openclaw/blob/main/apps/macos/README.md
+
+\begin{quote}
+\textbf{注意}：Ad-hoc 签名的应用可能会触发安全提示。如果应用立即崩溃并显示"Abort trap 6"，请参阅\href{\#troubleshooting}{故障排除}部分。
+\end{quote}
+
+
+\subsection{3. 安装 CLI}
+
+
+macOS 应用期望全局安装 \texttt{openclaw} CLI 来管理后台任务。
+
+\textbf{安装方法（推荐）：}
+
+\begin{enumerate}
+  \item 打开 OpenClaw 应用。
+  \item 转到 \textbf{General} 设置标签页。
+  \item 点击 \textbf{"Install CLI"}。
+\end{enumerate}
+
+
+或者，手动安装：
+
+\begin{lstlisting}[language=bash]
+npm install -g openclaw@<version>
+\end{lstlisting}
+
+
+\subsection{故障排除}
+
+
+\subsubsection{构建失败：工具链或 SDK 不匹配}
+
+
+macOS 应用构建期望最新的 macOS SDK 和 Swift 6.2 工具链。
+
+\textbf{系统依赖（必需）：}
+
+\begin{itemize}
+  \item \textbf{软件更新中可用的最新 macOS 版本}（Xcode 26.2 SDK 所需）
+  \item \textbf{Xcode 26.2}（Swift 6.2 工具链）
+\end{itemize}
+
+
+\textbf{检查：}
+
+\begin{lstlisting}[language=bash]
+xcodebuild -version
+xcrun swift --version
+\end{lstlisting}
+
+
+如果版本不匹配，更新 macOS/Xcode 并重新运行构建。
+
+\subsubsection{授予权限时应用崩溃}
+
+
+如果在尝试允许\textbf{语音识别}或\textbf{麦克风}访问时应用崩溃，可能是由于 TCC 缓存损坏或签名不匹配。
+
+\textbf{修复：}
+
+\begin{enumerate}
+  \item 重置 TCC 权限：
+\begin{lstlisting}[language=bash]
+   tccutil reset All bot.molt.mac.debug
+\end{lstlisting}
+
+  \item 如果这不起作用，在 \href{https://github.com/openclaw/openclaw/blob/main/scripts/package-mac-app.sh}{\texttt{scripts/package-mac-app.sh}} 中临时更改 \texttt{BUNDLE\_ID} 以强制 macOS 从"全新状态"开始。
+\end{enumerate}
+
+
+\subsubsection{Gateway 网关无限期"Starting..."}
+
+
+如果 Gateway 网关状态一直停留在"Starting..."，检查是否有僵尸进程占用端口：
+
+\begin{lstlisting}[language=bash]
+openclaw gateway status
+openclaw gateway stop
+
+# 如果你没有使用 LaunchAgent（开发模式/手动运行），找到监听器：
+lsof -nP -iTCP:18789 -sTCP:LISTEN
+\end{lstlisting}
+
+
+如果手动运行占用了端口，停止该进程（Ctrl+C）。作为最后手段，杀死你找到的 PID。
+
+
+\clearpage
+
+% === 源文件: platforms/mac/health.md ===
+\section{macOS 上的健康检查}
+
+
+如何从菜单栏应用查看关联渠道是否健康。
+
+\subsection{菜单栏}
+
+
+\begin{itemize}
+  \item 状态圆点现在反映 Baileys 健康状态：
+  \item 绿色：已关联 + socket 最近已打开。
+  \item 橙色：正在连接/重试。
+  \item 红色：已登出或探测失败。
+  \item 第二行显示"linked · auth 12m"或显示失败原因。
+  \item "Run Health Check"菜单项触发按需探测。
+\end{itemize}
+
+
+\subsection{设置}
+
+
+\begin{itemize}
+  \item 通用选项卡新增健康卡片，显示：关联认证时间、会话存储路径/数量、上次检查时间、上次错误/状态码，以及运行健康检查/显示日志按钮。
+  \item 使用缓存快照，因此 UI 立即加载，离线时优雅降级。
+  \item \textbf{渠道选项卡}显示渠道状态 + WhatsApp/Telegram 的控制（登录二维码、登出、探测、上次断开/错误）。
+\end{itemize}
+
+
+\subsection{探测工作原理}
+
+
+\begin{itemize}
+  \item 应用每约 60 秒和按需时通过 \texttt{ShellExecutor} 运行 \texttt{openclaw health --json}。探测加载凭证并报告状态，不发送消息。
+  \item 分别缓存上次成功的快照和上次错误以避免闪烁；显示每个的时间戳。
+\end{itemize}
+
+
+\subsection{有疑问时}
+
+
+\begin{itemize}
+  \item 你仍然可以使用 \href{/gateway/health}{Gateway 网关健康} 中的 CLI 流程（\texttt{openclaw status}、\texttt{openclaw status --deep}、\texttt{openclaw health --json}），并在 \texttt{/tmp/openclaw/openclaw-*.log} 中跟踪 \texttt{web-heartbeat} / \texttt{web-reconnect}。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/icon.md ===
+\section{菜单栏图标状态}
+
+
+作者：steipete · 更新时间：2025-12-06 · 范围：macOS 应用（\texttt{apps/macos}）
+
+\begin{itemize}
+  \item \textbf{空闲：} 正常图标动画（眨眼、偶尔摆动）。
+  \item \textbf{暂停：} 状态项使用 \texttt{appearsDisabled}；无动画。
+  \item \textbf{语音触发（大耳朵）：} 语音唤醒检测器在听到唤醒词时调用 \texttt{AppState.triggerVoiceEars(ttl: nil)}，在捕获语音期间保持 \texttt{earBoostActive=true}。耳朵放大（1.9 倍），显示圆形耳孔以提高可读性，然后在 1 秒静音后通过 \texttt{stopVoiceEars()} 恢复。仅由应用内语音管道触发。
+  \item \textbf{工作中（智能体运行中）：} \texttt{AppState.isWorking=true} 驱动"尾巴/腿部快速摆动"微动画：工作进行中腿部摆动加快并略有偏移。目前在 WebChat 智能体运行时切换；在接入其他长时间任务时请添加相同的切换逻辑。
+\end{itemize}
+
+
+接入点
+
+\begin{itemize}
+  \item 语音唤醒：运行时/测试器在触发时调用 \texttt{AppState.triggerVoiceEars(ttl: nil)}，在 1 秒静音后调用 \texttt{stopVoiceEars()} 以匹配捕获窗口。
+  \item 智能体活动：在工作区间前后设置 \texttt{AppStateStore.shared.setWorking(true/false)}（已在 WebChat 智能体调用中完成）。保持区间简短，并在 \texttt{defer} 块中重置以避免动画卡住。
+\end{itemize}
+
+
+形状与尺寸
+
+\begin{itemize}
+  \item 基础图标在 \texttt{CritterIconRenderer.makeIcon(blink:legWiggle:earWiggle:earScale:earHoles:)} 中绘制。
+  \item 耳朵缩放默认为 \texttt{1.0}；语音增强时设置 \texttt{earScale=1.9} 并切换 \texttt{earHoles=true}，不改变整体框架（18×18 pt 模板图像渲染到 36×36 px Retina 后备存储）。
+  \item 快速摆动使用最高约 1.0 的腿部摆幅并带有轻微的水平抖动；它与现有的空闲摆动叠加。
+\end{itemize}
+
+
+行为说明
+
+\begin{itemize}
+  \item 耳朵/工作状态没有外部 CLI/代理切换；保持仅由应用自身信号控制，以避免意外的状态抖动。
+  \item 保持 TTL 较短（\&lt;10 秒），以便在任务挂起时图标能快速恢复到基准状态。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/logging.md ===
+\section{日志（macOS）}
+
+
+\subsection{滚动诊断文件日志（Debug 面板）}
+
+
+OpenClaw 通过 swift-log（默认使用统一日志）路由 macOS 应用日志，并且在需要持久化捕获时可以将本地轮转文件日志写入磁盘。
+
+\begin{itemize}
+  \item 详细级别：\textbf{Debug 面板 → Logs → App logging → Verbosity}
+  \item 启用：\textbf{Debug 面板 → Logs → App logging → "Write rolling diagnostics log (JSONL)"}
+  \item 位置：\texttt{\textasciitilde{}/Library/Logs/OpenClaw/diagnostics.jsonl}（自动轮转；旧文件以 \texttt{.1}、\texttt{.2}、… 为后缀）
+  \item 清除：\textbf{Debug 面板 → Logs → App logging → "Clear"}
+\end{itemize}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 此功能\textbf{默认关闭}。仅在主动调试时启用。
+  \item 该文件包含敏感信息；分享前请先审查内容。
+\end{itemize}
+
+
+\subsection{macOS 上统一日志的隐私数据}
+
+
+统一日志会屏蔽大部分负载内容，除非子系统选择启用 \texttt{privacy -off}。根据 Peter 关于 macOS \href{https://steipete.me/posts/2025/logging-privacy-shenanigans}{日志隐私机制}（2025）的文章，这通过 \texttt{/Library/Preferences/Logging/Subsystems/} 中以子系统名称为键的 plist 文件来控制。只有新的日志条目才会应用该标志，因此请在复现问题之前启用它。
+
+\subsection{为 OpenClaw 启用（bot.molt）}
+
+
+\begin{itemize}
+  \item 先将 plist 写入临时文件，然后以 root 身份原子性地安装：
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+cat <<'EOF' >/tmp/bot.molt.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>DEFAULT-OPTIONS</key>
+    <dict>
+        <key>Enable-Private-Data</key>
+        <true/>
+    </dict>
+</dict>
+</plist>
+EOF
+sudo install -m 644 -o root -g wheel /tmp/bot.molt.plist /Library/Preferences/Logging/Subsystems/bot.molt.plist
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item 无需重启；logd 会很快检测到该文件，但只有新的日志行才会包含隐私负载。
+  \item 使用现有的辅助脚本查看更丰富的输出，例如 \texttt{./scripts/clawlog.sh --category WebChat --last 5m}。
+\end{itemize}
+
+
+\subsection{调试后禁用}
+
+
+\begin{itemize}
+  \item 移除覆盖配置：\texttt{sudo rm /Library/Preferences/Logging/Subsystems/bot.molt.plist}。
+  \item 可选择运行 \texttt{sudo log config --reload} 强制 logd 立即丢弃覆盖配置。
+  \item 请注意此数据可能包含电话号码和消息正文；仅在确实需要额外详细信息时才保留该 plist 文件。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/menu-bar.md ===
+\section{菜单栏状态逻辑}
+
+
+\subsection{显示内容}
+
+
+\begin{itemize}
+  \item 我们在菜单栏图标和菜单的第一行状态行中展示当前智能体的工作状态。
+  \item 工作活跃时隐藏健康状态；当所有会话空闲时恢复显示。
+  \item 菜单中的"节点"区块仅列出\textbf{设备}（通过 \texttt{node.list} 配对的节点），不包括客户端/在线状态条目。
+  \item 当提供商用量快照可用时，"用量"部分会显示在上下文下方。
+\end{itemize}
+
+
+\subsection{状态模型}
+
+
+\begin{itemize}
+  \item 会话：事件携带 \texttt{runId}（每次运行）以及载荷中的 \texttt{sessionKey}。"main" 会话的键为 \texttt{main}；如果不存在，则回退到最近更新的会话。
+  \item 优先级：main 始终优先。如果 main 处于活跃状态，立即显示其状态。如果 main 空闲，则显示最近活跃的非 main 会话。活动进行中不会来回切换；仅在当前会话进入空闲或 main 变为活跃时才切换。
+  \item 活动类型：
+  \item \texttt{job}：高层命令执行（\texttt{state: started|streaming|done|error}）。
+  \item \texttt{tool}：\texttt{phase: start|result}，包含 \texttt{toolName} 和 \texttt{meta/args}。
+\end{itemize}
+
+
+\subsection{IconState 枚举（Swift）}
+
+
+\begin{itemize}
+  \item \texttt{idle}
+  \item \texttt{workingMain(ActivityKind)}
+  \item \texttt{workingOther(ActivityKind)}
+  \item \texttt{overridden(ActivityKind)}（调试覆盖）
+\end{itemize}
+
+
+\subsubsection{ActivityKind → 图标符号}
+
+
+\begin{itemize}
+  \item \texttt{exec} → 💻
+  \item \texttt{read} → 📄
+  \item \texttt{write} → ✍️
+  \item \texttt{edit} → 📝
+  \item \texttt{attach} → 📎
+  \item 默认 → 🛠️
+\end{itemize}
+
+
+\subsubsection{视觉映射}
+
+
+\begin{itemize}
+  \item \texttt{idle}：正常小动物图标。
+  \item \texttt{workingMain}：带图标符号的徽章，完整色调，腿部"工作"动画。
+  \item \texttt{workingOther}：带图标符号的徽章，柔和色调，无快跑动画。
+  \item \texttt{overridden}：无论活动状态如何，使用所选的图标符号/色调。
+\end{itemize}
+
+
+\subsection{状态行文本（菜单）}
+
+
+\begin{itemize}
+  \item 工作活跃时：\texttt{<会话角色> · <活动标签>}
+  \item 示例：\texttt{Main · exec: pnpm test}、\texttt{Other · read: apps/macos/Sources/OpenClaw/AppState.swift}。
+  \item 空闲时：回退显示健康摘要。
+\end{itemize}
+
+
+\subsection{事件接收}
+
+
+\begin{itemize}
+  \item 来源：控制渠道 \texttt{agent} 事件（\texttt{ControlChannel.handleAgentEvent}）。
+  \item 解析字段：
+  \item \texttt{stream: "job"}，包含 \texttt{data.state} 用于启动/停止。
+  \item \texttt{stream: "tool"}，包含 \texttt{data.phase}、\texttt{name}，可选 \texttt{meta}/\texttt{args}。
+  \item 标签：
+  \item \texttt{exec}：\texttt{args.command} 的第一行。
+  \item \texttt{read}/\texttt{write}：缩短的路径。
+  \item \texttt{edit}：路径加上从 \texttt{meta}/diff 计数推断的变更类型。
+  \item 回退：工具名称。
+\end{itemize}
+
+
+\subsection{调试覆盖}
+
+
+\begin{itemize}
+  \item 设置 ▸ 调试 ▸ "图标覆盖" 选择器：
+  \item \texttt{系统（自动）}（默认）
+  \item \texttt{工作中：main}（按工具类型）
+  \item \texttt{工作中：other}（按工具类型）
+  \item \texttt{空闲}
+  \item 通过 \texttt{@AppStorage("iconOverride")} 存储；映射到 \texttt{IconState.overridden}。
+\end{itemize}
+
+
+\subsection{测试清单}
+
+
+\begin{itemize}
+  \item 触发 main 会话任务：验证图标立即切换且状态行显示 main 标签。
+  \item main 空闲时触发非 main 会话任务：图标/状态显示非 main；保持稳定直到完成。
+  \item 在 other 活跃时启动 main：图标立即切换到 main。
+  \item 快速连续工具调用：确保徽章不会闪烁（工具结果的 TTL 宽限期）。
+  \item 所有会话空闲后健康行重新出现。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/peekaboo.md ===
+\section{Peekaboo Bridge（macOS UI 自动化）}
+
+
+OpenClaw 可以将 \textbf{PeekabooBridge} 作为本地的、权限感知的 UI 自动化代理进行托管。这使得 \texttt{peekaboo} CLI 能够驱动 UI 自动化，同时复用 macOS 应用的 TCC 权限。
+
+\subsection{这是什么（以及不是什么）}
+
+
+\begin{itemize}
+  \item \textbf{宿主}：OpenClaw.app 可以作为 PeekabooBridge 宿主。
+  \item \textbf{客户端}：使用 \texttt{peekaboo} CLI（无需单独的 \texttt{openclaw ui ...} 界面）。
+  \item \textbf{界面}：视觉叠加层保留在 Peekaboo.app 中；OpenClaw 只是一个轻量代理宿主。
+\end{itemize}
+
+
+\subsection{启用桥接}
+
+
+在 macOS 应用中：
+
+\begin{itemize}
+  \item 设置 → \textbf{启用 Peekaboo Bridge}
+\end{itemize}
+
+
+启用后，OpenClaw 会启动一个本地 UNIX 套接字服务器。如果禁用，宿主会停止，\texttt{peekaboo} 将回退到其他可用宿主。
+
+\subsection{客户端发现顺序}
+
+
+Peekaboo 客户端通常按以下顺序尝试宿主：
+
+\begin{enumerate}
+  \item Peekaboo.app（完整用户体验）
+  \item Claude.app（如已安装）
+  \item OpenClaw.app（轻量代理）
+\end{enumerate}
+
+
+使用 \texttt{peekaboo bridge status --verbose} 查看当前活跃的宿主及使用的套接字路径。你可以通过以下方式覆盖：
+
+\begin{lstlisting}[language=bash]
+export PEEKABOO_BRIDGE_SOCKET=/path/to/bridge.sock
+\end{lstlisting}
+
+
+\subsection{安全与权限}
+
+
+\begin{itemize}
+  \item 桥接会验证\textbf{调用方的代码签名}；强制执行 TeamID 白名单（Peekaboo 宿主 TeamID + OpenClaw 应用 TeamID）。
+  \item 请求在约 10 秒后超时。
+  \item 如果缺少所需权限，桥接会返回清晰的错误信息，而不是启动系统设置。
+\end{itemize}
+
+
+\subsection{快照行为（自动化）}
+
+
+快照存储在内存中，并在短暂窗口期后自动过期。如果需要更长的保留时间，请从客户端重新捕获。
+
+\subsection{故障排除}
+
+
+\begin{itemize}
+  \item 如果 \texttt{peekaboo} 报告"bridge client is not authorized"，请确保客户端已正确签名，或仅在\textbf{调试}模式下使用 \texttt{PEEKABOO\_ALLOW\_UNSIGNED\_SOCKET\_CLIENTS=1} 运行宿主。
+  \item 如果未找到宿主，请打开其中一个宿主应用（Peekaboo.app 或 OpenClaw.app）并确认已授予权限。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/permissions.md ===
+\section{macOS 权限（TCC）}
+
+
+macOS 权限授予是脆弱的。TCC 将权限授予与应用的代码签名、Bundle 标识符和磁盘路径关联。如果其中任何一项发生变化，macOS 会将该应用视为新应用，可能会丢弃或隐藏权限提示。
+
+\subsection{稳定权限的要求}
+
+
+\begin{itemize}
+  \item 相同路径：从固定位置运行应用（对于 OpenClaw，为 \texttt{dist/OpenClaw.app}）。
+  \item 相同 Bundle 标识符：更改 Bundle ID 会创建新的权限身份。
+  \item 已签名的应用：未签名或临时签名的构建不会持久化权限。
+  \item 一致的签名：使用真实的 Apple Development 或 Developer ID 证书，以确保签名在多次构建之间保持稳定。
+\end{itemize}
+
+
+临时签名每次构建都会生成新的身份。macOS 会忘记之前的授权，提示可能完全消失，直到清除过期条目为止。
+
+\subsection{权限提示消失时的恢复清单}
+
+
+\begin{enumerate}
+  \item 退出应用。
+  \item 在系统设置 -> 隐私与安全性中移除该应用条目。
+  \item 从相同路径重新启动应用并重新授予权限。
+  \item 如果提示仍未出现，使用 \texttt{tccutil} 重置 TCC 条目后重试。
+  \item 某些权限仅在完全重启 macOS 后才会重新出现。
+\end{enumerate}
+
+
+重置示例（根据需要替换 Bundle ID）：
+
+\begin{lstlisting}[language=bash]
+sudo tccutil reset Accessibility bot.molt.mac
+sudo tccutil reset ScreenCapture bot.molt.mac
+sudo tccutil reset AppleEvents
+\end{lstlisting}
+
+
+如果你正在测试权限，请始终使用真实证书签名。临时签名的构建仅适用于不需要权限的快速本地运行。
+
+
+\clearpage
+
+% === 源文件: platforms/mac/release.md ===
+\section{OpenClaw macOS 发布（Sparkle）}
+
+
+本应用现已支持 Sparkle 自动更新。发布构建必须经过 Developer ID 签名、压缩，并发布包含签名的 appcast 条目。
+
+\subsection{前提条件}
+
+
+\begin{itemize}
+  \item 已安装 Developer ID Application 证书（示例：\texttt{Developer ID Application:  ()}）。
+  \item 环境变量 \texttt{SPARKLE\_PRIVATE\_KEY\_FILE} 已设置为 Sparkle ed25519 私钥路径（公钥已嵌入 Info.plist）。如果缺失，请检查 \texttt{\textasciitilde{}/.profile}。
+  \item 用于 \texttt{xcrun notarytool} 的公证凭据（钥匙串配置文件或 API 密钥），以实现通过 Gatekeeper 安全分发的 DMG/zip。
+  \item 我们使用名为 \texttt{openclaw-notary} 的钥匙串配置文件，由 shell 配置文件中的 App Store Connect API 密钥环境变量创建：
+  \item \texttt{APP\_STORE\_CONNECT\_API\_KEY\_P8}、\texttt{APP\_STORE\_CONNECT\_KEY\_ID}、\texttt{APP\_STORE\_CONNECT\_ISSUER\_ID}
+  \item \texttt{echo "\$APP\_STORE\_CONNECT\_API\_KEY\_P8" | sed 's/\textbackslash\{\}\textbackslash\{\}n/\textbackslash\{\}n/g' > /tmp/openclaw-notary.p8}
+  \item \texttt{xcrun notarytool store-credentials "openclaw-notary" --key /tmp/openclaw-notary.p8 --key-id "\$APP\_STORE\_CONNECT\_KEY\_ID" --issuer "\$APP\_STORE\_CONNECT\_ISSUER\_ID"}
+  \item 已安装 \texttt{pnpm} 依赖（\texttt{pnpm install --config.node-linker=hoisted}）。
+  \item Sparkle 工具通过 SwiftPM 自动获取，位于 \texttt{apps/macos/.build/artifacts/sparkle/Sparkle/bin/}（\texttt{sign\_update}、\texttt{generate\_appcast} 等）。
+\end{itemize}
+
+
+\subsection{构建与打包}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{APP\_BUILD} 映射到 \texttt{CFBundleVersion}/\texttt{sparkle:version}；保持纯数字且单调递增（不含 \texttt{-beta}），否则 Sparkle 会将其视为相同版本。
+  \item 默认为当前架构（\texttt{\$(uname -m)}）。对于发布/通用构建，设置 \texttt{BUILD\_ARCHS="arm64 x86\_64"}（或 \texttt{BUILD\_ARCHS=all}）。
+  \item 使用 \texttt{scripts/package-mac-dist.sh} 生成发布产物（zip + DMG + 公证）。使用 \texttt{scripts/package-mac-app.sh} 进行本地/开发打包。
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+# 从仓库根目录运行；设置发布 ID 以启用 Sparkle 订阅源。
+# APP_BUILD 必须为纯数字且单调递增，以便 Sparkle 正确比较。
+BUNDLE_ID=bot.molt.mac \
+APP_VERSION=2026.1.27-beta.1 \
+APP_BUILD="$(git rev-list --count HEAD)" \
+BUILD_CONFIG=release \
+SIGN_IDENTITY="Developer ID Application: <Developer Name> (<TEAMID>)" \
+scripts/package-mac-app.sh
+
+# 打包用于分发的 zip（包含资源分支以支持 Sparkle 增量更新）
+ditto -c -k --sequesterRsrc --keepParent dist/OpenClaw.app dist/OpenClaw-2026.1.27-beta.1.zip
+
+# 可选：同时构建适合用户使用的样式化 DMG（拖拽到 /Applications）
+scripts/create-dmg.sh dist/OpenClaw.app dist/OpenClaw-2026.1.27-beta.1.dmg
+
+# 推荐：构建 + 公证/装订 zip + DMG
+# 首先，创建一次钥匙串配置文件：
+#   xcrun notarytool store-credentials "openclaw-notary" \
+#     --apple-id "<apple-id>" --team-id "<team-id>" --password "<app-specific-password>"
+NOTARIZE=1 NOTARYTOOL_PROFILE=openclaw-notary \
+BUNDLE_ID=bot.molt.mac \
+APP_VERSION=2026.1.27-beta.1 \
+APP_BUILD="$(git rev-list --count HEAD)" \
+BUILD_CONFIG=release \
+SIGN_IDENTITY="Developer ID Application: <Developer Name> (<TEAMID>)" \
+scripts/package-mac-dist.sh
+
+# 可选：随发布一起提供 dSYM
+ditto -c -k --keepParent apps/macos/.build/release/OpenClaw.app.dSYM dist/OpenClaw-2026.1.27-beta.1.dSYM.zip
+\end{lstlisting}
+
+
+\subsection{Appcast 条目}
+
+
+使用发布说明生成器，以便 Sparkle 渲染格式化的 HTML 说明：
+
+\begin{lstlisting}[language=bash]
+SPARKLE_PRIVATE_KEY_FILE=/path/to/ed25519-private-key scripts/make_appcast.sh dist/OpenClaw-2026.1.27-beta.1.zip https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml
+\end{lstlisting}
+
+
+从 \texttt{CHANGELOG.md}（通过 \href{https://github.com/openclaw/openclaw/blob/main/scripts/changelog-to-html.sh}{\texttt{scripts/changelog-to-html.sh}}）生成 HTML 发布说明，并将其嵌入 appcast 条目。
+发布时，将更新后的 \texttt{appcast.xml} 与发布资源（zip + dSYM）一起提交。
+
+\subsection{发布与验证}
+
+
+\begin{itemize}
+  \item 将 \texttt{OpenClaw-2026.1.27-beta.1.zip}（和 \texttt{OpenClaw-2026.1.27-beta.1.dSYM.zip}）上传到标签 \texttt{v2026.1.27-beta.1} 对应的 GitHub 发布。
+  \item 确保原始 appcast URL 与内置的订阅源匹配：\texttt{https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml}。
+  \item 完整性检查：
+  \item \texttt{curl -I https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml} 返回 200。
+  \item \texttt{curl -I } 在资源上传后返回 200。
+  \item 在之前的公开构建版本上，从 About 选项卡运行"Check for Updates…"，验证 Sparkle 能正常安装新构建。
+\end{itemize}
+
+
+完成定义：已签名的应用 + appcast 已发布，从旧版本的更新流程正常工作，且发布资源已附加到 GitHub 发布。
+
+
+\clearpage
+
+% === 源文件: platforms/mac/remote.md ===
+\section{远程 OpenClaw（macOS ⇄ 远程主机）}
+
+
+此流程让 macOS 应用作为运行在另一台主机（桌面/服务器）上的 OpenClaw Gateway 网关的完整远程控制。这是应用的 \textbf{Remote over SSH}（远程运行）功能。所有功能——健康检查、语音唤醒转发和 Web Chat——都重用来自 \_Settings → General\_ 的相同远程 SSH 配置。
+
+\subsection{模式}
+
+
+\begin{itemize}
+  \item \textbf{Local (this Mac)}：一切都在笔记本电脑上运行。不涉及 SSH。
+  \item \textbf{Remote over SSH（默认）}：OpenClaw 命令在远程主机上执行。mac 应用使用 \texttt{-o BatchMode} 加上你选择的身份/密钥打开 SSH 连接，并进行本地端口转发。
+  \item \textbf{Remote direct (ws/wss)}：无 SSH 隧道。mac 应用直接连接到 Gateway 网关 URL（例如，通过 Tailscale Serve 或公共 HTTPS 反向代理）。
+\end{itemize}
+
+
+\subsection{远程传输}
+
+
+远程模式支持两种传输方式：
+
+\begin{itemize}
+  \item \textbf{SSH 隧道}（默认）：使用 \texttt{ssh -N -L ...} 将 Gateway 网关端口转发到 localhost。Gateway 网关会将节点的 IP 视为 \texttt{127.0.0.1}，因为隧道是 loopback。
+  \item \textbf{Direct (ws/wss)}：直接连接到 Gateway 网关 URL。Gateway 网关看到真实的客户端 IP。
+\end{itemize}
+
+
+\subsection{远程主机上的先决条件}
+
+
+\begin{enumerate}
+  \item 安装 Node + pnpm 并构建/安装 OpenClaw CLI（\texttt{pnpm install \&\& pnpm build \&\& pnpm link --global}）。
+  \item 确保 \texttt{openclaw} 在非交互式 shell 的 PATH 中（如需要，请符号链接到 \texttt{/usr/local/bin} 或 \texttt{/opt/homebrew/bin}）。
+  \item 使用密钥认证打开 SSH。我们推荐使用 \textbf{Tailscale} IP 以实现离开局域网时的稳定可达性。
+\end{enumerate}
+
+
+\subsection{macOS 应用设置}
+
+
+\begin{enumerate}
+  \item 打开 \_Settings → General\_。
+  \item 在 \textbf{OpenClaw runs} 下，选择 \textbf{Remote over SSH} 并设置：
+\end{enumerate}
+
+\begin{itemize}
+  \item \textbf{Transport}：\textbf{SSH tunnel} 或 \textbf{Direct (ws/wss)}。
+  \item \textbf{SSH target}：\texttt{user@host}（可选 \texttt{:port}）。
+  \item 如果 Gateway 网关在同一局域网上并广播 Bonjour，从发现列表中选择它以自动填充此字段。
+  \item \textbf{Gateway URL}（仅 Direct）：\texttt{wss://gateway.example.ts.net}（或本地/局域网使用 \texttt{ws://...}）。
+  \item \textbf{Identity file}（高级）：你的密钥路径。
+  \item \textbf{Project root}（高级）：用于命令的远程 checkout 路径。
+  \item \textbf{CLI path}（高级）：可运行的 \texttt{openclaw} 入口点/二进制文件的可选路径（广播时自动填充）。
+\end{itemize}
+
+\begin{enumerate}
+  \item 点击 \textbf{Test remote}。成功表示远程 \texttt{openclaw status --json} 正确运行。失败通常意味着 PATH/CLI 问题；退出码 127 表示远程找不到 CLI。
+  \item 健康检查和 Web Chat 现在将自动通过此 SSH 隧道运行。
+\end{enumerate}
+
+
+\subsection{Web Chat}
+
+
+\begin{itemize}
+  \item \textbf{SSH 隧道}：Web Chat 通过转发的 WebSocket 控制端口（默认 18789）连接到 Gateway 网关。
+  \item \textbf{Direct (ws/wss)}：Web Chat 直接连接到配置的 Gateway 网关 URL。
+  \item 不再有单独的 WebChat HTTP 服务器。
+\end{itemize}
+
+
+\subsection{权限}
+
+
+\begin{itemize}
+  \item 远程主机需要与本地相同的 TCC 批准（自动化、辅助功能、屏幕录制、麦克风、语音识别、通知）。在该机器上运行新手引导以一次性授予它们。
+  \item 节点通过 \texttt{node.list} / \texttt{node.describe} 广播其权限状态，以便智能体知道哪些可用。
+\end{itemize}
+
+
+\subsection{安全注意事项}
+
+
+\begin{itemize}
+  \item 优先在远程主机上使用 loopback 绑定，并通过 SSH 或 Tailscale 连接。
+  \item 如果你将 Gateway 网关绑定到非 loopback 接口，请要求令牌/密码认证。
+  \item 参见\href{/gateway/security}{安全}和 \href{/gateway/tailscale}{Tailscale}。
+\end{itemize}
+
+
+\subsection{WhatsApp 登录流程（远程）}
+
+
+\begin{itemize}
+  \item \textbf{在远程主机上}运行 \texttt{openclaw channels login --verbose}。用手机上的 WhatsApp 扫描二维码。
+  \item 如果认证过期，在该主机上重新运行登录。健康检查会显示关联问题。
+\end{itemize}
+
+
+\subsection{故障排除}
+
+
+\begin{itemize}
+  \item \textbf{exit 127 / not found}：\texttt{openclaw} 不在非登录 shell 的 PATH 中。将其添加到 \texttt{/etc/paths}、你的 shell rc，或符号链接到 \texttt{/usr/local/bin}/\texttt{/opt/homebrew/bin}。
+  \item \textbf{Health probe failed}：检查 SSH 可达性、PATH，以及 Baileys 是否已登录（\texttt{openclaw status --json}）。
+  \item \textbf{Web Chat 卡住}：确认 Gateway 网关正在远程主机上运行，转发的端口与 Gateway 网关 WS 端口匹配；UI 需要健康的 WS 连接。
+  \item \textbf{节点 IP 显示 127.0.0.1}：使用 SSH 隧道时是预期的。如果你想让 Gateway 网关看到真实的客户端 IP，请将 \textbf{Transport} 切换到 \textbf{Direct (ws/wss)}。
+  \item \textbf{Voice Wake}：触发短语在远程模式下自动转发；不需要单独的转发器。
+\end{itemize}
+
+
+\subsection{通知声音}
+
+
+通过带有 \texttt{openclaw} 和 \texttt{node.invoke} 的脚本为每个通知选择声音，例如：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes notify --node <id> --title "Ping" --body "Remote gateway ready" --sound Glass
+\end{lstlisting}
+
+
+应用中不再有全局"默认声音"开关；调用者为每个请求选择声音（或无声音）。
+
+
+\clearpage
+
+% === 源文件: platforms/mac/signing.md ===
+\section{Mac 签名（调试构建）}
+
+
+此应用通常从 \href{https://github.com/openclaw/openclaw/blob/main/scripts/package-mac-app.sh}{\texttt{scripts/package-mac-app.sh}} 构建，该脚本目前会：
+
+\begin{itemize}
+  \item 设置稳定的调试 Bundle 标识符：\texttt{ai.openclaw.mac.debug}
+  \item 使用该 Bundle ID 写入 Info.plist（可通过 \texttt{BUNDLE\_ID=...} 覆盖）
+  \item 调用 \href{https://github.com/openclaw/openclaw/blob/main/scripts/codesign-mac-app.sh}{\texttt{scripts/codesign-mac-app.sh}} 对主二进制文件和应用包进行签名，使 macOS 将每次重新构建视为相同的已签名包，并保留 TCC 权限（通知、辅助功能、屏幕录制、麦克风、语音）。要获得稳定的权限，请使用真实签名身份；临时签名是可选的且不稳定（参阅 \href{/platforms/mac/permissions}{macOS 权限}）。
+  \item 默认使用 \texttt{CODESIGN\_TIMESTAMP=auto}；为 Developer ID 签名启用受信任的时间戳。设置 \texttt{CODESIGN\_TIMESTAMP=off} 可跳过时间戳（离线调试构建）。
+  \item 将构建元数据注入 Info.plist：\texttt{OpenClawBuildTimestamp}（UTC）和 \texttt{OpenClawGitCommit}（短哈希），以便"关于"面板可以显示构建信息、git 信息和调试/发布渠道。
+  \item \textbf{打包需要 Node 22+}：脚本会运行 TS 构建和 Control UI 构建。
+  \item 从环境变量中读取 \texttt{SIGN\_IDENTITY}。将 \texttt{export SIGN\_IDENTITY="Apple Development: Your Name (TEAMID)"}（或你的 Developer ID Application 证书）添加到 shell 配置文件中，以始终使用你的证书签名。临时签名需要通过 \texttt{ALLOW\_ADHOC\_SIGNING=1} 或 \texttt{SIGN\_IDENTITY="-"} 显式启用（不建议用于权限测试）。
+  \item 签名后运行 Team ID 审计，如果应用包内的任何 Mach-O 文件由不同的 Team ID 签名则会失败。设置 \texttt{SKIP\_TEAM\_ID\_CHECK=1} 可跳过此检查。
+\end{itemize}
+
+
+\subsection{用法}
+
+
+\begin{lstlisting}[language=bash]
+# 从仓库根目录
+scripts/package-mac-app.sh               # 自动选择身份；未找到时报错
+SIGN_IDENTITY="Developer ID Application: Your Name" scripts/package-mac-app.sh   # 真实证书
+ALLOW_ADHOC_SIGNING=1 scripts/package-mac-app.sh    # 临时签名（权限不会持久化）
+SIGN_IDENTITY="-" scripts/package-mac-app.sh        # 显式临时签名（同样的限制）
+DISABLE_LIBRARY_VALIDATION=1 scripts/package-mac-app.sh   # 仅限开发的 Sparkle Team ID 不匹配解决方案
+\end{lstlisting}
+
+
+\subsubsection{临时签名注意事项}
+
+
+使用 \texttt{SIGN\_IDENTITY="-"}（临时签名）签名时，脚本会自动禁用\textbf{强化运行时}（\texttt{--options runtime}）。这是为了防止应用在尝试加载不共享相同 Team ID 的嵌入式框架（如 Sparkle）时崩溃。临时签名还会破坏 TCC 权限持久化；参阅 \href{/platforms/mac/permissions}{macOS 权限} 了解恢复步骤。
+
+\subsection{关于面板的构建元数据}
+
+
+\texttt{package-mac-app.sh} 会在包中标记以下信息：
+
+\begin{itemize}
+  \item \texttt{OpenClawBuildTimestamp}：打包时的 ISO8601 UTC 时间
+  \item \texttt{OpenClawGitCommit}：短 git 哈希（不可用时为 \texttt{unknown}）
+\end{itemize}
+
+
+"关于"选项卡读取这些键以显示版本、构建日期、git 提交以及是否为调试构建（通过 \texttt{\#if DEBUG}）。代码更改后运行打包程序以刷新这些值。
+
+\subsection{原因}
+
+
+TCC 权限与 Bundle 标识符\textit{和}代码签名绑定。使用不断变化的 UUID 的未签名调试构建会导致 macOS 在每次重新构建后忘记授权。对二进制文件进行签名（默认临时签名）并保持固定的 Bundle ID/路径（\texttt{dist/OpenClaw.app}）可以在构建之间保留授权，与 VibeTunnel 的方案一致。
+
+
+\clearpage
+
+% === 源文件: platforms/mac/skills.md ===
+\section{Skills（macOS）}
+
+
+macOS 应用通过 Gateway 网关展示 OpenClaw Skills；它不会在本地解析 Skills。
+
+\subsection{数据来源}
+
+
+\begin{itemize}
+  \item \texttt{skills.status}（Gateway 网关）返回所有 Skills 以及资格和缺失的要求
+\end{itemize}
+
+（包括内置 Skills 的允许列表阻止情况）。
+\begin{itemize}
+  \item 要求来源于每个 \texttt{SKILL.md} 中的 \texttt{metadata.openclaw.requires}。
+\end{itemize}
+
+
+\subsection{安装操作}
+
+
+\begin{itemize}
+  \item \texttt{metadata.openclaw.install} 定义安装选项（brew/node/go/uv）。
+  \item 应用调用 \texttt{skills.install} 在 Gateway 网关主机上运行安装器。
+  \item 当提供多个安装器时，Gateway 网关仅展示一个首选安装器
+\end{itemize}
+
+（如果可用则使用 brew，否则使用来自 \texttt{skills.install} 的 node 管理器，默认 npm）。
+
+\subsection{环境变量/API 密钥}
+
+
+\begin{itemize}
+  \item 应用将密钥存储在 \texttt{\textasciitilde{}/.openclaw/openclaw.json} 的 \texttt{skills.entries.} 下。
+  \item \texttt{skills.update} 更新 \texttt{enabled}、\texttt{apiKey} 和 \texttt{env}。
+\end{itemize}
+
+
+\subsection{远程模式}
+
+
+\begin{itemize}
+  \item 安装 + 配置更新发生在 Gateway 网关主机上（不是本地 Mac）。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/voice-overlay.md ===
+\section{语音浮层生命周期（macOS）}
+
+
+受众：macOS 应用贡献者。目标：在唤醒词与按键说话重叠时保持语音浮层行为可预测。
+
+\subsubsection{当前意图}
+
+
+\begin{itemize}
+  \item 如果浮层已因唤醒词显示，此时用户按下热键，热键会话会\textit{接管}现有文本而非重置。浮层在热键按住期间保持显示。用户松开时：如果有去除空白后的文本则发送，否则关闭。
+  \item 单独使用唤醒词时仍在静音后自动发送；按键说话在松开时立即发送。
+\end{itemize}
+
+
+\subsubsection{已实现（2025 年 12 月 9 日）}
+
+
+\begin{itemize}
+  \item 浮层会话现在为每次捕获（唤醒词或按键说话）携带一个令牌。当令牌不匹配时，部分/最终/发送/关闭/音量更新会被丢弃，避免过时回调。
+  \item 按键说话会接管任何可见的浮层文本作为前缀（因此在唤醒浮层显示时按下热键会保留文本并追加新语音）。它最多等待 1.5 秒获取最终转录结果，然后回退到当前文本。
+  \item 提示音/浮层日志以 \texttt{info} 级别输出，分类为 \texttt{voicewake.overlay}、\texttt{voicewake.ptt} 和 \texttt{voicewake.chime}（会话开始、部分、最终、发送、关闭、提示音原因）。
+\end{itemize}
+
+
+\subsubsection{后续步骤}
+
+
+\begin{enumerate}
+  \item \textbf{VoiceSessionCoordinator（actor）}
+\end{enumerate}
+
+\begin{itemize}
+  \item 同一时间只拥有一个 \texttt{VoiceSession}。
+  \item API（基于令牌）：\texttt{beginWakeCapture}、\texttt{beginPushToTalk}、\texttt{updatePartial}、\texttt{endCapture}、\texttt{cancel}、\texttt{applyCooldown}。
+  \item 丢弃携带过时令牌的回调（防止旧识别器重新打开浮层）。
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{VoiceSession（模型）}
+\end{enumerate}
+
+\begin{itemize}
+  \item 字段：\texttt{token}、\texttt{source}（wakeWord|pushToTalk）、已提交/临时文本、提示音标志、计时器（自动发送、空闲）、\texttt{overlayMode}（display|editing|sending）、冷却截止时间。
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{浮层绑定}
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{VoiceSessionPublisher}（\texttt{ObservableObject}）将活跃会话镜像到 SwiftUI。
+  \item \texttt{VoiceWakeOverlayView} 仅通过 publisher 渲染；绝不直接修改全局单例。
+  \item 浮层用户操作（\texttt{sendNow}、\texttt{dismiss}、\texttt{edit}）携带会话令牌回调到 coordinator。
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{统一发送路径}
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{endCapture} 时：如果去除空白后文本为空 → 关闭；否则 \texttt{performSend(session:)}（播放一次发送提示音、转发、关闭）。
+  \item 按键说话：无延迟；唤醒词：可选自动发送延迟。
+  \item 按键说话结束后对唤醒运行时施加短暂冷却，防止唤醒词立即重新触发。
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{日志}
+\end{enumerate}
+
+\begin{itemize}
+  \item Coordinator 在子系统 \texttt{bot.molt}、分类 \texttt{voicewake.overlay} 和 \texttt{voicewake.chime} 下输出 \texttt{.info} 级别日志。
+  \item 关键事件：\texttt{session\_started}、\texttt{adopted\_by\_push\_to\_talk}、\texttt{partial}、\texttt{finalized}、\texttt{send}、\texttt{dismiss}、\texttt{cancel}、\texttt{cooldown}。
+\end{itemize}
+
+
+\subsubsection{调试清单}
+
+
+\begin{itemize}
+  \item 复现浮层粘滞问题时流式查看日志：
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+  sudo log stream --predicate 'subsystem == "bot.molt" AND category CONTAINS "voicewake"' --level info --style compact
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item 验证只有一个活跃会话令牌；过时回调应被 coordinator 丢弃。
+  \item 确保按键说话松开时始终使用活跃令牌调用 \texttt{endCapture}；如果文本为空，预期 \texttt{dismiss} 且不播放提示音或发送。
+\end{itemize}
+
+
+\subsubsection{迁移步骤（建议）}
+
+
+\begin{enumerate}
+  \item 添加 \texttt{VoiceSessionCoordinator}、\texttt{VoiceSession} 和 \texttt{VoiceSessionPublisher}。
+  \item 重构 \texttt{VoiceWakeRuntime}，使其创建/更新/结束会话，而非直接操作 \texttt{VoiceWakeOverlayController}。
+  \item 重构 \texttt{VoicePushToTalk}，使其接管现有会话并在松开时调用 \texttt{endCapture}；施加运行时冷却。
+  \item 将 \texttt{VoiceWakeOverlayController} 连接到 publisher；移除来自 runtime/PTT 的直接调用。
+  \item 添加会话接管、冷却和空文本关闭的集成测试。
+\end{enumerate}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/voicewake.md ===
+\section{语音唤醒与按键通话}
+
+
+\subsection{模式}
+
+
+\begin{itemize}
+  \item \textbf{唤醒词模式}（默认）：常驻语音识别器等待触发词（\texttt{swabbleTriggerWords}）。匹配时开始捕获，显示带有部分文本的悬浮窗，并在静默后自动发送。
+  \item \textbf{按键通话（按住右 Option 键）}：按住右 Option 键立即开始捕获——无需触发词。按住时显示悬浮窗；松开后延迟片刻再最终转发，以便你可以调整文本。
+\end{itemize}
+
+
+\subsection{运行时行为（唤醒词）}
+
+
+\begin{itemize}
+  \item 语音识别器位于 \texttt{VoiceWakeRuntime} 中。
+  \item 仅当唤醒词和下一个词之间有\textbf{明显停顿}（约 0.55 秒间隔）时才触发。悬浮窗/提示音可以在命令开始前的停顿时就启动。
+  \item 静默窗口：语音流畅时为 2.0 秒，如果只听到触发词则为 5.0 秒。
+  \item 硬性停止：120 秒，防止会话失控。
+  \item 会话间去抖动：350 毫秒。
+  \item 悬浮窗通过 \texttt{VoiceWakeOverlayController} 驱动，带有已提交/临时状态的颜色区分。
+  \item 发送后，识别器干净地重启以监听下一个触发词。
+\end{itemize}
+
+
+\subsection{生命周期不变量}
+
+
+\begin{itemize}
+  \item 如果启用了语音唤醒且权限已授予，唤醒词识别器应该处于监听状态（除非正在进行显式的按键通话捕获）。
+  \item 悬浮窗可见性（包括通过 X 按钮手动关闭）绝不能阻止识别器恢复。
+\end{itemize}
+
+
+\subsection{悬浮窗卡住的故障模式（之前的问题）}
+
+
+之前，如果悬浮窗卡在可见状态且你手动关闭它，语音唤醒可能会显得"失效"，因为运行时的重启尝试可能被悬浮窗可见性阻止，且没有安排后续重启。
+
+加固措施：
+
+\begin{itemize}
+  \item 唤醒运行时重启不再被悬浮窗可见性阻止。
+  \item 悬浮窗关闭完成时通过 \texttt{VoiceSessionCoordinator} 触发 \texttt{VoiceWakeRuntime.refresh(...)}，因此手动点击 X 关闭总是会恢复监听。
+\end{itemize}
+
+
+\subsection{按键通话细节}
+
+
+\begin{itemize}
+  \item 热键检测使用全局 \texttt{.flagsChanged} 监视器检测\textbf{右 Option 键}（\texttt{keyCode 61} + \texttt{.option}）。我们只观察事件（不拦截）。
+  \item 捕获管道位于 \texttt{VoicePushToTalk} 中：立即启动语音识别，将部分结果流式传输到悬浮窗，并在松开时调用 \texttt{VoiceWakeForwarder}。
+  \item 按键通话开始时，我们暂停唤醒词运行时以避免音频采集冲突；松开后自动重启。
+  \item 权限：需要麦克风 + 语音识别权限；查看事件需要辅助功能/输入监控批准。
+  \item 外接键盘：某些键盘可能无法按预期暴露右 Option 键——如果用户报告未响应，提供备用快捷键。
+\end{itemize}
+
+
+\subsection{面向用户的设置}
+
+
+\begin{itemize}
+  \item \textbf{语音唤醒}开关：启用唤醒词运行时。
+  \item \textbf{按住 Cmd+Fn 说话}：启用按键通话监视器。在 macOS < 26 上禁用。
+  \item 语言和麦克风选择器、实时电平指示器、触发词表、测试器（仅本地；不转发）。
+  \item 麦克风选择器在设备断开时保留上次选择，显示断开提示，并临时回退到系统默认设备直到设备恢复。
+  \item \textbf{声音}：触发检测和发送时的提示音；默认为 macOS"Glass"系统声音。你可以为每个事件选择任何 \texttt{NSSound} 可加载的文件（例如 MP3/WAV/AIFF）或选择\textbf{无声音}。
+\end{itemize}
+
+
+\subsection{转发行为}
+
+
+\begin{itemize}
+  \item 启用语音唤醒时，转录文本被转发到活动的 Gateway 网关/智能体（与 Mac 应用其他部分使用相同的本地/远程模式）。
+  \item 回复被投递到\textbf{上次使用的主提供商}（WhatsApp/Telegram/Discord/WebChat）。如果投递失败，错误会被记录，运行记录仍可通过 WebChat/会话日志查看。
+\end{itemize}
+
+
+\subsection{转发负载}
+
+
+\begin{itemize}
+  \item \texttt{VoiceWakeForwarder.prefixedTranscript(\_:)} 在发送前添加机器提示前缀。唤醒词和按键通话路径共享此方法。
+\end{itemize}
+
+
+\subsection{快速验证}
+
+
+\begin{itemize}
+  \item 开启按键通话，按住 Cmd+Fn，说话，松开：悬浮窗应显示部分结果然后发送。
+  \item 按住时，菜单栏耳朵图标应保持放大状态（使用 \texttt{triggerVoiceEars(ttl:nil)}）；松开后恢复。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/webchat.md ===
+\section{WebChat（macOS 应用）}
+
+
+macOS 菜单栏应用将 WebChat UI 嵌入为原生 SwiftUI 视图。它连接到 Gateway 网关，默认使用所选智能体的\textbf{主会话}（带有会话切换器用于其他会话）。
+
+\begin{itemize}
+  \item \textbf{本地模式}：直接连接到本地 Gateway 网关 WebSocket。
+  \item \textbf{远程模式}：通过 SSH 转发 Gateway 网关控制端口，并使用该隧道作为数据平面。
+\end{itemize}
+
+
+\subsection{启动和调试}
+
+
+\begin{itemize}
+  \item 手动：Lobster 菜单 → "Open Chat"。
+  \item 测试时自动打开：
+\begin{lstlisting}[language=bash]
+  dist/OpenClaw.app/Contents/MacOS/OpenClaw --webchat
+\end{lstlisting}
+
+  \item 日志：\texttt{./scripts/clawlog.sh}（子系统 \texttt{bot.molt}，类别 \texttt{WebChatSwiftUI}）。
+\end{itemize}
+
+
+\subsection{工作原理}
+
+
+\begin{itemize}
+  \item 数据平面：Gateway 网关 WS 方法 \texttt{chat.history}、\texttt{chat.send}、\texttt{chat.abort}、\texttt{chat.inject} 和事件 \texttt{chat}、\texttt{agent}、\texttt{presence}、\texttt{tick}、\texttt{health}。
+  \item 会话：默认为主会话（\texttt{main}，或当范围为全局时为 \texttt{global}）。UI 可以在会话之间切换。
+  \item 新手引导使用专用会话，以将首次运行设置分开。
+\end{itemize}
+
+
+\subsection{安全面}
+
+
+\begin{itemize}
+  \item 远程模式仅通过 SSH 转发 Gateway 网关 WebSocket 控制端口。
+\end{itemize}
+
+
+\subsection{已知限制}
+
+
+\begin{itemize}
+  \item UI 针对聊天会话优化（不是完整的浏览器沙箱）。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/mac/xpc.md ===
+\section{OpenClaw macOS IPC 架构}
+
+
+\textbf{当前模型：} 一个本地 Unix 套接字将\textbf{节点主机服务}连接到 \textbf{macOS 应用}，用于 exec 审批 + \texttt{system.run}。存在一个 \texttt{openclaw-mac} 调试 CLI 用于发现/连接检查；智能体操作仍通过 Gateway 网关 WebSocket 和 \texttt{node.invoke} 流转。UI 自动化使用 PeekabooBridge。
+
+\subsection{目标}
+
+
+\begin{itemize}
+  \item 单个 GUI 应用实例拥有所有面向 TCC 的工作（通知、屏幕录制、麦克风、语音、AppleScript）。
+  \item 小型自动化接口：Gateway 网关 + 节点命令，加上用于 UI 自动化的 PeekabooBridge。
+  \item 可预测的权限：始终是同一个签名的 bundle ID，由 launchd 启动，因此 TCC 授权保持有效。
+\end{itemize}
+
+
+\subsection{工作原理}
+
+
+\subsubsection{Gateway 网关 + 节点传输}
+
+
+\begin{itemize}
+  \item 应用运行 Gateway 网关（本地模式）并作为节点连接到它。
+  \item 智能体操作通过 \texttt{node.invoke} 执行（例如 \texttt{system.run}、\texttt{system.notify}、\texttt{canvas.*}）。
+\end{itemize}
+
+
+\subsubsection{节点服务 + 应用 IPC}
+
+
+\begin{itemize}
+  \item 一个无头节点主机服务连接到 Gateway 网关 WebSocket。
+  \item \texttt{system.run} 请求通过本地 Unix 套接字转发到 macOS 应用。
+  \item 应用在 UI 上下文中执行 exec，必要时提示，并返回输出。
+\end{itemize}
+
+
+图示（SCI）：
+
+\begin{lstlisting}
+Agent -> Gateway -> Node Service (WS)
+                      |  IPC (UDS + token + HMAC + TTL)
+                      v
+                  Mac App (UI + TCC + system.run)
+\end{lstlisting}
+
+
+\subsubsection{PeekabooBridge（UI 自动化）}
+
+
+\begin{itemize}
+  \item UI 自动化使用名为 \texttt{bridge.sock} 的单独 UNIX 套接字和 PeekabooBridge JSON 协议。
+  \item 主机优先顺序（客户端侧）：Peekaboo.app → Claude.app → OpenClaw.app → 本地执行。
+  \item 安全性：桥接主机需要允许的 TeamID；仅 DEBUG 的同 UID 逃逸通道由 \texttt{PEEKABOO\_ALLOW\_UNSIGNED\_SOCKET\_CLIENTS=1} 保护（Peekaboo 约定）。
+  \item 参见：\href{/platforms/mac/peekaboo}{PeekabooBridge 用法}了解详情。
+\end{itemize}
+
+
+\subsection{操作流程}
+
+
+\begin{itemize}
+  \item 重启/重建：\texttt{SIGN\_IDENTITY="Apple Development:  ()" scripts/restart-mac.sh}
+  \item 终止现有实例
+  \item Swift 构建 + 打包
+  \item 写入/引导/启动 LaunchAgent
+  \item 单实例：如果具有相同 bundle ID 的另一个实例正在运行，应用会提前退出。
+\end{itemize}
+
+
+\subsection{加固注意事项}
+
+
+\begin{itemize}
+  \item 优先要求所有特权接口的 TeamID 匹配。
+  \item PeekabooBridge：\texttt{PEEKABOO\_ALLOW\_UNSIGNED\_SOCKET\_CLIENTS=1}（仅 DEBUG）可能允许同 UID 调用者用于本地开发。
+  \item 所有通信仅保持本地；不暴露网络套接字。
+  \item TCC 提示仅源自 GUI 应用包；在重建时保持签名的 bundle ID 稳定。
+  \item IPC 加固：套接字模式 \texttt{0600}、令牌、对等 UID 检查、HMAC 质询/响应、短 TTL。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/macos.md ===
+\section{OpenClaw macOS 配套应用（菜单栏 + Gateway 网关代理）}
+
+
+macOS 应用是 OpenClaw 的\textbf{菜单栏配套应用}。它拥有权限，在本地管理/附加到 Gateway 网关（launchd 或手动），并作为节点向智能体暴露 macOS 功能。
+
+\subsection{功能}
+
+
+\begin{itemize}
+  \item 在菜单栏中显示原生通知和状态。
+  \item 拥有 TCC 提示（通知、辅助功能、屏幕录制、麦克风、语音识别、自动化/AppleScript）。
+  \item 运行或连接到 Gateway 网关（本地或远程）。
+  \item 暴露 macOS 专用工具（Canvas、相机、屏幕录制、\texttt{system.run}）。
+  \item 在\textbf{远程}模式下启动本地节点主机服务（launchd），在\textbf{本地}模式下停止它。
+  \item 可选地托管 \textbf{PeekabooBridge} 用于 UI 自动化。
+  \item 根据请求通过 npm/pnpm 安装全局 CLI（\texttt{openclaw}）（不建议使用 bun 作为 Gateway 网关运行时）。
+\end{itemize}
+
+
+\subsection{本地 vs 远程模式}
+
+
+\begin{itemize}
+  \item \textbf{本地}（默认）：如果存在运行中的本地 Gateway 网关，应用附加到它；否则通过 \texttt{openclaw gateway install} 启用 launchd 服务。
+  \item \textbf{远程}：应用通过 SSH/Tailscale 连接到 Gateway 网关，从不启动本地进程。
+\end{itemize}
+
+应用启动本地\textbf{节点主机服务}，以便远程 Gateway 网关可以访问此 Mac。
+应用不会将 Gateway 网关作为子进程生成。
+
+\subsection{Launchd 控制}
+
+
+应用管理一个标记为 \texttt{bot.molt.gateway} 的每用户 LaunchAgent（使用 \texttt{--profile}/\texttt{OPENCLAW\_PROFILE} 时为 \texttt{bot.molt.}；旧版 \texttt{com.openclaw.*} 仍会卸载）。
+
+\begin{lstlisting}[language=bash]
+launchctl kickstart -k gui/$UID/bot.molt.gateway
+launchctl bootout gui/$UID/bot.molt.gateway
+\end{lstlisting}
+
+
+运行命名配置文件时，将标签替换为 \texttt{bot.molt.}。
+
+如果 LaunchAgent 未安装，从应用中启用它或运行 \texttt{openclaw gateway install}。
+
+\subsection{节点功能（mac）}
+
+
+macOS 应用将自身呈现为一个节点。常用命令：
+
+\begin{itemize}
+  \item Canvas：\texttt{canvas.present}、\texttt{canvas.navigate}、\texttt{canvas.eval}、\texttt{canvas.snapshot}、\texttt{canvas.a2ui.*}
+  \item 相机：\texttt{camera.snap}、\texttt{camera.clip}
+  \item 屏幕：\texttt{screen.record}
+  \item 系统：\texttt{system.run}、\texttt{system.notify}
+\end{itemize}
+
+
+节点报告一个 \texttt{permissions} 映射，以便智能体可以决定什么是允许的。
+
+节点服务 + 应用 IPC：
+
+\begin{itemize}
+  \item 当无头节点主机服务运行时（远程模式），它作为节点连接到 Gateway 网关 WS。
+  \item \texttt{system.run} 在 macOS 应用中执行（UI/TCC 上下文）通过本地 Unix 套接字；提示 + 输出保留在应用内。
+\end{itemize}
+
+
+图示（SCI）：
+
+\begin{lstlisting}
+Gateway -> Node Service (WS)
+                 |  IPC (UDS + token + HMAC + TTL)
+                 v
+             Mac App (UI + TCC + system.run)
+\end{lstlisting}
+
+
+\subsection{Exec 审批（system.run）}
+
+
+\texttt{system.run} 由 macOS 应用中的 \textbf{Exec 审批}控制（设置 → Exec approvals）。安全 + 询问 + 允许列表本地存储在 Mac 上：
+
+\begin{lstlisting}
+~/.openclaw/exec-approvals.json
+\end{lstlisting}
+
+
+示例：
+
+\begin{lstlisting}[language=json]
+{
+  "version": 1,
+  "defaults": {
+    "security": "deny",
+    "ask": "on-miss"
+  },
+  "agents": {
+    "main": {
+      "security": "allowlist",
+      "ask": "on-miss",
+      "allowlist": [{ "pattern": "/opt/homebrew/bin/rg" }]
+    }
+  }
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{allowlist} 条目是解析后二进制路径的 glob 模式。
+  \item 在提示中选择"Always Allow"会将该命令添加到允许列表。
+  \item \texttt{system.run} 环境覆盖会被过滤（删除 \texttt{PATH}、\texttt{DYLD\_\textit{}、\texttt{LD\_}}、\texttt{NODE\_OPTIONS}、\texttt{PYTHON\textit{}、\texttt{PERL}}、\texttt{RUBYOPT}），然后与应用的环境合并。
+\end{itemize}
+
+
+\subsection{深度链接}
+
+
+应用为本地操作注册 \texttt{openclaw://} URL 方案。
+
+\subsubsection{openclaw://agent}
+
+
+触发 Gateway 网关 \texttt{agent} 请求。
+
+\begin{lstlisting}[language=bash]
+open 'openclaw://agent?message=Hello%20from%20deep%20link'
+\end{lstlisting}
+
+
+查询参数：
+
+\begin{itemize}
+  \item \texttt{message}（必需）
+  \item \texttt{sessionKey}（可选）
+  \item \texttt{thinking}（可选）
+  \item \texttt{deliver} / \texttt{to} / \texttt{channel}（可选）
+  \item \texttt{timeoutSeconds}（可选）
+  \item \texttt{key}（可选无人值守模式密钥）
+\end{itemize}
+
+
+安全：
+
+\begin{itemize}
+  \item 没有 \texttt{key} 时，应用会提示确认。
+  \item 有有效的 \texttt{key} 时，运行是无人值守的（用于个人自动化）。
+\end{itemize}
+
+
+\subsection{新手引导流程（典型）}
+
+
+\begin{enumerate}
+  \item 安装并启动 \textbf{OpenClaw.app}。
+  \item 完成权限清单（TCC 提示）。
+  \item 确保\textbf{本地}模式处于活动状态且 Gateway 网关正在运行。
+  \item 如果你想要终端访问，安装 CLI。
+\end{enumerate}
+
+
+\subsection{构建和开发工作流程（原生）}
+
+
+\begin{itemize}
+  \item \texttt{cd apps/macos \&\& swift build}
+  \item \texttt{swift run OpenClaw}（或 Xcode）
+  \item 打包应用：\texttt{scripts/package-mac-app.sh}
+\end{itemize}
+
+
+\subsection{调试 Gateway 网关连接（macOS CLI）}
+
+
+使用调试 CLI 来执行与 macOS 应用使用的相同的 Gateway 网关 WebSocket 握手和发现逻辑，而无需启动应用。
+
+\begin{lstlisting}[language=bash]
+cd apps/macos
+swift run openclaw-mac connect --json
+swift run openclaw-mac discover --timeout 3000 --json
+\end{lstlisting}
+
+
+Connect 选项：
+
+\begin{itemize}
+  \item \texttt{--url }：覆盖配置
+  \item \texttt{--mode }：从配置解析（默认：配置或 local）
+  \item \texttt{--probe}：强制进行新的健康探测
+  \item \texttt{--timeout }：请求超时（默认：\texttt{15000}）
+  \item \texttt{--json}：用于比较的结构化输出
+\end{itemize}
+
+
+Discovery 选项：
+
+\begin{itemize}
+  \item \texttt{--include-local}：包含会被过滤为"本地"的 Gateway 网关
+  \item \texttt{--timeout }：总体发现窗口（默认：\texttt{2000}）
+  \item \texttt{--json}：用于比较的结构化输出
+\end{itemize}
+
+
+提示：与 \texttt{openclaw gateway discover --json} 比较，查看 macOS 应用的发现管道（NWBrowser + tailnet DNS-SD 回退）是否与 Node CLI 基于 \texttt{dns-sd} 的发现不同。
+
+\subsection{远程连接管道（SSH 隧道）}
+
+
+当 macOS 应用在\textbf{远程}模式下运行时，它会打开一个 SSH 隧道，以便本地 UI 组件可以像在 localhost 上一样与远程 Gateway 网关通信。
+
+\subsubsection{控制隧道（Gateway 网关 WebSocket 端口）}
+
+
+\begin{itemize}
+  \item \textbf{目的：}健康检查、状态、Web Chat、配置和其他控制平面调用。
+  \item \textbf{本地端口：}Gateway 网关端口（默认 \texttt{18789}），始终稳定。
+  \item \textbf{远程端口：}远程主机上的相同 Gateway 网关端口。
+  \item \textbf{行为：}无随机本地端口；应用复用现有的健康隧道或在需要时重启它。
+  \item \textbf{SSH 形式：}\texttt{ssh -N -L :127.0.0.1:}，带有 BatchMode + ExitOnForwardFailure + keepalive 选项。
+  \item \textbf{IP 报告：}SSH 隧道使用 loopback，因此 Gateway 网关将看到节点 IP 为 \texttt{127.0.0.1}。如果你想要显示真实的客户端 IP，请使用 \textbf{Direct (ws/wss)} 传输（参见 \href{/platforms/mac/remote}{macOS 远程访问}）。
+\end{itemize}
+
+
+有关设置步骤，请参阅 \href{/platforms/mac/remote}{macOS 远程访问}。有关协议详情，请参阅 \href{/gateway/protocol}{Gateway 网关协议}。
+
+\subsection{相关文档}
+
+
+\begin{itemize}
+  \item \href{/gateway}{Gateway 网关运维手册}
+  \item \href{/platforms/mac/bundled-gateway}{Gateway 网关（macOS）}
+  \item \href{/platforms/mac/permissions}{macOS 权限}
+  \item \href{/platforms/mac/canvas}{Canvas}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/oracle.md ===
+\section{在 Oracle Cloud（OCI）上运行 OpenClaw}
+
+
+\subsection{目标}
+
+
+在 Oracle Cloud 的 \textbf{Always Free} ARM 层上运行持久化的 OpenClaw Gateway 网关。
+
+Oracle 的免费层非常适合 OpenClaw（特别是如果你已经有 OCI 账户），但有一些权衡：
+
+\begin{itemize}
+  \item ARM 架构（大多数东西都能工作，但某些二进制文件可能仅支持 x86）
+  \item 容量和注册可能比较麻烦
+\end{itemize}
+
+
+\subsection{成本比较（2026）}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+提供商 & 方案 & 配置 & 价格/月 & 说明 \\
+\hline
+Oracle Cloud & Always Free ARM & 最多 4 OCPU，24GB RAM & \$0 & ARM，容量有限 \\
+\hline
+Hetzner & CX22 & 2 vCPU，4GB RAM & \textasciitilde{} \$4 & 最便宜的付费选项 \\
+\hline
+DigitalOcean & Basic & 1 vCPU，1GB RAM & \$6 & 易用的 UI，文档完善 \\
+\hline
+Vultr & Cloud Compute & 1 vCPU，1GB RAM & \$6 & 多个地区 \\
+\hline
+Linode & Nanode & 1 vCPU，1GB RAM & \$5 & 现为 Akamai 的一部分 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsection{先决条件}
+
+
+\begin{itemize}
+  \item Oracle Cloud 账户（\href{https://www.oracle.com/cloud/free/}{注册}）——如果遇到问题请参阅\href{https://gist.github.com/rssnyder/51e3cfedd730e7dd5f4a816143b25dbd}{社区注册指南}
+  \item Tailscale 账户（在 \href{https://tailscale.com}{tailscale.com} 免费）
+  \item 约 30 分钟
+\end{itemize}
+
+
+\subsection{1) 创建 OCI 实例}
+
+
+\begin{enumerate}
+  \item 登录 \href{https://cloud.oracle.com/}{Oracle Cloud Console}
+  \item 导航到 \textbf{Compute → Instances → Create Instance}
+  \item 配置：
+\end{enumerate}
+
+\begin{itemize}
+  \item \textbf{Name:} \texttt{openclaw}
+  \item \textbf{Image:} Ubuntu 24.04 (aarch64)
+  \item \textbf{Shape:} \texttt{VM.Standard.A1.Flex}（Ampere ARM）
+  \item \textbf{OCPUs:} 2（或最多 4）
+  \item \textbf{Memory:} 12 GB（或最多 24 GB）
+  \item \textbf{Boot volume:} 50 GB（最多 200 GB 免费）
+  \item \textbf{SSH key:} 添加你的公钥
+\end{itemize}
+
+\begin{enumerate}
+  \item 点击 \textbf{Create}
+  \item 记录公网 IP 地址
+\end{enumerate}
+
+
+\textbf{提示：} 如果实例创建失败并显示"Out of capacity"，尝试不同的可用性域或稍后重试。免费层容量有限。
+
+\subsection{2) 连接并更新}
+
+
+\begin{lstlisting}[language=bash]
+# 通过公网 IP 连接
+ssh ubuntu@YOUR_PUBLIC_IP
+
+# 更新系统
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y build-essential
+\end{lstlisting}
+
+
+\textbf{注意：} \texttt{build-essential} 是某些依赖项 ARM 编译所必需的。
+
+\subsection{3) 配置用户和主机名}
+
+
+\begin{lstlisting}[language=bash]
+# 设置主机名
+sudo hostnamectl set-hostname openclaw
+
+# 为 ubuntu 用户设置密码
+sudo passwd ubuntu
+
+# 启用 lingering（注销后保持用户服务运行）
+sudo loginctl enable-linger ubuntu
+\end{lstlisting}
+
+
+\subsection{4) 安装 Tailscale}
+
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --ssh --hostname=openclaw
+\end{lstlisting}
+
+
+这会启用 Tailscale SSH，所以你可以从 tailnet 上的任何设备通过 \texttt{ssh openclaw} 连接——不需要公网 IP。
+
+验证：
+
+\begin{lstlisting}[language=bash]
+tailscale status
+\end{lstlisting}
+
+
+\textbf{从现在开始，通过 Tailscale 连接：} \texttt{ssh ubuntu@openclaw}（或使用 Tailscale IP）。
+
+\subsection{5) 安装 OpenClaw}
+
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://openclaw.ai/install.sh | bash
+source ~/.bashrc
+\end{lstlisting}
+
+
+当提示"How do you want to hatch your bot?"时，选择 \textbf{"Do this later"}。
+
+\begin{quote}
+注意：如果你遇到 ARM 原生构建问题，在使用 Homebrew 之前先从系统包开始（例如 \texttt{sudo apt install -y build-essential}）。
+\end{quote}
+
+
+\subsection{6) 配置 Gateway 网关（loopback + 令牌认证）并启用 Tailscale Serve}
+
+
+使用令牌认证作为默认值。它是可预测的，避免需要任何"不安全认证"的控制 UI 标志。
+
+\begin{lstlisting}[language=bash]
+# 在 VM 上保持 Gateway 网关私有
+openclaw config set gateway.bind loopback
+
+# 要求 Gateway 网关 + 控制 UI 的认证
+openclaw config set gateway.auth.mode token
+openclaw doctor --generate-gateway-token
+
+# 通过 Tailscale Serve 暴露（HTTPS + tailnet 访问）
+openclaw config set gateway.tailscale.mode serve
+openclaw config set gateway.trustedProxies '["127.0.0.1"]'
+
+systemctl --user restart openclaw-gateway
+\end{lstlisting}
+
+
+\subsection{7) 验证}
+
+
+\begin{lstlisting}[language=bash]
+# 检查版本
+openclaw --version
+
+# 检查守护进程状态
+systemctl --user status openclaw-gateway
+
+# 检查 Tailscale Serve
+tailscale serve status
+
+# 测试本地响应
+curl http://localhost:18789
+\end{lstlisting}
+
+
+\subsection{8) 锁定 VCN 安全}
+
+
+现在一切正常工作了，锁定 VCN 以阻止除 Tailscale 之外的所有流量。OCI 的虚拟云网络充当网络边缘的防火墙——流量在到达你的实例之前就被阻止。
+
+\begin{enumerate}
+  \item 在 OCI Console 中转到 \textbf{Networking → Virtual Cloud Networks}
+  \item 点击你的 VCN → \textbf{Security Lists} → Default Security List
+  \item \textbf{移除}除以下之外的所有入站规则：
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{0.0.0.0/0 UDP 41641}（Tailscale）
+\end{itemize}
+
+\begin{enumerate}
+  \item 保留默认出站规则（允许所有出站）
+\end{enumerate}
+
+
+这会在网络边缘阻止端口 22 上的 SSH、HTTP、HTTPS 和其他所有内容。从现在开始，你只能通过 Tailscale 连接。
+
+\hrulefill
+
+
+\subsection{访问控制 UI}
+
+
+从你 Tailscale 网络上的任何设备：
+
+\begin{lstlisting}
+https://openclaw.<tailnet-name>.ts.net/
+\end{lstlisting}
+
+
+将 `\texttt{ 替换为你的 tailnet 名称（在 }tailscale status` 中可见）。
+
+不需要 SSH 隧道。Tailscale 提供：
+
+\begin{itemize}
+  \item HTTPS 加密（自动证书）
+  \item 通过 Tailscale 身份认证
+  \item 从 tailnet 上的任何设备（笔记本电脑、手机等）访问
+\end{itemize}
+
+
+\hrulefill
+
+
+\subsection{安全：VCN + Tailscale（推荐基线）}
+
+
+通过锁定 VCN（仅开放 UDP 41641）并将 Gateway 网关绑定到 loopback，你获得了强大的纵深防御：公共流量在网络边缘被阻止，管理访问通过你的 tailnet 进行。
+
+此设置通常消除了纯粹为了阻止互联网范围的 SSH 暴力破解而需要额外的基于主机的防火墙规则的\textit{需求}——但你仍应保持操作系统更新，运行 \texttt{openclaw security audit}，并验证你没有意外地在公共接口上监听。
+
+\subsubsection{已经受保护的内容}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+传统步骤 & 是否需要？ & 原因 \\
+\hline
+UFW 防火墙 & 否 & VCN 在流量到达实例之前就阻止了 \\
+\hline
+fail2ban & 否 & 如果端口 22 在 VCN 被阻止则无暴力破解 \\
+\hline
+sshd 加固 & 否 & Tailscale SSH 不使用 sshd \\
+\hline
+禁用 root 登录 & 否 & Tailscale 使用 Tailscale 身份，而不是系统用户 \\
+\hline
+仅 SSH 密钥认证 & 否 & Tailscale 通过你的 tailnet 认证 \\
+\hline
+IPv6 加固 & 通常不需要 & 取决于你的 VCN/子网设置；验证实际分配/暴露的内容 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{仍然推荐}
+
+
+\begin{itemize}
+  \item \textbf{凭证权限：} \texttt{chmod 700 \textasciitilde{}/.openclaw}
+  \item \textbf{安全审计：} \texttt{openclaw security audit}
+  \item \textbf{系统更新：} 定期 \texttt{sudo apt update \&\& sudo apt upgrade}
+  \item \textbf{监控 Tailscale：} 在 \href{https://login.tailscale.com/admin}{Tailscale 管理控制台} 中查看设备
+\end{itemize}
+
+
+\subsubsection{验证安全态势}
+
+
+\begin{lstlisting}[language=bash]
+# 确认没有公共端口在监听
+sudo ss -tlnp | grep -v '127.0.0.1\|::1'
+
+# 验证 Tailscale SSH 处于活动状态
+tailscale status | grep -q 'offers: ssh' && echo "Tailscale SSH active"
+
+# 可选：完全禁用 sshd
+sudo systemctl disable --now ssh
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{备用方案：SSH 隧道}
+
+
+如果 Tailscale Serve 不工作，使用 SSH 隧道：
+
+\begin{lstlisting}[language=bash]
+# 从你的本地机器（通过 Tailscale）
+ssh -L 18789:127.0.0.1:18789 ubuntu@openclaw
+\end{lstlisting}
+
+
+然后打开 \texttt{http://localhost:18789}。
+
+\hrulefill
+
+
+\subsection{故障排除}
+
+
+\subsubsection{实例创建失败（"Out of capacity"）}
+
+
+免费层 ARM 实例很受欢迎。尝试：
+
+\begin{itemize}
+  \item 不同的可用性域
+  \item 在非高峰时段（清晨）重试
+  \item 选择 shape 时使用"Always Free"过滤器
+\end{itemize}
+
+
+\subsubsection{Tailscale 无法连接}
+
+
+\begin{lstlisting}[language=bash]
+# 检查状态
+sudo tailscale status
+
+# 重新认证
+sudo tailscale up --ssh --hostname=openclaw --reset
+\end{lstlisting}
+
+
+\subsubsection{Gateway 网关无法启动}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway status
+openclaw doctor --non-interactive
+journalctl --user -u openclaw-gateway -n 50
+\end{lstlisting}
+
+
+\subsubsection{无法访问控制 UI}
+
+
+\begin{lstlisting}[language=bash]
+# 验证 Tailscale Serve 正在运行
+tailscale serve status
+
+# 检查 Gateway 网关是否在监听
+curl http://localhost:18789
+
+# 如需要则重启
+systemctl --user restart openclaw-gateway
+\end{lstlisting}
+
+
+\subsubsection{ARM 二进制文件问题}
+
+
+某些工具可能没有 ARM 构建。检查：
+
+\begin{lstlisting}[language=bash]
+uname -m  # 应该显示 aarch64
+\end{lstlisting}
+
+
+大多数 npm 包工作正常。对于二进制文件，寻找 \texttt{linux-arm64} 或 \texttt{aarch64} 版本。
+
+\hrulefill
+
+
+\subsection{持久化}
+
+
+所有状态存储在：
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/.openclaw/} — 配置、凭证、会话数据
+  \item \texttt{\textasciitilde{}/.openclaw/workspace/} — 工作区（SOUL.md、记忆、产物）
+\end{itemize}
+
+
+定期备份：
+
+\begin{lstlisting}[language=bash]
+tar -czvf openclaw-backup.tar.gz ~/.openclaw ~/.openclaw/workspace
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{另请参阅}
+
+
+\begin{itemize}
+  \item \href{/gateway/remote}{Gateway 网关远程访问} — 其他远程访问模式
+  \item \href{/gateway/tailscale}{Tailscale 集成} — 完整的 Tailscale 文档
+  \item \href{/gateway/configuration}{Gateway 网关配置} — 所有配置选项
+  \item \href{/platforms/digitalocean}{DigitalOcean 指南} — 如果你想要付费 + 更容易注册
+  \item \href{/install/hetzner}{Hetzner 指南} — 基于 Docker 的替代方案
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/raspberry-pi.md ===
+\section{在 Raspberry Pi 上运行 OpenClaw}
+
+
+\subsection{目标}
+
+
+在 Raspberry Pi 上运行持久、常驻的 OpenClaw Gateway 网关，\textbf{一次性成本约 \$35-80}（无月费）。
+
+适用于：
+
+\begin{itemize}
+  \item 24/7 个人 AI 助手
+  \item 家庭自动化中心
+  \item 低功耗、随时可用的 Telegram/WhatsApp 机器人
+\end{itemize}
+
+
+\subsection{硬件要求}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+Pi 型号 & 内存 & 是否可用？ & 说明 \\
+\hline
+\textbf{Pi 5} & 4GB/8GB & ✅ 最佳 & 最快，推荐 \\
+\hline
+\textbf{Pi 4} & 4GB & ✅ 良好 & 大多数用户的最佳选择 \\
+\hline
+\textbf{Pi 4} & 2GB & ✅ 可以 & 可用，添加交换空间 \\
+\hline
+\textbf{Pi 4} & 1GB & ⚠️ 紧张 & 使用交换空间可行，最小配置 \\
+\hline
+\textbf{Pi 3B+} & 1GB & ⚠️ 慢 & 可用但较慢 \\
+\hline
+\textbf{Pi Zero 2 W} & 512MB & ❌ & 不推荐 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\textbf{最低配置：} 1GB 内存，1 核，500MB 磁盘
+\textbf{推荐：} 2GB+ 内存，64 位系统，16GB+ SD 卡（或 USB SSD）
+
+\subsection{你需要准备}
+
+
+\begin{itemize}
+  \item Raspberry Pi 4 或 5（推荐 2GB+）
+  \item MicroSD 卡（16GB+）或 USB SSD（性能更好）
+  \item 电源（推荐官方 Pi 电源）
+  \item 网络连接（以太网或 WiFi）
+  \item 约 30 分钟
+\end{itemize}
+
+
+\subsection{1) 刷写系统}
+
+
+使用 \textbf{Raspberry Pi OS Lite (64-bit)} — 无头服务器不需要桌面。
+
+\begin{enumerate}
+  \item 下载 \href{https://www.raspberrypi.com/software/}{Raspberry Pi Imager}
+  \item 选择系统：\textbf{Raspberry Pi OS Lite (64-bit)}
+  \item 点击齿轮图标（⚙️）预配置：
+\end{enumerate}
+
+\begin{itemize}
+  \item 设置主机名：\texttt{gateway-host}
+  \item 启用 SSH
+  \item 设置用户名/密码
+  \item 配置 WiFi（如果不使用以太网）
+\end{itemize}
+
+\begin{enumerate}
+  \item 刷写到你的 SD 卡 / USB 驱动器
+  \item 插入并启动 Pi
+\end{enumerate}
+
+
+\subsection{2) 通过 SSH 连接}
+
+
+\begin{lstlisting}[language=bash]
+ssh user@gateway-host
+# 或使用 IP 地址
+ssh user@192.168.x.x
+\end{lstlisting}
+
+
+\subsection{3) 系统设置}
+
+
+\begin{lstlisting}[language=bash]
+# 更新系统
+sudo apt update && sudo apt upgrade -y
+
+# 安装必要软件包
+sudo apt install -y git curl build-essential
+
+# 设置时区（对 cron/提醒很重要）
+sudo timedatectl set-timezone America/Chicago  # 改成你的时区
+\end{lstlisting}
+
+
+\subsection{4) 安装 Node.js 22（ARM64）}
+
+
+\begin{lstlisting}[language=bash]
+# 通过 NodeSource 安装 Node.js
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# 验证
+node --version  # 应显示 v22.x.x
+npm --version
+\end{lstlisting}
+
+
+\subsection{5) 添加交换空间（2GB 或更少内存时很重要）}
+
+
+交换空间可防止内存不足崩溃：
+
+\begin{lstlisting}[language=bash]
+# 创建 2GB 交换文件
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# 永久生效
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# 优化低内存（降低 swappiness）
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+\end{lstlisting}
+
+
+\subsection{6) 安装 OpenClaw}
+
+
+\subsubsection{选项 A：标准安装（推荐）}
+
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://openclaw.ai/install.sh | bash
+\end{lstlisting}
+
+
+\subsubsection{选项 B：可修改安装（用于调试）}
+
+
+\begin{lstlisting}[language=bash]
+git clone https://github.com/openclaw/openclaw.git
+cd openclaw
+npm install
+npm run build
+npm link
+\end{lstlisting}
+
+
+可修改安装让你可以直接访问日志和代码 — 对调试 ARM 特定问题很有用。
+
+\subsection{7) 运行新手引导}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+
+按照向导操作：
+
+\begin{enumerate}
+  \item \textbf{Gateway 网关模式：} Local
+  \item \textbf{认证：} 推荐 API 密钥（OAuth 在无头 Pi 上可能不稳定）
+  \item \textbf{渠道：} Telegram 最容易上手
+  \item \textbf{守护进程：} 是（systemd）
+\end{enumerate}
+
+
+\subsection{8) 验证安装}
+
+
+\begin{lstlisting}[language=bash]
+# 检查状态
+openclaw status
+
+# 检查服务
+sudo systemctl status openclaw
+
+# 查看日志
+journalctl -u openclaw -f
+\end{lstlisting}
+
+
+\subsection{9) 访问仪表板}
+
+
+由于 Pi 是无头的，使用 SSH 隧道：
+
+\begin{lstlisting}[language=bash]
+# 从你的笔记本电脑/台式机
+ssh -L 18789:localhost:18789 user@gateway-host
+
+# 然后在浏览器中打开
+open http://localhost:18789
+\end{lstlisting}
+
+
+或使用 Tailscale 实现常驻访问：
+
+\begin{lstlisting}[language=bash]
+# 在 Pi 上
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+
+# 更新配置
+openclaw config set gateway.bind tailnet
+sudo systemctl restart openclaw
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{性能优化}
+
+
+\subsubsection{使用 USB SSD（巨大改进）}
+
+
+SD 卡速度慢且会磨损。USB SSD 可大幅提升性能：
+
+\begin{lstlisting}[language=bash]
+# 检查是否从 USB 启动
+lsblk
+\end{lstlisting}
+
+
+设置请参见 \href{https://www.raspberrypi.com/documentation/computers/raspberry-pi.html\#usb-mass-storage-boot}{Pi USB 启动指南}。
+
+\subsubsection{减少内存使用}
+
+
+\begin{lstlisting}[language=bash]
+# 禁用 GPU 内存分配（无头模式）
+echo 'gpu_mem=16' | sudo tee -a /boot/config.txt
+
+# 如不需要则禁用蓝牙
+sudo systemctl disable bluetooth
+\end{lstlisting}
+
+
+\subsubsection{监控资源}
+
+
+\begin{lstlisting}[language=bash]
+# 检查内存
+free -h
+
+# 检查 CPU 温度
+vcgencmd measure_temp
+
+# 实时监控
+htop
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{ARM 特定说明}
+
+
+\subsubsection{二进制兼容性}
+
+
+大多数 OpenClaw 功能在 ARM64 上可用，但某些外部二进制文件可能需要 ARM 构建：
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+工具 & ARM64 状态 & 说明 \\
+\hline
+Node.js & ✅ & 运行良好 \\
+\hline
+WhatsApp (Baileys) & ✅ & 纯 JS，无问题 \\
+\hline
+Telegram & ✅ & 纯 JS，无问题 \\
+\hline
+gog (Gmail CLI) & ⚠️ & 检查是否有 ARM 版本 \\
+\hline
+Chromium (browser) & ✅ & \texttt{sudo apt install chromium-browser} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+如果某个 skill 失败，检查其二进制文件是否有 ARM 构建。许多 Go/Rust 工具有；有些没有。
+
+\subsubsection{32 位 vs 64 位}
+
+
+\textbf{始终使用 64 位系统。} Node.js 和许多现代工具需要它。使用以下命令检查：
+
+\begin{lstlisting}[language=bash]
+uname -m
+# 应显示：aarch64（64 位）而不是 armv7l（32 位）
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{推荐的模型设置}
+
+
+由于 Pi 只是 Gateway 网关（模型在云端运行），使用基于 API 的模型：
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-20250514",
+        "fallbacks": ["openai/gpt-4o-mini"]
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\textbf{不要尝试在 Pi 上运行本地 LLM} — 即使是小模型也太慢了。让 Claude/GPT 来做繁重的工作。
+
+\hrulefill
+
+
+\subsection{开机自启}
+
+
+新手引导向导会设置这个，但要验证：
+
+\begin{lstlisting}[language=bash]
+# 检查服务是否已启用
+sudo systemctl is-enabled openclaw
+
+# 如果没有则启用
+sudo systemctl enable openclaw
+
+# 开机启动
+sudo systemctl start openclaw
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{故障排除}
+
+
+\subsubsection{内存不足（OOM）}
+
+
+\begin{lstlisting}[language=bash]
+# 检查内存
+free -h
+
+# 添加更多交换空间（见步骤 5）
+# 或减少 Pi 上运行的服务
+\end{lstlisting}
+
+
+\subsubsection{性能慢}
+
+
+\begin{itemize}
+  \item 使用 USB SSD 代替 SD 卡
+  \item 禁用未使用的服务：\texttt{sudo systemctl disable cups bluetooth avahi-daemon}
+  \item 检查 CPU 降频：\texttt{vcgencmd get\_throttled}（应返回 \texttt{0x0}）
+\end{itemize}
+
+
+\subsubsection{服务无法启动}
+
+
+\begin{lstlisting}[language=bash]
+# 检查日志
+journalctl -u openclaw --no-pager -n 100
+
+# 常见修复：重新构建
+cd ~/openclaw  # 如果使用可修改安装
+npm run build
+sudo systemctl restart openclaw
+\end{lstlisting}
+
+
+\subsubsection{ARM 二进制问题}
+
+
+如果某个 skill 失败并显示"exec format error"：
+
+\begin{enumerate}
+  \item 检查该二进制文件是否有 ARM64 构建
+  \item 尝试从源代码构建
+  \item 或使用支持 ARM 的 Docker 容器
+\end{enumerate}
+
+
+\subsubsection{WiFi 断开}
+
+
+对于使用 WiFi 的无头 Pi：
+
+\begin{lstlisting}[language=bash]
+# 禁用 WiFi 电源管理
+sudo iwconfig wlan0 power off
+
+# 永久生效
+echo 'wireless-power off' | sudo tee -a /etc/network/interfaces
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{成本对比}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+设置 & 一次性成本 & 月费 & 说明 \\
+\hline
+\textbf{Pi 4 (2GB)} & \textasciitilde{}\$45 & \$0 & + 电费（约 \$5/年） \\
+\hline
+\textbf{Pi 4 (4GB)} & \textasciitilde{}\$55 & \$0 & 推荐 \\
+\hline
+\textbf{Pi 5 (4GB)} & \textasciitilde{}\$60 & \$0 & 最佳性能 \\
+\hline
+\textbf{Pi 5 (8GB)} & \textasciitilde{}\$80 & \$0 & 过剩但面向未来 \\
+\hline
+DigitalOcean & \$0 & \$6/月 & \$72/年 \\
+\hline
+Hetzner & \$0 & €3.79/月 & 约 \$50/年 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\textbf{回本期：} 与云 VPS 相比，Pi 约 6-12 个月内回本。
+
+\hrulefill
+
+
+\subsection{另请参阅}
+
+
+\begin{itemize}
+  \item \href{/platforms/linux}{Linux 指南} — 通用 Linux 设置
+  \item \href{/platforms/digitalocean}{DigitalOcean 指南} — 云替代方案
+  \item \href{/install/hetzner}{Hetzner 指南} — Docker 设置
+  \item \href{/gateway/tailscale}{Tailscale} — 远程访问
+  \item \href{/nodes}{节点} — 将你的笔记本电脑/手机与 Pi Gateway 网关配对
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: platforms/windows.md ===
+\section{Windows (WSL2)}
+
+
+Windows 上的 OpenClaw 推荐\textbf{通过 WSL2}（推荐 Ubuntu）。CLI + Gateway 网关在 Linux 内运行，这保持了运行时的一致性并使工具兼容性大大提高（Node/Bun/pnpm、Linux 二进制文件、Skills）。原生 Windows 可能更棘手。WSL2 给你完整的 Linux 体验——一条命令安装：\texttt{wsl --install}。
+
+原生 Windows 配套应用已在计划中。
+
+\subsection{安装（WSL2）}
+
+
+\begin{itemize}
+  \item \href{/start/getting-started}{入门指南}（在 WSL 内使用）
+  \item \href{/install/updating}{安装和更新}
+  \item 官方 WSL2 指南（Microsoft）：https://learn.microsoft.com/windows/wsl/install
+\end{itemize}
+
+
+\subsection{Gateway 网关}
+
+
+\begin{itemize}
+  \item \href{/gateway}{Gateway 网关操作手册}
+  \item \href{/gateway/configuration}{配置}
+\end{itemize}
+
+
+\subsection{Gateway 网关服务安装（CLI）}
+
+
+在 WSL2 内：
+
+\begin{lstlisting}
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+
+或：
+
+\begin{lstlisting}
+openclaw gateway install
+\end{lstlisting}
+
+
+或：
+
+\begin{lstlisting}
+openclaw configure
+\end{lstlisting}
+
+
+出现提示时选择 \textbf{Gateway service}。
+
+修复/迁移：
+
+\begin{lstlisting}
+openclaw doctor
+\end{lstlisting}
+
+
+\subsection{高级：通过 LAN 暴露 WSL 服务（portproxy）}
+
+
+WSL 有自己的虚拟网络。如果另一台机器需要访问\textbf{在 WSL 内}运行的服务（SSH、本地 TTS 服务器或 Gateway 网关），你必须将 Windows 端口转发到当前的 WSL IP。WSL IP 在重启后会改变，因此你可能需要刷新转发规则。
+
+示例（以\textbf{管理员身份}运行 PowerShell）：
+
+\begin{lstlisting}
+$Distro = "Ubuntu-24.04"
+$ListenPort = 2222
+$TargetPort = 22
+
+$WslIp = (wsl -d $Distro -- hostname -I).Trim().Split(" ")[0]
+if (-not $WslIp) { throw "WSL IP not found." }
+
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=$ListenPort `
+  connectaddress=$WslIp connectport=$TargetPort
+\end{lstlisting}
+
+
+允许端口通过 Windows 防火墙（一次性）：
+
+\begin{lstlisting}
+New-NetFirewallRule -DisplayName "WSL SSH $ListenPort" -Direction Inbound `
+  -Protocol TCP -LocalPort $ListenPort -Action Allow
+\end{lstlisting}
+
+
+在 WSL 重启后刷新 portproxy：
+
+\begin{lstlisting}
+netsh interface portproxy delete v4tov4 listenport=$ListenPort listenaddress=0.0.0.0 | Out-Null
+netsh interface portproxy add v4tov4 listenport=$ListenPort listenaddress=0.0.0.0 `
+  connectaddress=$WslIp connectport=$TargetPort | Out-Null
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 从另一台机器 SSH 目标是 \textbf{Windows 主机 IP}（示例：\texttt{ssh user@windows-host -p 2222}）。
+  \item 远程节点必须指向\textbf{可访问的} Gateway 网关 URL（不是 \texttt{127.0.0.1}）；使用 \texttt{openclaw status --all} 确认。
+  \item 使用 \texttt{listenaddress=0.0.0.0} 进行 LAN 访问；\texttt{127.0.0.1} 仅保持本地访问。
+  \item 如果你想自动化，注册一个计划任务在登录时运行刷新步骤。
+\end{itemize}
+
+
+\subsection{WSL2 分步安装}
+
+
+\subsubsection{1）安装 WSL2 + Ubuntu}
+
+
+打开 PowerShell（管理员）：
+
+\begin{lstlisting}
+wsl --install
+# Or pick a distro explicitly:
+wsl --list --online
+wsl --install -d Ubuntu-24.04
+\end{lstlisting}
+
+
+如果 Windows 要求则重启。
+
+\subsubsection{2）启用 systemd（Gateway 网关安装所需）}
+
+
+在你的 WSL 终端中：
+
+\begin{lstlisting}[language=bash]
+sudo tee /etc/wsl.conf >/dev/null <<'EOF'
+[boot]
+systemd=true
+EOF
+\end{lstlisting}
+
+
+然后从 PowerShell：
+
+\begin{lstlisting}
+wsl --shutdown
+\end{lstlisting}
+
+
+重新打开 Ubuntu，然后验证：
+
+\begin{lstlisting}[language=bash]
+systemctl --user status
+\end{lstlisting}
+
+
+\subsubsection{3）安装 OpenClaw（在 WSL 内）}
+
+
+在 WSL 内按照 Linux 入门指南流程：
+
+\begin{lstlisting}[language=bash]
+git clone https://github.com/openclaw/openclaw.git
+cd openclaw
+pnpm install
+pnpm ui:build # auto-installs UI deps on first run
+pnpm build
+openclaw onboard
+\end{lstlisting}
+
+
+完整指南：\href{/start/getting-started}{入门指南}
+
+\subsection{Windows 配套应用}
+
+
+我们还没有 Windows 配套应用。如果你想让它实现，欢迎贡献。
+
+
+\clearpage

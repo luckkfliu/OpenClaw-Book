@@ -1,0 +1,6130 @@
+\chapter{工具与技能}
+
+% === 源文件: tools/agent-send.md ===
+\section{openclaw agent（直接智能体运行）}
+
+
+\texttt{openclaw agent} 运行单个智能体回合，无需入站聊天消息。
+默认情况下它\textbf{通过 Gateway 网关}运行；添加 \texttt{--local} 以强制在当前机器上使用嵌入式运行时。
+
+\subsection{行为}
+
+
+\begin{itemize}
+  \item 必需：\texttt{--message }
+  \item 会话选择：
+  \item \texttt{--to } 派生会话键（群组/频道目标保持隔离；直接聊天折叠到 \texttt{main}），\textbf{或}
+  \item \texttt{--session-id } 通过 ID 重用现有会话，\textbf{或}
+  \item \texttt{--agent } 直接定位已配置的智能体（使用该智能体的 \texttt{main} 会话键）
+  \item 运行与正常入站回复相同的嵌入式智能体运行时。
+  \item 思考/详细标志持久化到会话存储中。
+  \item 输出：
+  \item 默认：打印回复文本（加上 \texttt{MEDIA:} 行）
+  \item \texttt{--json}：打印结构化负载 + 元数据
+  \item 可选使用 \texttt{--deliver} + \texttt{--channel} 将回复投递回渠道（目标格式与 \texttt{openclaw message --target} 匹配）。
+  \item 使用 \texttt{--reply-channel}/\texttt{--reply-to}/\texttt{--reply-account} 覆盖投递而不更改会话。
+\end{itemize}
+
+
+如果 Gateway 网关不可达，CLI 会\textbf{回退}到嵌入式本地运行。
+
+\subsection{示例}
+
+
+\begin{lstlisting}[language=bash]
+openclaw agent --to +15555550123 --message "status update"
+openclaw agent --agent ops --message "Summarize logs"
+openclaw agent --session-id 1234 --message "Summarize inbox" --thinking medium
+openclaw agent --to +15555550123 --message "Trace logs" --verbose on --json
+openclaw agent --to +15555550123 --message "Summon reply" --deliver
+openclaw agent --agent ops --message "Generate report" --deliver --reply-channel slack --reply-to "#reports"
+\end{lstlisting}
+
+
+\subsection{标志}
+
+
+\begin{itemize}
+  \item \texttt{--local}：本地运行（需要你的 shell 中有模型提供商 API 密钥）
+  \item \texttt{--deliver}：将回复发送到所选渠道
+  \item \texttt{--channel}：投递渠道（\texttt{whatsapp|telegram|discord|googlechat|slack|signal|imessage}，默认：\texttt{whatsapp}）
+  \item \texttt{--reply-to}：投递目标覆盖
+  \item \texttt{--reply-channel}：投递渠道覆盖
+  \item \texttt{--reply-account}：投递账户 ID 覆盖
+  \item \texttt{--thinking }：持久化思考级别（仅限 GPT-5.2 + Codex 模型）
+  \item \texttt{--verbose }：持久化详细级别
+  \item \texttt{--timeout }：覆盖智能体超时
+  \item \texttt{--json}：输出结构化 JSON
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/apply-patch.md ===
+\section{apply\_patch 工具}
+
+
+使用结构化补丁格式应用文件更改。这非常适合多文件
+或多段编辑，在这些场景下单次 \texttt{edit} 调用会很脆弱。
+
+该工具接受一个 \texttt{input} 字符串，其中包含一个或多个文件操作：
+
+\begin{lstlisting}
+*** Begin Patch
+*** Add File: path/to/file.txt
++line 1
++line 2
+*** Update File: src/app.ts
+@@
+-old line
++new line
+*** Delete File: obsolete.txt
+*** End Patch
+\end{lstlisting}
+
+
+\subsection{参数}
+
+
+\begin{itemize}
+  \item \texttt{input}（必需）：完整的补丁内容，包括 \texttt{\textit{\textbf{ Begin Patch} 和 \texttt{}} End Patch}。
+\end{itemize}
+
+
+\subsection{说明}
+
+
+\begin{itemize}
+  \item 路径相对于工作区根目录解析。
+  \item 在 \texttt{\textit{\textbf{ Update File:} 段中使用 \texttt{}} Move to:} 可重命名文件。
+  \item 需要时使用 \texttt{*** End of File} 标记仅在文件末尾的插入。
+  \item 实验性功能，默认禁用。通过 \texttt{tools.exec.applyPatch.enabled} 启用。
+  \item 仅限 OpenAI（包括 OpenAI Codex）。可选通过
+\end{itemize}
+
+\texttt{tools.exec.applyPatch.allowModels} 按模型进行限制。
+\begin{itemize}
+  \item 配置仅在 \texttt{tools.exec} 下。
+\end{itemize}
+
+
+\subsection{示例}
+
+
+\begin{lstlisting}[language=json]
+{
+  "tool": "apply_patch",
+  "input": "*** Begin Patch\n*** Update File: src/index.ts\n@@\n-const foo = 1\n+const foo = 2\n*** End Patch"
+}
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === 源文件: tools/browser-linux-troubleshooting.md ===
+\section{浏览器故障排除（Linux）}
+
+
+\subsection{问题："Failed to start Chrome CDP on port 18800"}
+
+
+OpenClaw 的浏览器控制服务器无法启动 Chrome/Brave/Edge/Chromium，出现以下错误：
+
+\begin{lstlisting}
+{"error":"Error: Failed to start Chrome CDP on port 18800 for profile \"openclaw\"."}
+\end{lstlisting}
+
+
+\subsubsection{根本原因}
+
+
+在 Ubuntu（和许多 Linux 发行版）上，默认的 Chromium 安装是 \textbf{snap 包}。Snap 的 AppArmor 限制会干扰 OpenClaw 启动和监控浏览器进程的方式。
+
+\texttt{apt install chromium} 命令安装的是一个重定向到 snap 的存根包：
+
+\begin{lstlisting}
+Note, selecting 'chromium-browser' instead of 'chromium'
+chromium-browser is already the newest version (2:1snap1-0ubuntu2).
+\end{lstlisting}
+
+
+这不是真正的浏览器——它只是一个包装器。
+
+\subsubsection{解决方案 1：安装 Google Chrome（推荐）}
+
+
+安装官方 Google Chrome \texttt{.deb} 包，它不受 snap 沙箱限制：
+
+\begin{lstlisting}[language=bash]
+wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo dpkg -i google-chrome-stable_current_amd64.deb
+sudo apt --fix-broken install -y  # if there are dependency errors
+\end{lstlisting}
+
+
+然后更新你的 OpenClaw 配置（\texttt{\textasciitilde{}/.openclaw/openclaw.json}）：
+
+\begin{lstlisting}[language=json]
+{
+  "browser": {
+    "enabled": true,
+    "executablePath": "/usr/bin/google-chrome-stable",
+    "headless": true,
+    "noSandbox": true
+  }
+}
+\end{lstlisting}
+
+
+\subsubsection{解决方案 2：使用 Snap Chromium 的仅附加模式}
+
+
+如果你必须使用 snap Chromium，配置 OpenClaw 附加到手动启动的浏览器：
+
+\begin{enumerate}
+  \item 更新配置：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  "browser": {
+    "enabled": true,
+    "attachOnly": true,
+    "headless": true,
+    "noSandbox": true
+  }
+}
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 手动启动 Chromium：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+chromium-browser --headless --no-sandbox --disable-gpu \
+  --remote-debugging-port=18800 \
+  --user-data-dir=$HOME/.openclaw/browser/openclaw/user-data \
+  about:blank &
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 可选创建 systemd 用户服务以自动启动 Chrome：
+\end{enumerate}
+
+
+\begin{lstlisting}
+# ~/.config/systemd/user/openclaw-browser.service
+[Unit]
+Description=OpenClaw Browser (Chrome CDP)
+After=network.target
+
+[Service]
+ExecStart=/snap/bin/chromium --headless --no-sandbox --disable-gpu --remote-debugging-port=18800 --user-data-dir=%h/.openclaw/browser/openclaw/user-data about:blank
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+\end{lstlisting}
+
+
+启用：\texttt{systemctl --user enable --now openclaw-browser.service}
+
+\subsubsection{验证浏览器是否工作}
+
+
+检查状态：
+
+\begin{lstlisting}[language=bash]
+curl -s http://127.0.0.1:18791/ | jq '{running, pid, chosenBrowser}'
+\end{lstlisting}
+
+
+测试浏览：
+
+\begin{lstlisting}[language=bash]
+curl -s -X POST http://127.0.0.1:18791/start
+curl -s http://127.0.0.1:18791/tabs
+\end{lstlisting}
+
+
+\subsubsection{配置参考}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+选项 & 描述 & 默认值 \\
+\hline
+\texttt{browser.enabled} & 启用浏览器控制 & \texttt{true} \\
+\hline
+\texttt{browser.executablePath} & Chromium 系浏览器二进制文件路径（Chrome/Brave/Edge/Chromium） & 自动检测（当默认浏览器是 Chromium 系时优先使用） \\
+\hline
+\texttt{browser.headless} & 无 GUI 运行 & \texttt{false} \\
+\hline
+\texttt{browser.noSandbox} & 添加 \texttt{--no-sandbox} 标志（某些 Linux 设置需要） & \texttt{false} \\
+\hline
+\texttt{browser.attachOnly} & 不启动浏览器，仅附加到现有浏览器 & \texttt{false} \\
+\hline
+\texttt{browser.cdpPort} & Chrome DevTools Protocol 端口 & \texttt{18800} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{问题："Chrome extension relay is running, but no tab is connected"}
+
+
+你正在使用 \texttt{chrome} 配置文件（扩展中继）。它期望 OpenClaw 浏览器扩展附加到一个活动标签页。
+
+修复选项：
+
+\begin{enumerate}
+  \item \textbf{使用托管浏览器：} \texttt{openclaw browser start --browser-profile openclaw}
+\end{enumerate}
+
+（或设置 \texttt{browser.defaultProfile: "openclaw"}）。
+\begin{enumerate}
+  \item \textbf{使用扩展中继：} 安装扩展，打开一个标签页，然后点击 OpenClaw 扩展图标来附加它。
+\end{enumerate}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{chrome} 配置文件在可能时使用你的\textbf{系统默认 Chromium 浏览器}。
+  \item 本地 \texttt{openclaw} 配置文件自动分配 \texttt{cdpPort}/\texttt{cdpUrl}；仅为远程 CDP 设置这些。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/browser-login.md ===
+\section{浏览器登录 + X/Twitter 发帖}
+
+
+\subsection{手动登录（推荐）}
+
+
+当网站需要登录时，请在\textbf{主机}浏览器配置文件（openclaw 浏览器）中\textbf{手动登录}。
+
+\textbf{不要}将你的凭证提供给模型。自动登录通常会触发反机器人防御并可能锁定账户。
+
+返回主浏览器文档：\href{/tools/browser}{浏览器}。
+
+\subsection{使用哪个 Chrome 配置文件？}
+
+
+OpenClaw 控制一个\textbf{专用的 Chrome 配置文件}（名为 \texttt{openclaw}，橙色调 UI）。这与你的日常浏览器配置文件是分开的。
+
+两种简单的访问方式：
+
+\begin{enumerate}
+  \item \textbf{让智能体打开浏览器}，然后你自己登录。
+  \item \textbf{通过 CLI 打开}：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw browser start
+openclaw browser open https://x.com
+\end{lstlisting}
+
+
+如果你有多个配置文件，传入 \texttt{--browser-profile }（默认是 \texttt{openclaw}）。
+
+\subsection{X/Twitter：推荐流程}
+
+
+\begin{itemize}
+  \item \textbf{阅读/搜索/话题：} 使用 \textbf{bird} CLI Skills（无浏览器，稳定）。
+  \item 仓库：https://github.com/steipete/bird
+  \item \textbf{发布更新：} 使用\textbf{主机}浏览器（手动登录）。
+\end{itemize}
+
+
+\subsection{沙箱隔离 + 主机浏览器访问}
+
+
+沙箱隔离的浏览器会话\textbf{更容易}触发机器人检测。对于 X/Twitter（和其他严格的网站），优先使用\textbf{主机}浏览器。
+
+如果智能体在沙箱中，浏览器工具默认使用沙箱。要允许主机控制：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      sandbox: {
+        mode: "non-main",
+        browser: {
+          allowHostControl: true,
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+然后定位主机浏览器：
+
+\begin{lstlisting}[language=bash]
+openclaw browser open https://x.com --browser-profile openclaw --target host
+\end{lstlisting}
+
+
+或者为发布更新的智能体禁用沙箱隔离。
+
+
+\clearpage
+
+% === 源文件: tools/browser.md ===
+\section{浏览器（openclaw 托管）}
+
+
+OpenClaw 可以运行一个由智能体控制的\textbf{专用 Chrome/Brave/Edge/Chromium 配置文件}。
+它与你的个人浏览器隔离，通过 Gateway 网关内部的小型本地控制服务进行管理（仅限 loopback）。
+
+新手视角：
+
+\begin{itemize}
+  \item 把它想象成一个\textbf{独立的、仅供智能体使用的浏览器}。
+  \item \texttt{openclaw} 配置文件\textbf{不会}触及你的个人浏览器配置文件。
+  \item 智能体可以在安全的通道中\textbf{打开标签页、读取页面、点击和输入}。
+  \item 默认的 \texttt{chrome} 配置文件通过扩展中继使用\textbf{系统默认的 Chromium 浏览器}；切换到 \texttt{openclaw} 可使用隔离的托管浏览器。
+\end{itemize}
+
+
+\subsection{功能概览}
+
+
+\begin{itemize}
+  \item 一个名为 \textbf{openclaw} 的独立浏览器配置文件（默认橙色主题）。
+  \item 确定性标签页控制（列出/打开/聚焦/关闭）。
+  \item 智能体操作（点击/输入/拖动/选择）、快照、截图、PDF。
+  \item 可选的多配置文件支持（\texttt{openclaw}、\texttt{work}、\texttt{remote} 等）。
+\end{itemize}
+
+
+此浏览器\textbf{不是}你的日常浏览器。它是一个安全、隔离的界面，用于智能体自动化和验证。
+
+\subsection{快速开始}
+
+
+\begin{lstlisting}[language=bash]
+openclaw browser --browser-profile openclaw status
+openclaw browser --browser-profile openclaw start
+openclaw browser --browser-profile openclaw open https://example.com
+openclaw browser --browser-profile openclaw snapshot
+\end{lstlisting}
+
+
+如果出现"Browser disabled"，请在配置中启用它（见下文）并重启 Gateway 网关。
+
+\subsection{配置文件：openclaw 与 chrome}
+
+
+\begin{itemize}
+  \item \texttt{openclaw}：托管的隔离浏览器（无需扩展）。
+  \item \texttt{chrome}：到你\textbf{系统浏览器}的扩展中继（需要将 OpenClaw 扩展附加到标签页）。
+\end{itemize}
+
+
+如果你希望默认使用托管模式，请设置 \texttt{browser.defaultProfile: "openclaw"}。
+
+\subsection{配置}
+
+
+浏览器设置位于 \texttt{\textasciitilde{}/.openclaw/openclaw.json}。
+
+\begin{lstlisting}[language=json]
+{
+  browser: {
+    enabled: true, // default: true
+    // cdpUrl: "http://127.0.0.1:18792", // legacy single-profile override
+    remoteCdpTimeoutMs: 1500, // remote CDP HTTP timeout (ms)
+    remoteCdpHandshakeTimeoutMs: 3000, // remote CDP WebSocket handshake timeout (ms)
+    defaultProfile: "chrome",
+    color: "#FF4500",
+    headless: false,
+    noSandbox: false,
+    attachOnly: false,
+    executablePath: "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    profiles: {
+      openclaw: { cdpPort: 18800, color: "#FF4500" },
+      work: { cdpPort: 18801, color: "#0066CC" },
+      remote: { cdpUrl: "http://10.0.0.42:9222", color: "#00AA00" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 浏览器控制服务绑定到 loopback 上的端口，该端口从 \texttt{gateway.port} 派生（默认：\texttt{18791}，即 gateway + 2）。中继使用下一个端口（\texttt{18792}）。
+  \item 如果你覆盖了 Gateway 网关端口（\texttt{gateway.port} 或 \texttt{OPENCLAW\_GATEWAY\_PORT}），派生的浏览器端口会相应调整以保持在同一"系列"中。
+  \item 未设置时，\texttt{cdpUrl} 默认为中继端口。
+  \item \texttt{remoteCdpTimeoutMs} 适用于远程（非 loopback）CDP 可达性检查。
+  \item \texttt{remoteCdpHandshakeTimeoutMs} 适用于远程 CDP WebSocket 可达性检查。
+  \item \texttt{attachOnly: true} 表示"永不启动本地浏览器；仅在浏览器已运行时附加"。
+  \item \texttt{color} + 每个配置文件的 \texttt{color} 为浏览器 UI 着色，以便你能看到哪个配置文件处于活动状态。
+  \item 默认配置文件是 \texttt{chrome}（扩展中继）。使用 \texttt{defaultProfile: "openclaw"} 来使用托管浏览器。
+  \item 自动检测顺序：如果系统默认浏览器是基于 Chromium 的则使用它；否则 Chrome → Brave → Edge → Chromium → Chrome Canary。
+  \item 本地 \texttt{openclaw} 配置文件会自动分配 \texttt{cdpPort}/\texttt{cdpUrl} — 仅为远程 CDP 设置这些。
+\end{itemize}
+
+
+\subsection{使用 Brave（或其他基于 Chromium 的浏览器）}
+
+
+如果你的\textbf{系统默认}浏览器是基于 Chromium 的（Chrome/Brave/Edge 等），OpenClaw 会自动使用它。设置 \texttt{browser.executablePath} 可覆盖自动检测：
+
+CLI 示例：
+
+\begin{lstlisting}[language=bash]
+openclaw config set browser.executablePath "/usr/bin/google-chrome"
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=json]
+// macOS
+{
+  browser: {
+    executablePath: "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+  }
+}
+
+// Windows
+{
+  browser: {
+    executablePath: "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
+  }
+}
+
+// Linux
+{
+  browser: {
+    executablePath: "/usr/bin/brave-browser"
+  }
+}
+\end{lstlisting}
+
+
+\subsection{本地控制与远程控制}
+
+
+\begin{itemize}
+  \item \textbf{本地控制（默认）：} Gateway 网关启动 loopback 控制服务，可以启动本地浏览器。
+  \item \textbf{远程控制（节点主机）：} 在有浏览器的机器上运行节点主机；Gateway 网关将浏览器操作代理到该节点。
+  \item \textbf{远程 CDP：} 设置 \texttt{browser.profiles..cdpUrl}（或 \texttt{browser.cdpUrl}）以附加到远程的基于 Chromium 的浏览器。在这种情况下，OpenClaw 不会启动本地浏览器。
+\end{itemize}
+
+
+远程 CDP URL 可以包含认证信息：
+
+\begin{itemize}
+  \item 查询令牌（例如 \texttt{https://provider.example?token=}）
+  \item HTTP Basic 认证（例如 \texttt{https://user:pass@provider.example}）
+\end{itemize}
+
+
+OpenClaw 在调用 \texttt{/json/*} 端点和连接 CDP WebSocket 时会保留认证信息。建议使用环境变量或密钥管理器存储令牌，而不是将其提交到配置文件中。
+
+\subsection{节点浏览器代理（零配置默认）}
+
+
+如果你在有浏览器的机器上运行\textbf{节点主机}，OpenClaw 可以自动将浏览器工具调用路由到该节点，无需任何额外的浏览器配置。这是远程 Gateway 网关的默认路径。
+
+注意事项：
+
+\begin{itemize}
+  \item 节点主机通过\textbf{代理命令}暴露其本地浏览器控制服务器。
+  \item 配置文件来自节点自己的 \texttt{browser.profiles} 配置（与本地相同）。
+  \item 如果不需要可以禁用：
+  \item 在节点上：\texttt{nodeHost.browserProxy.enabled=false}
+  \item 在 Gateway 网关上：\texttt{gateway.nodes.browser.mode="off"}
+\end{itemize}
+
+
+\subsection{Browserless（托管远程 CDP）}
+
+
+\href{https://browserless.io}{Browserless} 是一个托管的 Chromium 服务，通过 HTTPS 暴露 CDP 端点。你可以将 OpenClaw 浏览器配置文件指向 Browserless 区域端点，并使用你的 API 密钥进行认证。
+
+示例：
+
+\begin{lstlisting}[language=json]
+{
+  browser: {
+    enabled: true,
+    defaultProfile: "browserless",
+    remoteCdpTimeoutMs: 2000,
+    remoteCdpHandshakeTimeoutMs: 4000,
+    profiles: {
+      browserless: {
+        cdpUrl: "https://production-sfo.browserless.io?token=<BROWSERLESS_API_KEY>",
+        color: "#00AA00",
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 将 `` 替换为你真实的 Browserless 令牌。
+  \item 选择与你的 Browserless 账户匹配的区域端点（请参阅其文档）。
+\end{itemize}
+
+
+\subsection{安全性}
+
+
+核心理念：
+
+\begin{itemize}
+  \item 浏览器控制仅限 loopback；访问通过 Gateway 网关的认证或节点配对进行。
+  \item 将 Gateway 网关和任何节点主机保持在私有网络上（Tailscale）；避免公开暴露。
+  \item 将远程 CDP URL/令牌视为机密；优先使用环境变量或密钥管理器。
+\end{itemize}
+
+
+远程 CDP 提示：
+
+\begin{itemize}
+  \item 尽可能使用 HTTPS 端点和短期令牌。
+  \item 避免在配置文件中直接嵌入长期令牌。
+\end{itemize}
+
+
+\subsection{配置文件（多浏览器）}
+
+
+OpenClaw 支持多个命名配置文件（路由配置）。配置文件可以是：
+
+\begin{itemize}
+  \item \textbf{openclaw 托管}：具有独立用户数据目录和 CDP 端口的专用基于 Chromium 的浏览器实例
+  \item \textbf{远程}：显式 CDP URL（在其他地方运行的基于 Chromium 的浏览器）
+  \item \textbf{扩展中继}：通过本地中继 + Chrome 扩展访问你现有的 Chrome 标签页
+\end{itemize}
+
+
+默认值：
+
+\begin{itemize}
+  \item 如果缺少 \texttt{openclaw} 配置文件，会自动创建。
+  \item \texttt{chrome} 配置文件是内置的，用于 Chrome 扩展中继（默认指向 \texttt{http://127.0.0.1:18792}）。
+  \item 本地 CDP 端口默认从 \textbf{18800–18899} 分配。
+  \item 删除配置文件会将其本地数据目录移至回收站。
+\end{itemize}
+
+
+所有控制端点接受 \texttt{?profile=}；CLI 使用 \texttt{--browser-profile}。
+
+\subsection{Chrome 扩展中继（使用你现有的 Chrome）}
+
+
+OpenClaw 还可以通过本地 CDP 中继 + Chrome 扩展驱动\textbf{你现有的 Chrome 标签页}（无需单独的"openclaw"Chrome 实例）。
+
+完整指南：\href{/tools/chrome-extension}{Chrome 扩展}
+
+流程：
+
+\begin{itemize}
+  \item Gateway 网关在本地运行（同一台机器）或节点主机在浏览器所在机器上运行。
+  \item 本地\textbf{中继服务器}在 loopback 的 \texttt{cdpUrl} 上监听（默认：\texttt{http://127.0.0.1:18792}）。
+  \item 你点击标签页上的 \textbf{OpenClaw Browser Relay} 扩展图标来附加（它不会自动附加）。
+  \item 智能体通过选择正确的配置文件，使用普通的 \texttt{browser} 工具控制该标签页。
+\end{itemize}
+
+
+如果 Gateway 网关在其他地方运行，请在浏览器所在机器上运行节点主机，以便 Gateway 网关可以代理浏览器操作。
+
+\subsubsection{沙箱会话}
+
+
+如果智能体会话是沙箱隔离的，\texttt{browser} 工具可能默认为 \texttt{target="sandbox"}（沙箱浏览器）。
+Chrome 扩展中继接管需要主机浏览器控制，因此要么：
+
+\begin{itemize}
+  \item 在非沙箱模式下运行会话，或者
+  \item 设置 \texttt{agents.defaults.sandbox.browser.allowHostControl: true} 并在调用工具时使用 \texttt{target="host"}。
+\end{itemize}
+
+
+\subsubsection{设置}
+
+
+\begin{enumerate}
+  \item 加载扩展（开发/未打包）：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw browser extension install
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item Chrome → \texttt{chrome://extensions} → 启用"开发者模式"
+  \item "加载已解压的扩展程序" → 选择 \texttt{openclaw browser extension path} 打印的目录
+  \item 固定扩展，然后在你想要控制的标签页上点击它（徽章显示 \texttt{ON}）。
+\end{itemize}
+
+
+\begin{enumerate}
+  \item 使用它：
+\end{enumerate}
+
+
+\begin{itemize}
+  \item CLI：\texttt{openclaw browser --browser-profile chrome tabs}
+  \item 智能体工具：\texttt{browser} 配合 \texttt{profile="chrome"}
+\end{itemize}
+
+
+可选：如果你想要不同的名称或中继端口，创建你自己的配置文件：
+
+\begin{lstlisting}[language=bash]
+openclaw browser create-profile \
+  --name my-chrome \
+  --driver extension \
+  --cdp-url http://127.0.0.1:18792 \
+  --color "#00AA00"
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 此模式依赖 Playwright-on-CDP 进行大多数操作（截图/快照/操作）。
+  \item 再次点击扩展图标可分离。
+\end{itemize}
+
+
+\subsection{隔离保证}
+
+
+\begin{itemize}
+  \item \textbf{专用用户数据目录}：永不触及你的个人浏览器配置文件。
+  \item \textbf{专用端口}：避免使用 \texttt{9222} 以防止与开发工作流冲突。
+  \item \textbf{确定性标签页控制}：通过 \texttt{targetId} 定位标签页，而非"最后一个标签页"。
+\end{itemize}
+
+
+\subsection{浏览器选择}
+
+
+本地启动时，OpenClaw 选择第一个可用的：
+
+\begin{enumerate}
+  \item Chrome
+  \item Brave
+  \item Edge
+  \item Chromium
+  \item Chrome Canary
+\end{enumerate}
+
+
+你可以使用 \texttt{browser.executablePath} 覆盖。
+
+平台：
+
+\begin{itemize}
+  \item macOS：检查 \texttt{/Applications} 和 \texttt{\textasciitilde{}/Applications}。
+  \item Linux：查找 \texttt{google-chrome}、\texttt{brave}、\texttt{microsoft-edge}、\texttt{chromium} 等。
+  \item Windows：检查常见安装位置。
+\end{itemize}
+
+
+\subsection{控制 API（可选）}
+
+
+仅用于本地集成，Gateway 网关暴露一个小型的 loopback HTTP API：
+
+\begin{itemize}
+  \item 状态/启动/停止：\texttt{GET /}、\texttt{POST /start}、\texttt{POST /stop}
+  \item 标签页：\texttt{GET /tabs}、\texttt{POST /tabs/open}、\texttt{POST /tabs/focus}、\texttt{DELETE /tabs/:targetId}
+  \item 快照/截图：\texttt{GET /snapshot}、\texttt{POST /screenshot}
+  \item 操作：\texttt{POST /navigate}、\texttt{POST /act}
+  \item 钩子：\texttt{POST /hooks/file-chooser}、\texttt{POST /hooks/dialog}
+  \item 下载：\texttt{POST /download}、\texttt{POST /wait/download}
+  \item 调试：\texttt{GET /console}、\texttt{POST /pdf}
+  \item 调试：\texttt{GET /errors}、\texttt{GET /requests}、\texttt{POST /trace/start}、\texttt{POST /trace/stop}、\texttt{POST /highlight}
+  \item 网络：\texttt{POST /response/body}
+  \item 状态：\texttt{GET /cookies}、\texttt{POST /cookies/set}、\texttt{POST /cookies/clear}
+  \item 状态：\texttt{GET /storage/:kind}、\texttt{POST /storage/:kind/set}、\texttt{POST /storage/:kind/clear}
+  \item 设置：\texttt{POST /set/offline}、\texttt{POST /set/headers}、\texttt{POST /set/credentials}、\texttt{POST /set/geolocation}、\texttt{POST /set/media}、\texttt{POST /set/timezone}、\texttt{POST /set/locale}、\texttt{POST /set/device}
+\end{itemize}
+
+
+所有端点接受 \texttt{?profile=}。
+
+\subsubsection{Playwright 要求}
+
+
+某些功能（navigate/act/AI 快照/角色快照、元素截图、PDF）需要 Playwright。如果未安装 Playwright，这些端点会返回明确的 501 错误。ARIA 快照和基本截图对于 openclaw 托管的 Chrome 仍然有效。对于 Chrome 扩展中继驱动程序，ARIA 快照和截图需要 Playwright。
+
+如果你看到 \texttt{Playwright is not available in this gateway build}，请安装完整的 Playwright 包（不是 \texttt{playwright-core}）并重启 Gateway 网关，或者重新安装带浏览器支持的 OpenClaw。
+
+\paragraph{Docker Playwright 安装}
+
+
+如果你的 Gateway 网关在 Docker 中运行，避免使用 \texttt{npx playwright}（npm 覆盖冲突）。改用捆绑的 CLI：
+
+\begin{lstlisting}[language=bash]
+docker compose run --rm openclaw-cli \
+  node /app/node_modules/playwright-core/cli.js install chromium
+\end{lstlisting}
+
+
+要持久化浏览器下载，设置 \texttt{PLAYWRIGHT\_BROWSERS\_PATH}（例如 \texttt{/home/node/.cache/ms-playwright}）并确保 \texttt{/home/node} 通过 \texttt{OPENCLAW\_HOME\_VOLUME} 或绑定挂载持久化。参见 \href{/install/docker}{Docker}。
+
+\subsection{工作原理（内部）}
+
+
+高层流程：
+
+\begin{itemize}
+  \item 一个小型\textbf{控制服务器}接受 HTTP 请求。
+  \item 它通过 \textbf{CDP} 连接到基于 Chromium 的浏览器（Chrome/Brave/Edge/Chromium）。
+  \item 对于高级操作（点击/输入/快照/PDF），它在 CDP 之上使用 \textbf{Playwright}。
+  \item 当缺少 Playwright 时，仅非 Playwright 操作可用。
+\end{itemize}
+
+
+这种设计使智能体保持在稳定、确定性的接口上，同时让你可以切换本地/远程浏览器和配置文件。
+
+\subsection{CLI 快速参考}
+
+
+所有命令接受 \texttt{--browser-profile } 以定位特定配置文件。
+所有命令也接受 \texttt{--json} 以获得机器可读的输出（稳定的负载）。
+
+基础操作：
+
+\begin{itemize}
+  \item \texttt{openclaw browser status}
+  \item \texttt{openclaw browser start}
+  \item \texttt{openclaw browser stop}
+  \item \texttt{openclaw browser tabs}
+  \item \texttt{openclaw browser tab}
+  \item \texttt{openclaw browser tab new}
+  \item \texttt{openclaw browser tab select 2}
+  \item \texttt{openclaw browser tab close 2}
+  \item \texttt{openclaw browser open https://example.com}
+  \item \texttt{openclaw browser focus abcd1234}
+  \item \texttt{openclaw browser close abcd1234}
+\end{itemize}
+
+
+检查：
+
+\begin{itemize}
+  \item \texttt{openclaw browser screenshot}
+  \item \texttt{openclaw browser screenshot --full-page}
+  \item \texttt{openclaw browser screenshot --ref 12}
+  \item \texttt{openclaw browser screenshot --ref e12}
+  \item \texttt{openclaw browser snapshot}
+  \item \texttt{openclaw browser snapshot --format aria --limit 200}
+  \item \texttt{openclaw browser snapshot --interactive --compact --depth 6}
+  \item \texttt{openclaw browser snapshot --efficient}
+  \item \texttt{openclaw browser snapshot --labels}
+  \item \texttt{openclaw browser snapshot --selector "\#main" --interactive}
+  \item \texttt{openclaw browser snapshot --frame "iframe\#main" --interactive}
+  \item \texttt{openclaw browser console --level error}
+  \item \texttt{openclaw browser errors --clear}
+  \item \texttt{openclaw browser requests --filter api --clear}
+  \item \texttt{openclaw browser pdf}
+  \item \texttt{openclaw browser responsebody "**/api" --max-chars 5000}
+\end{itemize}
+
+
+操作：
+
+\begin{itemize}
+  \item \texttt{openclaw browser navigate https://example.com}
+  \item \texttt{openclaw browser resize 1280 720}
+  \item \texttt{openclaw browser click 12 --double}
+  \item \texttt{openclaw browser click e12 --double}
+  \item \texttt{openclaw browser type 23 "hello" --submit}
+  \item \texttt{openclaw browser press Enter}
+  \item \texttt{openclaw browser hover 44}
+  \item \texttt{openclaw browser scrollintoview e12}
+  \item \texttt{openclaw browser drag 10 11}
+  \item \texttt{openclaw browser select 9 OptionA OptionB}
+  \item \texttt{openclaw browser download e12 /tmp/report.pdf}
+  \item \texttt{openclaw browser waitfordownload /tmp/report.pdf}
+  \item \texttt{openclaw browser upload /tmp/file.pdf}
+  \item \texttt{openclaw browser fill --fields '[\{"ref":"1","type":"text","value":"Ada"\}]'}
+  \item \texttt{openclaw browser dialog --accept}
+  \item \texttt{openclaw browser wait --text "Done"}
+  \item \texttt{openclaw browser wait "\#main" --url "**/dash" --load networkidle --fn "window.ready===true"}
+  \item \texttt{openclaw browser evaluate --fn '(el) => el.textContent' --ref 7}
+  \item \texttt{openclaw browser highlight e12}
+  \item \texttt{openclaw browser trace start}
+  \item \texttt{openclaw browser trace stop}
+\end{itemize}
+
+
+状态：
+
+\begin{itemize}
+  \item \texttt{openclaw browser cookies}
+  \item \texttt{openclaw browser cookies set session abc123 --url "https://example.com"}
+  \item \texttt{openclaw browser cookies clear}
+  \item \texttt{openclaw browser storage local get}
+  \item \texttt{openclaw browser storage local set theme dark}
+  \item \texttt{openclaw browser storage session clear}
+  \item \texttt{openclaw browser set offline on}
+  \item \texttt{openclaw browser set headers --json '\{"X-Debug":"1"\}'}
+  \item \texttt{openclaw browser set credentials user pass}
+  \item \texttt{openclaw browser set credentials --clear}
+  \item \texttt{openclaw browser set geo 37.7749 -122.4194 --origin "https://example.com"}
+  \item \texttt{openclaw browser set geo --clear}
+  \item \texttt{openclaw browser set media dark}
+  \item \texttt{openclaw browser set timezone America/New\_York}
+  \item \texttt{openclaw browser set locale en-US}
+  \item \texttt{openclaw browser set device "iPhone 14"}
+\end{itemize}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{upload} 和 \texttt{dialog} 是\textbf{预备}调用；在触发选择器/对话框的点击/按键之前运行它们。
+  \item \texttt{upload} 也可以通过 \texttt{--input-ref} 或 \texttt{--element} 直接设置文件输入。
+  \item \texttt{snapshot}：
+  \item \texttt{--format ai}（安装 Playwright 时的默认值）：返回带有数字 ref 的 AI 快照（\texttt{aria-ref=""}）。
+  \item \texttt{--format aria}：返回无障碍树（无 ref；仅供检查）。
+  \item \texttt{--efficient}（或 \texttt{--mode efficient}）：紧凑角色快照预设（interactive + compact + depth + 较低的 maxChars）。
+  \item 配置默认值（仅限工具/CLI）：设置 \texttt{browser.snapshotDefaults.mode: "efficient"} 以在调用者未传递模式时使用高效快照（参见 \href{/gateway/configuration\#browser-openclaw-managed-browser}{Gateway 网关配置}）。
+  \item 角色快照选项（\texttt{--interactive}、\texttt{--compact}、\texttt{--depth}、\texttt{--selector}）强制使用带有 \texttt{ref=e12} 等 ref 的基于角色的快照。
+  \item \texttt{--frame ""} 将角色快照范围限定到 iframe（与 \texttt{e12} 等角色 ref 配合使用）。
+  \item \texttt{--interactive} 输出一个扁平的、易于选择的交互元素列表（最适合驱动操作）。
+  \item \texttt{--labels} 添加一个带有叠加 ref 标签的视口截图（打印 \texttt{MEDIA:}）。
+  \item \texttt{click}/\texttt{type} 等需要来自 \texttt{snapshot} 的 \texttt{ref}（数字 \texttt{12} 或角色 ref \texttt{e12}）。
+\end{itemize}
+
+操作故意不支持 CSS 选择器。
+
+\subsection{快照和 ref}
+
+
+OpenClaw 支持两种"快照"风格：
+
+\begin{itemize}
+  \item \textbf{AI 快照（数字 ref）}：\texttt{openclaw browser snapshot}（默认；\texttt{--format ai}）
+  \item 输出：包含数字 ref 的文本快照。
+  \item 操作：\texttt{openclaw browser click 12}、\texttt{openclaw browser type 23 "hello"}。
+  \item 内部通过 Playwright 的 \texttt{aria-ref} 解析 ref。
+\end{itemize}
+
+
+\begin{itemize}
+  \item \textbf{角色快照（角色 ref 如 \texttt{e12}）}：\texttt{openclaw browser snapshot --interactive}（或 \texttt{--compact}、\texttt{--depth}、\texttt{--selector}、\texttt{--frame}）
+  \item 输出：带有 \texttt{[ref=e12]}（和可选的 \texttt{[nth=1]}）的基于角色的列表/树。
+  \item 操作：\texttt{openclaw browser click e12}、\texttt{openclaw browser highlight e12}。
+  \item 内部通过 \texttt{getByRole(...)}（加上重复项的 \texttt{nth()}）解析 ref。
+  \item 添加 \texttt{--labels} 可包含带有叠加 \texttt{e12} 标签的视口截图。
+\end{itemize}
+
+
+ref 行为：
+
+\begin{itemize}
+  \item ref 在\textbf{导航之间不稳定}；如果出错，重新运行 \texttt{snapshot} 并使用新的 ref。
+  \item 如果角色快照是使用 \texttt{--frame} 拍摄的，角色 ref 将限定在该 iframe 内，直到下一次角色快照。
+\end{itemize}
+
+
+\subsection{等待增强功能}
+
+
+你可以等待的不仅仅是时间/文本：
+
+\begin{itemize}
+  \item 等待 URL（Playwright 支持通配符）：
+  \item \texttt{openclaw browser wait --url "**/dash"}
+  \item 等待加载状态：
+  \item \texttt{openclaw browser wait --load networkidle}
+  \item 等待 JS 断言：
+  \item \texttt{openclaw browser wait --fn "window.ready===true"}
+  \item 等待选择器变得可见：
+  \item \texttt{openclaw browser wait "\#main"}
+\end{itemize}
+
+
+这些可以组合使用：
+
+\begin{lstlisting}[language=bash]
+openclaw browser wait "#main" \
+  --url "**/dash" \
+  --load networkidle \
+  --fn "window.ready===true" \
+  --timeout-ms 15000
+\end{lstlisting}
+
+
+\subsection{调试工作流}
+
+
+当操作失败时（例如"not visible"、"strict mode violation"、"covered"）：
+
+\begin{enumerate}
+  \item \texttt{openclaw browser snapshot --interactive}
+  \item 使用 \texttt{click } / \texttt{type }（在交互模式下优先使用角色 ref）
+  \item 如果仍然失败：\texttt{openclaw browser highlight } 查看 Playwright 定位的目标
+  \item 如果页面行为异常：
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{openclaw browser errors --clear}
+  \item \texttt{openclaw browser requests --filter api --clear}
+\end{itemize}
+
+\begin{enumerate}
+  \item 深度调试：录制 trace：
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{openclaw browser trace start}
+  \item 重现问题
+  \item \texttt{openclaw browser trace stop}（打印 \texttt{TRACE:}）
+\end{itemize}
+
+
+\subsection{JSON 输出}
+
+
+\texttt{--json} 用于脚本和结构化工具。
+
+示例：
+
+\begin{lstlisting}[language=bash]
+openclaw browser status --json
+openclaw browser snapshot --interactive --json
+openclaw browser requests --filter api --json
+openclaw browser cookies --json
+\end{lstlisting}
+
+
+JSON 格式的角色快照包含 \texttt{refs} 加上一个小的 \texttt{stats} 块（lines/chars/refs/interactive），以便工具可以推断负载大小和密度。
+
+\subsection{状态和环境开关}
+
+
+这些对于"让网站表现得像 X"的工作流很有用：
+
+\begin{itemize}
+  \item Cookies：\texttt{cookies}、\texttt{cookies set}、\texttt{cookies clear}
+  \item 存储：\texttt{storage local|session get|set|clear}
+  \item 离线：\texttt{set offline on|off}
+  \item 请求头：\texttt{set headers --json '\{"X-Debug":"1"\}'}（或 \texttt{--clear}）
+  \item HTTP basic 认证：\texttt{set credentials user pass}（或 \texttt{--clear}）
+  \item 地理位置：\texttt{set geo   --origin "https://example.com"}（或 \texttt{--clear}）
+  \item 媒体：\texttt{set media dark|light|no-preference|none}
+  \item 时区/语言环境：\texttt{set timezone ...}、\texttt{set locale ...}
+  \item 设备/视口：
+  \item \texttt{set device "iPhone 14"}（Playwright 设备预设）
+  \item \texttt{set viewport 1280 720}
+\end{itemize}
+
+
+\subsection{安全与隐私}
+
+
+\begin{itemize}
+  \item openclaw 浏览器配置文件可能包含已登录的会话；请将其视为敏感信息。
+  \item \texttt{browser act kind=evaluate} / \texttt{openclaw browser evaluate} 和 \texttt{wait --fn} 在页面上下文中执行任意 JavaScript。提示注入可能会操纵它。如果不需要，请使用 \texttt{browser.evaluateEnabled=false} 禁用它。
+  \item 有关登录和反机器人注意事项（X/Twitter 等），请参阅 \href{/tools/browser-login}{浏览器登录 + X/Twitter 发帖}。
+  \item 保持 Gateway 网关/节点主机私有（仅限 loopback 或 tailnet）。
+  \item 远程 CDP 端点功能强大；请通过隧道保护它们。
+\end{itemize}
+
+
+\subsection{故障排除}
+
+
+有关 Linux 特定问题（特别是 snap Chromium），请参阅\href{/tools/browser-linux-troubleshooting}{浏览器故障排除}。
+
+\subsection{智能体工具 + 控制工作原理}
+
+
+智能体获得\textbf{一个工具}用于浏览器自动化：
+
+\begin{itemize}
+  \item \texttt{browser} — status/start/stop/tabs/open/focus/close/snapshot/screenshot/navigate/act
+\end{itemize}
+
+
+映射方式：
+
+\begin{itemize}
+  \item \texttt{browser snapshot} 返回稳定的 UI 树（AI 或 ARIA）。
+  \item \texttt{browser act} 使用快照 \texttt{ref} ID 来点击/输入/拖动/选择。
+  \item \texttt{browser screenshot} 捕获像素（整页或元素）。
+  \item \texttt{browser} 接受：
+  \item \texttt{profile} 来选择命名的浏览器配置文件（openclaw、chrome 或远程 CDP）。
+  \item \texttt{target}（\texttt{sandbox} | \texttt{host} | \texttt{node}）来选择浏览器所在位置。
+  \item 在沙箱会话中，\texttt{target: "host"} 需要 \texttt{agents.defaults.sandbox.browser.allowHostControl=true}。
+  \item 如果省略 \texttt{target}：沙箱会话默认为 \texttt{sandbox}，非沙箱会话默认为 \texttt{host}。
+  \item 如果连接了具有浏览器能力的节点，工具可能会自动路由到该节点，除非你指定 \texttt{target="host"} 或 \texttt{target="node"}。
+\end{itemize}
+
+
+这使智能体保持确定性并避免脆弱的选择器。
+
+
+\clearpage
+
+% === 源文件: tools/chrome-extension.md ===
+\section{Chrome 扩展（浏览器中继）}
+
+
+OpenClaw Chrome 扩展让智能体控制你\textbf{现有的 Chrome 标签页}（你的正常 Chrome 窗口），而不是启动一个单独的 openclaw 管理的 Chrome 配置文件。
+
+附加/分离通过一个\textbf{单独的 Chrome 工具栏按钮}实现。
+
+\subsection{它是什么（概念）}
+
+
+有三个部分：
+
+\begin{itemize}
+  \item \textbf{浏览器控制服务}（Gateway 网关或节点）：智能体/工具调用的 API（通过 Gateway 网关）
+  \item \textbf{本地中继服务器}（loopback CDP）：在控制服务器和扩展之间桥接（默认 \texttt{http://127.0.0.1:18792}）
+  \item \textbf{Chrome MV3 扩展}：使用 \texttt{chrome.debugger} 附加到活动标签页，并将 CDP 消息传送到中继
+\end{itemize}
+
+
+然后 OpenClaw 通过正常的 \texttt{browser} 工具界面控制附加的标签页（选择正确的配置文件）。
+
+\subsection{安装/加载（未打包）}
+
+
+\begin{enumerate}
+  \item 将扩展安装到稳定的本地路径：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw browser extension install
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 打印已安装扩展的目录路径：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw browser extension path
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Chrome → \texttt{chrome://extensions}
+\end{enumerate}
+
+
+\begin{itemize}
+  \item 启用"开发者模式"
+  \item "加载已解压的扩展程序" → 选择上面打印的目录
+\end{itemize}
+
+
+\begin{enumerate}
+  \item 固定扩展。
+\end{enumerate}
+
+
+\subsection{更新（无构建步骤）}
+
+
+扩展作为静态文件包含在 OpenClaw 发布版（npm 包）中。没有单独的"构建"步骤。
+
+升级 OpenClaw 后：
+
+\begin{itemize}
+  \item 重新运行 \texttt{openclaw browser extension install} 以刷新 OpenClaw 状态目录下的已安装文件。
+  \item Chrome → \texttt{chrome://extensions} → 点击扩展上的"重新加载"。
+\end{itemize}
+
+
+\subsection{使用它（无需额外配置）}
+
+
+OpenClaw 附带一个名为 \texttt{chrome} 的内置浏览器配置文件，它指向默认端口上的扩展中继。
+
+使用它：
+
+\begin{itemize}
+  \item CLI：\texttt{openclaw browser --browser-profile chrome tabs}
+  \item 智能体工具：\texttt{browser} 配合 \texttt{profile="chrome"}
+\end{itemize}
+
+
+如果你想要不同的名称或不同的中继端口，创建你自己的配置文件：
+
+\begin{lstlisting}[language=bash]
+openclaw browser create-profile \
+  --name my-chrome \
+  --driver extension \
+  --cdp-url http://127.0.0.1:18792 \
+  --color "#00AA00"
+\end{lstlisting}
+
+
+\subsection{附加/分离（工具栏按钮）}
+
+
+\begin{itemize}
+  \item 打开你希望 OpenClaw 控制的标签页。
+  \item 点击扩展图标。
+  \item 附加时徽章显示 \texttt{ON}。
+  \item 再次点击以分离。
+\end{itemize}
+
+
+\subsection{它控制哪个标签页？}
+
+
+\begin{itemize}
+  \item 它\textbf{不会}自动控制"你正在查看的任何标签页"。
+  \item 它\textbf{仅}控制你通过点击工具栏按钮\textbf{明确附加的标签页}。
+  \item 要切换：打开另一个标签页并在那里点击扩展图标。
+\end{itemize}
+
+
+\subsection{徽章 + 常见错误}
+
+
+\begin{itemize}
+  \item \texttt{ON}：已附加；OpenClaw 可以驱动该标签页。
+  \item \texttt{…}：正在连接到本地中继。
+  \item \texttt{!}：中继不可达（最常见：浏览器中继服务器未在此机器上运行）。
+\end{itemize}
+
+
+如果你看到 \texttt{!}：
+
+\begin{itemize}
+  \item 确保 Gateway 网关在本地运行（默认设置），或者如果 Gateway 网关在其他地方运行，在此机器上运行一个节点主机。
+  \item 打开扩展选项页面；它会显示中继是否可达。
+\end{itemize}
+
+
+\subsection{远程 Gateway 网关（使用节点主机）}
+
+
+\subsubsection{本地 Gateway 网关（与 Chrome 在同一台机器上）——通常**无需额外步骤**}
+
+
+如果 Gateway 网关运行在与 Chrome 相同的机器上，它会在 loopback 上启动浏览器控制服务并自动启动中继服务器。扩展与本地中继通信；CLI/工具调用发送到 Gateway 网关。
+
+\subsubsection{远程 Gateway 网关（Gateway 网关运行在其他地方）——**运行节点主机**}
+
+
+如果你的 Gateway 网关运行在另一台机器上，在运行 Chrome 的机器上启动一个节点主机。Gateway 网关将把浏览器操作代理到该节点；扩展 + 中继保持在浏览器机器本地。
+
+如果连接了多个节点，使用 \texttt{gateway.nodes.browser.node} 固定一个或设置 \texttt{gateway.nodes.browser.mode}。
+
+\subsection{沙箱隔离（工具容器）}
+
+
+如果你的智能体会话在沙箱中（\texttt{agents.defaults.sandbox.mode != "off"}），\texttt{browser} 工具可能受到限制：
+
+\begin{itemize}
+  \item 默认情况下，沙箱隔离的会话通常指向\textbf{沙箱浏览器}（\texttt{target="sandbox"}），而不是你的主机 Chrome。
+  \item Chrome 扩展中继接管需要控制\textbf{主机}浏览器控制服务器。
+\end{itemize}
+
+
+选项：
+
+\begin{itemize}
+  \item 最简单：从\textbf{非沙箱隔离}的会话/智能体使用扩展。
+  \item 或者为沙箱隔离的会话允许主机浏览器控制：
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      sandbox: {
+        browser: {
+          allowHostControl: true,
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+然后确保工具未被工具策略拒绝，并（如果需要）以 \texttt{target="host"} 调用 \texttt{browser}。
+
+调试：\texttt{openclaw sandbox explain}
+
+\subsection{远程访问提示}
+
+
+\begin{itemize}
+  \item 将 Gateway 网关和节点主机保持在同一个 tailnet 上；避免将中继端口暴露到 LAN 或公共 Internet。
+  \item 有意配对节点；如果你不想要远程控制，禁用浏览器代理路由（\texttt{gateway.nodes.browser.mode="off"}）。
+\end{itemize}
+
+
+\subsection{"extension path"的工作原理}
+
+
+\texttt{openclaw browser extension path} 打印包含扩展文件的\textbf{已安装}磁盘目录。
+
+CLI 有意\textbf{不}打印 \texttt{node\_modules} 路径。始终先运行 \texttt{openclaw browser extension install} 将扩展复制到 OpenClaw 状态目录下的稳定位置。
+
+如果你移动或删除该安装目录，Chrome 将把扩展标记为损坏，直到你从有效路径重新加载它。
+
+\subsection{安全影响（请阅读此内容）}
+
+
+这是强大且有风险的。将其视为给模型"在你的浏览器上动手"。
+
+\begin{itemize}
+  \item 扩展使用 Chrome 的调试器 API（\texttt{chrome.debugger}）。附加时，模型可以：
+  \item 在该标签页中点击/输入/导航
+  \item 读取页面内容
+  \item 访问标签页已登录会话可以访问的任何内容
+  \item \textbf{这不像}专用的 openclaw 管理配置文件那样隔离。
+  \item 如果你附加到你的日常使用配置文件/标签页，你就是在授予对该账户状态的访问权限。
+\end{itemize}
+
+
+建议：
+
+\begin{itemize}
+  \item 对于扩展中继使用，优先使用专用的 Chrome 配置文件（与你的个人浏览分开）。
+  \item 将 Gateway 网关和任何节点主机保持在仅限 tailnet；依赖 Gateway 网关身份验证 + 节点配对。
+  \item 避免通过 LAN（\texttt{0.0.0.0}）暴露中继端口，避免使用 Funnel（公开）。
+  \item 中继阻止非扩展来源，并要求 CDP 客户端提供内部身份验证令牌。
+\end{itemize}
+
+
+相关：
+
+\begin{itemize}
+  \item 浏览器工具概述：\href{/tools/browser}{浏览器}
+  \item 安全审计：\href{/gateway/security}{安全}
+  \item Tailscale 设置：\href{/gateway/tailscale}{Tailscale}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/clawhub.md ===
+\section{ClawHub}
+
+
+ClawHub 是 \textbf{OpenClaw 的公共 Skills 注册中心}。它是一项免费服务：所有 Skills 都是公开的、开放的，所有人都可以查看、共享和复用。Skills 就是一个包含 \texttt{SKILL.md} 文件（以及辅助文本文件）的文件夹。你可以在网页应用中浏览 Skills，也可以使用 CLI 来搜索、安装、更新和发布 Skills。
+
+网站：\href{https://clawhub.com}{clawhub.com}
+
+\subsection{适用人群（新手友好）}
+
+
+如果你想为 OpenClaw 智能体添加新功能，ClawHub 是查找和安装 Skills 的最简单方式。你不需要了解后端的工作原理。你可以：
+
+\begin{itemize}
+  \item 使用自然语言搜索 Skills。
+  \item 将 Skills 安装到你的工作区。
+  \item 之后使用一条命令更新 Skills。
+  \item 通过发布 Skills 来备份你自己的 Skills。
+\end{itemize}
+
+
+\subsection{快速入门（非技术人员）}
+
+
+\begin{enumerate}
+  \item 安装 CLI（参见下一节）。
+  \item 搜索你需要的内容：
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{clawhub search "calendar"}
+\end{itemize}
+
+\begin{enumerate}
+  \item 安装一个 Skills：
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{clawhub install }
+\end{itemize}
+
+\begin{enumerate}
+  \item 启动一个新的 OpenClaw 会话，以加载新 Skills。
+\end{enumerate}
+
+
+\subsection{安装 CLI}
+
+
+任选其一：
+
+\begin{lstlisting}[language=bash]
+npm i -g clawhub
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=bash]
+pnpm add -g clawhub
+\end{lstlisting}
+
+
+\subsection{在 OpenClaw 中的定位}
+
+
+默认情况下，CLI 会将 Skills 安装到当前工作目录下的 \texttt{./skills}。如果已配置 OpenClaw 工作区，\texttt{clawhub} 会回退到该工作区，除非你通过 \texttt{--workdir}（或 \texttt{CLAWHUB\_WORKDIR}）进行覆盖。OpenClaw 从 \texttt{/skills} 加载工作区 Skills，并会在\textbf{下一个}会话中生效。如果你已经在使用 \texttt{\textasciitilde{}/.openclaw/skills} 或内置 Skills，工作区 Skills 优先级更高。
+
+有关 Skills 加载、共享和权限控制的更多详情，请参阅
+\href{/tools/skills}{Skills}。
+
+\subsection{服务功能}
+
+
+\begin{itemize}
+  \item \textbf{公开浏览}Skills 及其 \texttt{SKILL.md} 内容。
+  \item 基于嵌入向量（向量搜索）的\textbf{搜索}，而不仅仅是关键词匹配。
+  \item 支持语义化版本号、变更日志和标签（包括 \texttt{latest}）的\textbf{版本管理}。
+  \item 每个版本以 zip 格式\textbf{下载}。
+  \item \textbf{星标和评论}，支持社区反馈。
+  \item \textbf{审核}钩子，用于审批和审计。
+  \item \textbf{CLI 友好的 API}，支持自动化和脚本编写。
+\end{itemize}
+
+
+\subsection{CLI 命令和参数}
+
+
+全局选项（适用于所有命令）：
+
+\begin{itemize}
+  \item \texttt{--workdir }：工作目录（默认：当前目录；回退到 OpenClaw 工作区）。
+  \item \texttt{--dir }：Skills 目录，相对于工作目录（默认：\texttt{skills}）。
+  \item \texttt{--site }：网站基础 URL（浏览器登录）。
+  \item \texttt{--registry }：注册中心 API 基础 URL。
+  \item \texttt{--no-input}：禁用提示（非交互模式）。
+  \item \texttt{-V, --cli-version}：打印 CLI 版本。
+\end{itemize}
+
+
+认证：
+
+\begin{itemize}
+  \item \texttt{clawhub login}（浏览器流程）或 \texttt{clawhub login --token }
+  \item \texttt{clawhub logout}
+  \item \texttt{clawhub whoami}
+\end{itemize}
+
+
+选项：
+
+\begin{itemize}
+  \item \texttt{--token }：粘贴 API 令牌。
+  \item \texttt{--label }：为浏览器登录令牌存储的标签（默认：\texttt{CLI token}）。
+  \item \texttt{--no-browser}：不打开浏览器（需要 \texttt{--token}）。
+\end{itemize}
+
+
+搜索：
+
+\begin{itemize}
+  \item \texttt{clawhub search "query"}
+  \item \texttt{--limit }：最大结果数。
+\end{itemize}
+
+
+安装：
+
+\begin{itemize}
+  \item \texttt{clawhub install }
+  \item \texttt{--version }：安装指定版本。
+  \item \texttt{--force}：如果文件夹已存在则覆盖。
+\end{itemize}
+
+
+更新：
+
+\begin{itemize}
+  \item \texttt{clawhub update }
+  \item \texttt{clawhub update --all}
+  \item \texttt{--version }：更新到指定版本（仅限单个 slug）。
+  \item \texttt{--force}：当本地文件与任何已发布版本不匹配时强制覆盖。
+\end{itemize}
+
+
+列表：
+
+\begin{itemize}
+  \item \texttt{clawhub list}（读取 \texttt{.clawhub/lock.json}）
+\end{itemize}
+
+
+发布：
+
+\begin{itemize}
+  \item \texttt{clawhub publish }
+  \item \texttt{--slug }：Skills 标识符。
+  \item \texttt{--name }：显示名称。
+  \item \texttt{--version }：语义化版本号。
+  \item \texttt{--changelog }：变更日志文本（可以为空）。
+  \item \texttt{--tags }：逗号分隔的标签（默认：\texttt{latest}）。
+\end{itemize}
+
+
+删除/恢复（仅所有者/管理员）：
+
+\begin{itemize}
+  \item \texttt{clawhub delete  --yes}
+  \item \texttt{clawhub undelete  --yes}
+\end{itemize}
+
+
+同步（扫描本地 Skills + 发布新增/更新的 Skills）：
+
+\begin{itemize}
+  \item \texttt{clawhub sync}
+  \item \texttt{--root }：额外的扫描根目录。
+  \item \texttt{--all}：无提示上传所有内容。
+  \item \texttt{--dry-run}：显示将要上传的内容。
+  \item \texttt{--bump }：更新的版本号递增类型 \texttt{patch|minor|major}（默认：\texttt{patch}）。
+  \item \texttt{--changelog }：非交互更新的变更日志。
+  \item \texttt{--tags }：逗号分隔的标签（默认：\texttt{latest}）。
+  \item \texttt{--concurrency }：注册中心检查并发数（默认：4）。
+\end{itemize}
+
+
+\subsection{智能体常用工作流}
+
+
+\subsubsection{搜索 Skills}
+
+
+\begin{lstlisting}[language=bash]
+clawhub search "postgres backups"
+\end{lstlisting}
+
+
+\subsubsection{下载新 Skills}
+
+
+\begin{lstlisting}[language=bash]
+clawhub install my-skill-pack
+\end{lstlisting}
+
+
+\subsubsection{更新已安装的 Skills}
+
+
+\begin{lstlisting}[language=bash]
+clawhub update --all
+\end{lstlisting}
+
+
+\subsubsection{备份你的 Skills（发布或同步）}
+
+
+对于单个 Skills 文件夹：
+
+\begin{lstlisting}[language=bash]
+clawhub publish ./my-skill --slug my-skill --name "My Skill" --version 1.0.0 --tags latest
+\end{lstlisting}
+
+
+一次扫描并备份多个 Skills：
+
+\begin{lstlisting}[language=bash]
+clawhub sync --all
+\end{lstlisting}
+
+
+\subsection{高级详情（技术性）}
+
+
+\subsubsection{版本管理和标签}
+
+
+\begin{itemize}
+  \item 每次发布都会创建一个新的\textbf{语义化版本} \texttt{SkillVersion}。
+  \item 标签（如 \texttt{latest}）指向某个版本；移动标签可以实现回滚。
+  \item 变更日志附加在每个版本上，在同步或发布更新时可以为空。
+\end{itemize}
+
+
+\subsubsection{本地更改与注册中心版本}
+
+
+更新时会使用内容哈希将本地 Skills 内容与注册中心版本进行比较。如果本地文件与任何已发布版本不匹配，CLI 会在覆盖前询问确认（或在非交互模式下需要 \texttt{--force}）。
+
+\subsubsection{同步扫描和回退根目录}
+
+
+\texttt{clawhub sync} 首先扫描当前工作目录。如果未找到 Skills，它会回退到已知的旧版位置（例如 \texttt{\textasciitilde{}/openclaw/skills} 和 \texttt{\textasciitilde{}/.openclaw/skills}）。这样设计是为了在不需要额外标志的情况下找到旧版 Skills 安装。
+
+\subsubsection{存储和锁文件}
+
+
+\begin{itemize}
+  \item 已安装的 Skills 记录在工作目录下的 \texttt{.clawhub/lock.json} 中。
+  \item 认证令牌存储在 ClawHub CLI 配置文件中（可通过 \texttt{CLAWHUB\_CONFIG\_PATH} 覆盖）。
+\end{itemize}
+
+
+\subsubsection{遥测（安装计数）}
+
+
+当你在登录状态下运行 \texttt{clawhub sync} 时，CLI 会发送一个最小快照用于计算安装次数。你可以完全禁用此功能：
+
+\begin{lstlisting}[language=bash]
+export CLAWHUB_DISABLE_TELEMETRY=1
+\end{lstlisting}
+
+
+\subsection{环境变量}
+
+
+\begin{itemize}
+  \item \texttt{CLAWHUB\_SITE}：覆盖网站 URL。
+  \item \texttt{CLAWHUB\_REGISTRY}：覆盖注册中心 API URL。
+  \item \texttt{CLAWHUB\_CONFIG\_PATH}：覆盖 CLI 存储令牌/配置的位置。
+  \item \texttt{CLAWHUB\_WORKDIR}：覆盖默认工作目录。
+  \item \texttt{CLAWHUB\_DISABLE\_TELEMETRY=1}：禁用 \texttt{sync} 的遥测功能。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/creating-skills.md ===
+\section{创建自定义 Skills}
+
+
+OpenClaw 被设计为易于扩展。"Skills"是为你的助手添加新功能的主要方式。
+
+\subsection{什么是 Skill？}
+
+
+Skill 是一个包含 \texttt{SKILL.md} 文件（为 LLM 提供指令和工具定义）的目录，可选包含一些脚本或资源。
+
+\subsection{分步指南：你的第一个 Skill}
+
+
+\subsubsection{1. 创建目录}
+
+
+Skills 位于你的工作区中，通常是 \texttt{\textasciitilde{}/.openclaw/workspace/skills/}。为你的 Skill 创建一个新文件夹：
+
+\begin{lstlisting}[language=bash]
+mkdir -p ~/.openclaw/workspace/skills/hello-world
+\end{lstlisting}
+
+
+\subsubsection{2. 定义 SKILL.md}
+
+
+在该目录中创建一个 \texttt{SKILL.md} 文件。此文件使用 YAML frontmatter 作为元数据，使用 Markdown 作为指令。
+
+\begin{lstlisting}
+---
+name: hello_world
+description: A simple skill that says hello.
+---
+
+# Hello World Skill
+
+When the user asks for a greeting, use the `echo` tool to say "Hello from your custom skill!".
+\end{lstlisting}
+
+
+\subsubsection{3. 添加工具（可选）}
+
+
+你可以在 frontmatter 中定义自定义工具，或指示智能体使用现有的系统工具（如 \texttt{bash} 或 \texttt{browser}）。
+
+\subsubsection{4. 刷新 OpenClaw}
+
+
+让你的智能体"刷新 skills"或重启 Gateway 网关。OpenClaw 将发现新目录并索引 \texttt{SKILL.md}。
+
+\subsection{最佳实践}
+
+
+\begin{itemize}
+  \item \textbf{简洁明了}：指示模型\textit{做什么}，而不是如何成为一个 AI。
+  \item \textbf{安全第一}：如果你的 Skill 使用 \texttt{bash}，确保提示词不允许来自不受信任用户输入的任意命令注入。
+  \item \textbf{本地测试}：使用 \texttt{openclaw agent --message "use my new skill"} 进行测试。
+\end{itemize}
+
+
+\subsection{共享 Skills}
+
+
+你也可以在 \href{https://clawhub.com}{ClawHub} 上浏览和贡献 Skills。
+
+
+\clearpage
+
+% === 源文件: tools/elevated.md ===
+\section{提升模式（/elevated 指令）}
+
+
+\subsection{功能说明}
+
+
+\begin{itemize}
+  \item \texttt{/elevated on} 在 Gateway 网关主机上运行并保留 exec 审批（与 \texttt{/elevated ask} 相同）。
+  \item \texttt{/elevated full} 在 Gateway 网关主机上运行\textbf{并}自动批准 exec（跳过 exec 审批）。
+  \item \texttt{/elevated ask} 在 Gateway 网关主机上运行但保留 exec 审批（与 \texttt{/elevated on} 相同）。
+  \item \texttt{on}/\texttt{ask} \textbf{不会}强制 \texttt{exec.security=full}；配置的安全/询问策略仍然适用。
+  \item 仅在智能体被\textbf{沙箱隔离}时改变行为（否则 exec 已经在主机上运行）。
+  \item 指令形式：\texttt{/elevated on|off|ask|full}、\texttt{/elev on|off|ask|full}。
+  \item 仅接受 \texttt{on|off|ask|full}；其他任何内容返回提示且不改变状态。
+\end{itemize}
+
+
+\subsection{它控制什么（以及不控制什么）}
+
+
+\begin{itemize}
+  \item \textbf{可用性门控}：\texttt{tools.elevated} 是全局基线。\texttt{agents.list[].tools.elevated} 可以进一步限制每个智能体的提升（两者都必须允许）。
+  \item \textbf{每会话状态}：\texttt{/elevated on|off|ask|full} 为当前会话键设置提升级别。
+  \item \textbf{内联指令}：消息内的 \texttt{/elevated on|ask|full} 仅适用于该消息。
+  \item \textbf{群组}：在群聊中，仅当智能体被提及时才遵守提升指令。绕过提及要求的纯命令消息被视为已提及。
+  \item \textbf{主机执行}：elevated 强制 \texttt{exec} 到 Gateway 网关主机；\texttt{full} 还设置 \texttt{security=full}。
+  \item \textbf{审批}：\texttt{full} 跳过 exec 审批；\texttt{on}/\texttt{ask} 在允许列表/询问规则要求时遵守审批。
+  \item \textbf{非沙箱隔离智能体}：对位置无影响；仅影响门控、日志和状态。
+  \item \textbf{工具策略仍然适用}：如果 \texttt{exec} 被工具策略拒绝，则无法使用 elevated。
+  \item \textbf{与 \texttt{/exec} 分开}：\texttt{/exec} 为授权发送者调整每会话默认值，不需要 elevated。
+\end{itemize}
+
+
+\subsection{解析顺序}
+
+
+\begin{enumerate}
+  \item 消息上的内联指令（仅适用于该消息）。
+  \item 会话覆盖（通过发送仅含指令的消息设置）。
+  \item 全局默认值（配置中的 \texttt{agents.defaults.elevatedDefault}）。
+\end{enumerate}
+
+
+\subsection{设置会话默认值}
+
+
+\begin{itemize}
+  \item 发送一条\textbf{仅}包含指令的消息（允许空白），例如 \texttt{/elevated full}。
+  \item 发送确认回复（\texttt{Elevated mode set to full...} / \texttt{Elevated mode disabled.}）。
+  \item 如果 elevated 访问被禁用或发送者不在批准的允许列表中，指令会回复一个可操作的错误且不改变会话状态。
+  \item 发送不带参数的 \texttt{/elevated}（或 \texttt{/elevated:}）以查看当前的 elevated 级别。
+\end{itemize}
+
+
+\subsection{可用性 + 允许列表}
+
+
+\begin{itemize}
+  \item 功能门控：\texttt{tools.elevated.enabled}（即使代码支持，也可以通过配置将默认值设为关闭）。
+  \item 发送者允许列表：\texttt{tools.elevated.allowFrom}，带有每提供商允许列表（例如 \texttt{discord}、\texttt{whatsapp}）。
+  \item 每智能体门控：\texttt{agents.list[].tools.elevated.enabled}（可选；只能进一步限制）。
+  \item 每智能体允许列表：\texttt{agents.list[].tools.elevated.allowFrom}（可选；设置时，发送者必须同时匹配全局 + 每智能体允许列表）。
+  \item Discord 回退：如果省略 \texttt{tools.elevated.allowFrom.discord}，则使用 \texttt{channels.discord.dm.allowFrom} 列表作为回退。设置 \texttt{tools.elevated.allowFrom.discord}（即使是 \texttt{[]}）以覆盖。每智能体允许列表\textbf{不}使用回退。
+  \item 所有门控都必须通过；否则 elevated 被视为不可用。
+\end{itemize}
+
+
+\subsection{日志 + 状态}
+
+
+\begin{itemize}
+  \item Elevated exec 调用以 info 级别记录。
+  \item 会话状态包括 elevated 模式（例如 \texttt{elevated=ask}、\texttt{elevated=full}）。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/exec-approvals.md ===
+\section{执行审批}
+
+
+执行审批是\textbf{配套应用/节点主机的安全护栏}，用于允许沙箱隔离的智能体在真实主机（\texttt{gateway} 或 \texttt{node}）上运行命令。可以将其理解为安全联锁：只有当策略 + 允许列表 +（可选的）用户审批都同意时，命令才会被允许执行。
+执行审批是\textbf{附加于}工具策略和提权门控之上的（除非 elevated 设置为 \texttt{full}，这会跳过审批）。
+生效策略取 \texttt{tools.exec.*} 和审批默认值中\textbf{更严格}的一方；如果审批字段被省略，则使用 \texttt{tools.exec} 的值。
+
+如果配套应用 UI \textbf{不可用}，任何需要提示的请求都将由 \textbf{ask fallback}（默认：deny）决定。
+
+\subsection{适用范围}
+
+
+执行审批在执行主机上本地强制执行：
+
+\begin{itemize}
+  \item \textbf{gateway 主机} → gateway 机器上的 \texttt{openclaw} 进程
+  \item \textbf{node 主机} → 节点运行器（macOS 配套应用或无头节点主机）
+\end{itemize}
+
+
+macOS 分工：
+
+\begin{itemize}
+  \item \textbf{node 主机服务}通过本地 IPC 将 \texttt{system.run} 转发给 \textbf{macOS 应用}。
+  \item \textbf{macOS 应用}执行审批并在 UI 上下文中执行命令。
+\end{itemize}
+
+
+\subsection{设置和存储}
+
+
+审批信息存储在执行主机上的本地 JSON 文件中：
+
+\texttt{\textasciitilde{}/.openclaw/exec-approvals.json}
+
+示例结构：
+
+\begin{lstlisting}[language=json]
+{
+  "version": 1,
+  "socket": {
+    "path": "~/.openclaw/exec-approvals.sock",
+    "token": "base64url-token"
+  },
+  "defaults": {
+    "security": "deny",
+    "ask": "on-miss",
+    "askFallback": "deny",
+    "autoAllowSkills": false
+  },
+  "agents": {
+    "main": {
+      "security": "allowlist",
+      "ask": "on-miss",
+      "askFallback": "deny",
+      "autoAllowSkills": true,
+      "allowlist": [
+        {
+          "id": "B0C8C0B3-2C2D-4F8A-9A3C-5A4B3C2D1E0F",
+          "pattern": "~/Projects/**/bin/rg",
+          "lastUsedAt": 1737150000000,
+          "lastUsedCommand": "rg -n TODO",
+          "lastResolvedPath": "/Users/user/Projects/.../bin/rg"
+        }
+      ]
+    }
+  }
+}
+\end{lstlisting}
+
+
+\subsection{策略选项}
+
+
+\subsubsection{Security（exec.security）}
+
+
+\begin{itemize}
+  \item \textbf{deny}：阻止所有主机执行请求。
+  \item \textbf{allowlist}：仅允许在允许列表中的命令。
+  \item \textbf{full}：允许所有命令（等同于提权模式）。
+\end{itemize}
+
+
+\subsubsection{Ask（exec.ask）}
+
+
+\begin{itemize}
+  \item \textbf{off}：从不提示。
+  \item \textbf{on-miss}：仅在允许列表未匹配时提示。
+  \item \textbf{always}：每次命令都提示。
+\end{itemize}
+
+
+\subsubsection{Ask fallback（askFallback）}
+
+
+如果需要提示但无法访问 UI，fallback 决定：
+
+\begin{itemize}
+  \item \textbf{deny}：阻止。
+  \item \textbf{allowlist}：仅在允许列表匹配时允许。
+  \item \textbf{full}：允许。
+\end{itemize}
+
+
+\subsection{允许列表（按智能体）}
+
+
+允许列表是\textbf{按智能体}配置的。如果存在多个智能体，请在 macOS 应用中切换要编辑的智能体。模式匹配\textbf{不区分大小写}。
+模式应解析为\textbf{二进制路径}（仅包含基本名称的条目会被忽略）。
+旧版 \texttt{agents.default} 条目在加载时会迁移到 \texttt{agents.main}。
+
+示例：
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/Projects/**/bin/bird}
+  \item \texttt{\textasciitilde{}/.local/bin/*}
+  \item \texttt{/opt/homebrew/bin/rg}
+\end{itemize}
+
+
+每个允许列表条目会跟踪：
+
+\begin{itemize}
+  \item \textbf{id} 用于 UI 标识的稳定 UUID（可选）
+  \item \textbf{last used} 时间戳
+  \item \textbf{last used command}
+  \item \textbf{last resolved path}
+\end{itemize}
+
+
+\subsection{自动允许 skill CLI}
+
+
+启用 \textbf{Auto-allow skill CLIs} 后，已知 Skills 引用的可执行文件在节点（macOS 节点或无头节点主机）上被视为已列入允许列表。这通过 Gateway RPC 的 \texttt{skills.bins} 获取 skill 二进制列表。如果你想要严格的手动允许列表，请禁用此选项。
+
+\subsection{安全二进制（仅限标准输入）}
+
+
+\texttt{tools.exec.safeBins} 定义了一小组\textbf{仅限标准输入}的二进制文件（例如 \texttt{jq}），这些文件可以在允许列表模式下运行，\textbf{无需}显式的允许列表条目。安全二进制会拒绝位置文件参数和类路径标记，因此它们只能操作传入的流。
+在允许列表模式下，shell 链式命令和重定向不会被自动允许。
+
+当每个顶级段都满足允许列表（包括安全二进制或 skill 自动允许）时，允许 shell 链式命令（\texttt{\&\&}、\texttt{||}、\texttt{;}）。重定向在允许列表模式下仍不受支持。
+命令替换（\texttt{\$()} / 反引号）在允许列表解析期间会被拒绝，包括在双引号内；如果你需要字面的 \texttt{\$()} 文本，请使用单引号。
+
+默认安全二进制：\texttt{jq}、\texttt{grep}、\texttt{cut}、\texttt{sort}、\texttt{uniq}、\texttt{head}、\texttt{tail}、\texttt{tr}、\texttt{wc}。
+
+\subsection{Control UI 编辑}
+
+
+使用 \textbf{Control UI → Nodes → Exec approvals} 卡片来编辑默认值、按智能体的覆盖设置和允许列表。选择一个作用域（Defaults 或某个智能体），调整策略，添加/删除允许列表模式，然后点击 \textbf{Save}。UI 会显示每个模式的 \textbf{last used} 元数据，以便你保持列表整洁。
+
+目标选择器可选择 \textbf{Gateway}（本地审批）或 \textbf{Node}。节点必须通告 \texttt{system.execApprovals.get/set}（macOS 应用或无头节点主机）。
+如果节点尚未通告执行审批，请直接编辑其本地的 \texttt{\textasciitilde{}/.openclaw/exec-approvals.json}。
+
+CLI：\texttt{openclaw approvals} 支持 gateway 或 node 编辑（参见 \href{/cli/approvals}{Approvals CLI}）。
+
+\subsection{审批流程}
+
+
+当需要提示时，gateway 向操作员客户端广播 \texttt{exec.approval.requested}。
+Control UI 和 macOS 应用通过 \texttt{exec.approval.resolve} 进行处理，然后 gateway 将已批准的请求转发给节点主机。
+
+当需要审批时，exec 工具会立即返回一个审批 id。使用该 id 来关联后续的系统事件（\texttt{Exec finished} / \texttt{Exec denied}）。如果在超时前没有收到决定，请求将被视为审批超时，并作为拒绝原因显示。
+
+确认对话框包括：
+
+\begin{itemize}
+  \item 命令 + 参数
+  \item cwd
+  \item 智能体 id
+  \item 解析后的可执行文件路径
+  \item 主机 + 策略元数据
+\end{itemize}
+
+
+操作：
+
+\begin{itemize}
+  \item \textbf{Allow once} → 立即运行
+  \item \textbf{Always allow} → 添加到允许列表 + 运行
+  \item \textbf{Deny} → 阻止
+\end{itemize}
+
+
+\subsection{审批转发到聊天渠道}
+
+
+你可以将执行审批提示转发到任何聊天渠道（包括插件渠道），并使用 \texttt{/approve} 进行批准。这使用正常的出站投递管道。
+
+配置：
+
+\begin{lstlisting}[language=json]
+{
+  approvals: {
+    exec: {
+      enabled: true,
+      mode: "session", // "session" | "targets" | "both"
+      agentFilter: ["main"],
+      sessionFilter: ["discord"], // substring or regex
+      targets: [
+        { channel: "slack", to: "U12345678" },
+        { channel: "telegram", to: "123456789" },
+      ],
+    },
+  },
+}
+\end{lstlisting}
+
+
+在聊天中回复：
+
+\begin{lstlisting}
+/approve <id> allow-once
+/approve <id> allow-always
+/approve <id> deny
+\end{lstlisting}
+
+
+\subsubsection{macOS IPC 流程}
+
+
+\begin{lstlisting}
+Gateway -> Node Service (WS)
+                 |  IPC (UDS + token + HMAC + TTL)
+                 v
+             Mac App (UI + approvals + system.run)
+\end{lstlisting}
+
+
+安全注意事项：
+
+\begin{itemize}
+  \item Unix socket 模式 \texttt{0600}，token 存储在 \texttt{exec-approvals.json} 中。
+  \item 同 UID 对端检查。
+  \item 挑战/响应（nonce + HMAC token + 请求哈希）+ 短 TTL。
+\end{itemize}
+
+
+\subsection{系统事件}
+
+
+执行生命周期以系统消息的形式呈现：
+
+\begin{itemize}
+  \item \texttt{Exec running}（仅当命令超过运行通知阈值时）
+  \item \texttt{Exec finished}
+  \item \texttt{Exec denied}
+\end{itemize}
+
+
+这些消息在节点报告事件后发布到智能体的会话中。
+Gateway 主机执行审批在命令完成时（以及可选地在运行时间超过阈值时）发出相同的生命周期事件。
+经过审批门控的执行会复用审批 id 作为这些消息中的 \texttt{runId}，以便于关联。
+
+\subsection{影响}
+
+
+\begin{itemize}
+  \item \textbf{full} 权限很大；尽可能优先使用允许列表。
+  \item \textbf{ask} 让你保持知情，同时仍允许快速审批。
+  \item 按智能体的允许列表可防止一个智能体的审批泄漏到其他智能体。
+  \item 审批仅适用于来自\textbf{授权发送者}的主机执行请求。未授权的发送者无法发出 \texttt{/exec}。
+  \item \texttt{/exec security=full} 是为授权操作员提供的会话级便利功能，设计上会跳过审批。
+\end{itemize}
+
+要完全阻止主机执行，请将审批 security 设置为 \texttt{deny}，或通过工具策略拒绝 \texttt{exec} 工具。
+
+相关内容：
+
+\begin{itemize}
+  \item \href{/tools/exec}{Exec 工具}
+  \item \href{/tools/elevated}{提权模式}
+  \item \href{/tools/skills}{Skills}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/exec.md ===
+\section{Exec 工具}
+
+
+在工作区中运行 shell 命令。通过 \texttt{process} 支持前台和后台执行。
+如果 \texttt{process} 被禁用，\texttt{exec} 将同步运行并忽略 \texttt{yieldMs}/\texttt{background}。
+后台会话按智能体隔离；\texttt{process} 只能看到同一智能体的会话。
+
+\subsection{参数}
+
+
+\begin{itemize}
+  \item \texttt{command}（必填）
+  \item \texttt{workdir}（默认为当前工作目录）
+  \item \texttt{env}（键值对覆盖）
+  \item \texttt{yieldMs}（默认 10000）：延迟后自动转入后台
+  \item \texttt{background}（布尔值）：立即转入后台
+  \item \texttt{timeout}（秒，默认 1800）：超时后终止
+  \item \texttt{pty}（布尔值）：在可用时使用伪终端运行（仅限 TTY 的 CLI、编程智能体、终端 UI）
+  \item \texttt{host}（\texttt{sandbox | gateway | node}）：执行位置
+  \item \texttt{security}（\texttt{deny | allowlist | full}）：\texttt{gateway}/\texttt{node} 的执行策略
+  \item \texttt{ask}（\texttt{off | on-miss | always}）：\texttt{gateway}/\texttt{node} 的审批提示
+  \item \texttt{node}（字符串）：\texttt{host=node} 时的节点 id/名称
+  \item \texttt{elevated}（布尔值）：请求提升模式（gateway 主机）；仅当 elevated 解析为 \texttt{full} 时才强制 \texttt{security=full}
+\end{itemize}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{host} 默认为 \texttt{sandbox}。
+  \item 当沙箱隔离关闭时，\texttt{elevated} 会被忽略（exec 已在主机上运行）。
+  \item \texttt{gateway}/\texttt{node} 审批由 \texttt{\textasciitilde{}/.openclaw/exec-approvals.json} 控制。
+  \item \texttt{node} 需要已配对的节点（配套应用或无头节点主机）。
+  \item 如果有多个可用节点，设置 \texttt{exec.node} 或 \texttt{tools.exec.node} 来选择一个。
+  \item 在非 Windows 主机上，exec 会使用已设置的 \texttt{SHELL}；如果 \texttt{SHELL} 是 \texttt{fish}，它会优先从 \texttt{PATH} 中选择 \texttt{bash}（或 \texttt{sh}）以避免 fish 不兼容的脚本，如果两者都不存在则回退到 \texttt{SHELL}。
+  \item 主机执行（\texttt{gateway}/\texttt{node}）会拒绝 \texttt{env.PATH} 和加载器覆盖（\texttt{LD\_\textit{}/\texttt{DYLD\_}}），以防止二进制劫持或代码注入。
+  \item 重要提示：沙箱隔离\textbf{默认关闭}。如果沙箱隔离关闭，\texttt{host=sandbox} 将直接在 Gateway 网关主机上运行（无容器）且\textbf{不需要审批}。如需审批，请使用 \texttt{host=gateway} 运行并配置 exec 审批（或启用沙箱隔离）。
+\end{itemize}
+
+
+\subsection{配置}
+
+
+\begin{itemize}
+  \item \texttt{tools.exec.notifyOnExit}（默认：true）：为 true 时，后台 exec 会话在退出时会入队系统事件并请求心跳。
+  \item \texttt{tools.exec.approvalRunningNoticeMs}（默认：10000）：当需要审批的 exec 运行时间超过此值时发出单次"运行中"通知（0 表示禁用）。
+  \item \texttt{tools.exec.host}（默认：\texttt{sandbox}）
+  \item \texttt{tools.exec.security}（默认：sandbox 为 \texttt{deny}，gateway + node 未设置时为 \texttt{allowlist}）
+  \item \texttt{tools.exec.ask}（默认：\texttt{on-miss}）
+  \item \texttt{tools.exec.node}（默认：未设置）
+  \item \texttt{tools.exec.pathPrepend}：exec 运行时添加到 \texttt{PATH} 前面的目录列表。
+  \item \texttt{tools.exec.safeBins}：仅限 stdin 的安全二进制文件，无需显式白名单条目即可运行。
+\end{itemize}
+
+
+示例：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    exec: {
+      pathPrepend: ["~/bin", "/opt/oss/bin"],
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{PATH 处理}
+
+
+\begin{itemize}
+  \item \texttt{host=gateway}：将你的登录 shell \texttt{PATH} 合并到 exec 环境中。主机执行时会拒绝 \texttt{env.PATH} 覆盖。守护进程本身仍使用最小 \texttt{PATH} 运行：
+  \item macOS：\texttt{/opt/homebrew/bin}、\texttt{/usr/local/bin}、\texttt{/usr/bin}、\texttt{/bin}
+  \item Linux：\texttt{/usr/local/bin}、\texttt{/usr/bin}、\texttt{/bin}
+  \item \texttt{host=sandbox}：在容器内运行 \texttt{sh -lc}（登录 shell），因此 \texttt{/etc/profile} 可能会重置 \texttt{PATH}。OpenClaw 在 profile 加载后通过内部环境变量将 \texttt{env.PATH} 添加到前面（无 shell 插值）；\texttt{tools.exec.pathPrepend} 在此也适用。
+  \item \texttt{host=node}：只有你传递的未被阻止的 env 覆盖会发送到节点。主机执行时会拒绝 \texttt{env.PATH} 覆盖。无头节点主机仅在 \texttt{PATH} 添加到节点主机 PATH 前面时才接受（不允许替换）。macOS 节点完全丢弃 \texttt{PATH} 覆盖。
+\end{itemize}
+
+
+按智能体绑定节点（在配置中使用智能体列表索引）：
+
+\begin{lstlisting}[language=bash]
+openclaw config get agents.list
+openclaw config set agents.list[0].tools.exec.node "node-id-or-name"
+\end{lstlisting}
+
+
+控制 UI：Nodes 标签页包含一个小的"Exec 节点绑定"面板用于相同的设置。
+
+\subsection{会话覆盖（/exec）}
+
+
+使用 \texttt{/exec} 为 \texttt{host}、\texttt{security}、\texttt{ask} 和 \texttt{node} 设置\textbf{每会话}默认值。
+不带参数发送 \texttt{/exec} 可显示当前值。
+
+示例：
+
+\begin{lstlisting}
+/exec host=gateway security=allowlist ask=on-miss node=mac-1
+\end{lstlisting}
+
+
+\subsection{授权模型}
+
+
+\texttt{/exec} 仅对\textbf{已授权发送者}（渠道白名单/配对加 \texttt{commands.useAccessGroups}）生效。
+它仅更新\textbf{会话状态}，不写入配置。要彻底禁用 exec，请通过工具策略拒绝它（\texttt{tools.deny: ["exec"]} 或按智能体配置）。除非你显式设置 \texttt{security=full} 和 \texttt{ask=off}，否则主机审批仍然适用。
+
+\subsection{Exec 审批（配套应用/节点主机）}
+
+
+沙箱隔离的智能体可以要求在 \texttt{exec} 于 Gateway 网关或节点主机上运行前进行逐请求审批。
+参阅 \href{/tools/exec-approvals}{Exec 审批} 了解策略、白名单和 UI 流程。
+
+当需要审批时，exec 工具会立即返回 \texttt{status: "approval-pending"} 和审批 id。一旦被批准（或拒绝/超时），Gateway 网关会发出系统事件（\texttt{Exec finished} / \texttt{Exec denied}）。如果命令在 \texttt{tools.exec.approvalRunningNoticeMs} 之后仍在运行，会发出单次 \texttt{Exec running} 通知。
+
+\subsection{白名单 + 安全二进制文件}
+
+
+白名单执行仅匹配\textbf{解析后的二进制路径}（不匹配基本名称）。当 \texttt{security=allowlist} 时，仅当每个管道段都在白名单中或是安全二进制文件时，shell 命令才会自动允许。在白名单模式下，链式命令（\texttt{;}、\texttt{\&\&}、\texttt{||}）和重定向会被拒绝。
+
+\subsection{示例}
+
+
+前台：
+
+\begin{lstlisting}[language=json]
+{ "tool": "exec", "command": "ls -la" }
+\end{lstlisting}
+
+
+后台 + 轮询：
+
+\begin{lstlisting}[language=json]
+{"tool":"exec","command":"npm run build","yieldMs":1000}
+{"tool":"process","action":"poll","sessionId":"<id>"}
+\end{lstlisting}
+
+
+发送按键（tmux 风格）：
+
+\begin{lstlisting}[language=json]
+{"tool":"process","action":"send-keys","sessionId":"<id>","keys":["Enter"]}
+{"tool":"process","action":"send-keys","sessionId":"<id>","keys":["C-c"]}
+{"tool":"process","action":"send-keys","sessionId":"<id>","keys":["Up","Up","Enter"]}
+\end{lstlisting}
+
+
+提交（仅发送 CR）：
+
+\begin{lstlisting}[language=json]
+{ "tool": "process", "action": "submit", "sessionId": "<id>" }
+\end{lstlisting}
+
+
+粘贴（默认带括号）：
+
+\begin{lstlisting}[language=json]
+{ "tool": "process", "action": "paste", "sessionId": "<id>", "text": "line1\nline2\n" }
+\end{lstlisting}
+
+
+\subsection{apply\_patch（实验性）}
+
+
+\texttt{apply\_patch} 是 \texttt{exec} 的子工具，用于结构化多文件编辑。
+需显式启用：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    exec: {
+      applyPatch: { enabled: true, allowModels: ["gpt-5.2"] },
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 仅适用于 OpenAI/OpenAI Codex 模型。
+  \item 工具策略仍然适用；\texttt{allow: ["exec"]} 隐式允许 \texttt{apply\_patch}。
+  \item 配置位于 \texttt{tools.exec.applyPatch} 下。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/firecrawl.md ===
+\section{Firecrawl}
+
+
+OpenClaw 可以使用 \textbf{Firecrawl} 作为 \texttt{web\_fetch} 的回退提取器。它是一个托管的
+内容提取服务，支持机器人规避和缓存，有助于处理
+JS 密集型网站或阻止普通 HTTP 请求的页面。
+
+\subsection{获取 API 密钥}
+
+
+\begin{enumerate}
+  \item 创建 Firecrawl 账户并生成 API 密钥。
+  \item 将其存储在配置中或在 Gateway 网关环境中设置 \texttt{FIRECRAWL\_API\_KEY}。
+\end{enumerate}
+
+
+\subsection{配置 Firecrawl}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    web: {
+      fetch: {
+        firecrawl: {
+          apiKey: "FIRECRAWL_API_KEY_HERE",
+          baseUrl: "https://api.firecrawl.dev",
+          onlyMainContent: true,
+          maxAgeMs: 172800000,
+          timeoutSeconds: 60,
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 当存在 API 密钥时，\texttt{firecrawl.enabled} 默认为 true。
+  \item \texttt{maxAgeMs} 控制缓存结果可以保留多久（毫秒）。默认为 2 天。
+\end{itemize}
+
+
+\subsection{隐身 / 机器人规避}
+
+
+Firecrawl 提供了一个用于机器人规避的\textbf{代理模式}参数（\texttt{basic}、\texttt{stealth} 或 \texttt{auto}）。
+OpenClaw 对 Firecrawl 请求始终使用 \texttt{proxy: "auto"} 加 \texttt{storeInCache: true}。
+如果省略 proxy，Firecrawl 默认使用 \texttt{auto}。\texttt{auto} 在基本尝试失败时会使用隐身代理重试，这可能比
+仅使用基本抓取消耗更多积分。
+
+\subsection{web\_fetch 如何使用 Firecrawl}
+
+
+\texttt{web\_fetch} 提取顺序：
+
+\begin{enumerate}
+  \item Readability（本地）
+  \item Firecrawl（如果已配置）
+  \item 基本 HTML 清理（最后回退）
+\end{enumerate}
+
+
+参见 \href{/tools/web}{Web 工具} 了解完整的 Web 工具设置。
+
+
+\clearpage
+
+% === 源文件: tools/index.md ===
+\section{工具（OpenClaw）}
+
+
+OpenClaw 为 browser、canvas、nodes 和 cron 暴露\textbf{一流的智能体工具}。
+这些工具取代了旧的 \texttt{openclaw-*} Skills：工具是类型化的，无需调用 shell，
+智能体应该直接依赖它们。
+
+\subsection{禁用工具}
+
+
+你可以通过 \texttt{openclaw.json} 中的 \texttt{tools.allow} / \texttt{tools.deny} 全局允许/拒绝工具
+（deny 优先）。这会阻止不允许的工具被发送到模型提供商。
+
+\begin{lstlisting}[language=json]
+{
+  tools: { deny: ["browser"] },
+}
+\end{lstlisting}
+
+
+注意：
+
+\begin{itemize}
+  \item 匹配不区分大小写。
+  \item 支持 \texttt{\textit{} 通配符（\texttt{"}"} 表示所有工具）。
+  \item 如果 \texttt{tools.allow} 仅引用未知或未加载的插件工具名称，OpenClaw 会记录警告并忽略允许列表，以确保核心工具保持可用。
+\end{itemize}
+
+
+\subsection{工具配置文件（基础允许列表）}
+
+
+\texttt{tools.profile} 在 \texttt{tools.allow}/\texttt{tools.deny} 之前设置\textbf{基础工具允许列表}。
+按智能体覆盖：\texttt{agents.list[].tools.profile}。
+
+配置文件：
+
+\begin{itemize}
+  \item \texttt{minimal}：仅 \texttt{session\_status}
+  \item \texttt{coding}：\texttt{group:fs}、\texttt{group:runtime}、\texttt{group:sessions}、\texttt{group:memory}、\texttt{image}
+  \item \texttt{messaging}：\texttt{group:messaging}、\texttt{sessions\_list}、\texttt{sessions\_history}、\texttt{sessions\_send}、\texttt{session\_status}
+  \item \texttt{full}：无限制（与未设置相同）
+\end{itemize}
+
+
+示例（默认仅消息，同时允许 Slack + Discord 工具）：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    profile: "messaging",
+    allow: ["slack", "discord"],
+  },
+}
+\end{lstlisting}
+
+
+示例（coding 配置文件，但在所有地方拒绝 exec/process）：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    profile: "coding",
+    deny: ["group:runtime"],
+  },
+}
+\end{lstlisting}
+
+
+示例（全局 coding 配置文件，仅消息的支持智能体）：
+
+\begin{lstlisting}[language=json]
+{
+  tools: { profile: "coding" },
+  agents: {
+    list: [
+      {
+        id: "support",
+        tools: { profile: "messaging", allow: ["slack"] },
+      },
+    ],
+  },
+}
+\end{lstlisting}
+
+
+\subsection{特定提供商的工具策略}
+
+
+使用 \texttt{tools.byProvider} 为特定提供商（或单个 \texttt{provider/model}）\textbf{进一步限制}工具，
+而不更改你的全局默认值。
+按智能体覆盖：\texttt{agents.list[].tools.byProvider}。
+
+这在基础工具配置文件\textbf{之后}和允许/拒绝列表\textbf{之前}应用，
+因此它只能缩小工具集。
+提供商键接受 \texttt{provider}（例如 \texttt{google-antigravity}）或
+\texttt{provider/model}（例如 \texttt{openai/gpt-5.2}）。
+
+示例（保持全局 coding 配置文件，但 Google Antigravity 使用最小工具）：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    profile: "coding",
+    byProvider: {
+      "google-antigravity": { profile: "minimal" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+示例（针对不稳定端点的 provider/model 特定允许列表）：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    allow: ["group:fs", "group:runtime", "sessions_list"],
+    byProvider: {
+      "openai/gpt-5.2": { allow: ["group:fs", "sessions_list"] },
+    },
+  },
+}
+\end{lstlisting}
+
+
+示例（针对单个提供商的智能体特定覆盖）：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [
+      {
+        id: "support",
+        tools: {
+          byProvider: {
+            "google-antigravity": { allow: ["message", "sessions_list"] },
+          },
+        },
+      },
+    ],
+  },
+}
+\end{lstlisting}
+
+
+\subsection{工具组（简写）}
+
+
+工具策略（全局、智能体、沙箱）支持 \texttt{group:*} 条目，它们会展开为多个工具。
+在 \texttt{tools.allow} / \texttt{tools.deny} 中使用这些。
+
+可用的组：
+
+\begin{itemize}
+  \item \texttt{group:runtime}：\texttt{exec}、\texttt{bash}、\texttt{process}
+  \item \texttt{group:fs}：\texttt{read}、\texttt{write}、\texttt{edit}、\texttt{apply\_patch}
+  \item \texttt{group:sessions}：\texttt{sessions\_list}、\texttt{sessions\_history}、\texttt{sessions\_send}、\texttt{sessions\_spawn}、\texttt{session\_status}
+  \item \texttt{group:memory}：\texttt{memory\_search}、\texttt{memory\_get}
+  \item \texttt{group:web}：\texttt{web\_search}、\texttt{web\_fetch}
+  \item \texttt{group:ui}：\texttt{browser}、\texttt{canvas}
+  \item \texttt{group:automation}：\texttt{cron}、\texttt{gateway}
+  \item \texttt{group:messaging}：\texttt{message}
+  \item \texttt{group:nodes}：\texttt{nodes}
+  \item \texttt{group:openclaw}：所有内置 OpenClaw 工具（不包括提供商插件）
+\end{itemize}
+
+
+示例（仅允许文件工具 + browser）：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    allow: ["group:fs", "browser"],
+  },
+}
+\end{lstlisting}
+
+
+\subsection{插件 + 工具}
+
+
+插件可以在核心集之外注册\textbf{额外的工具}（和 CLI 命令）。
+参见\href{/tools/plugin}{插件}了解安装 + 配置，以及 \href{/tools/skills}{Skills} 了解
+工具使用指导如何被注入到提示中。一些插件随工具一起提供自己的 Skills
+（例如，voice-call 插件）。
+
+可选的插件工具：
+
+\begin{itemize}
+  \item \href{/tools/lobster}{Lobster}：带有可恢复审批的类型化工作流运行时（需要 Gateway 网关主机上的 Lobster CLI）。
+  \item \href{/tools/llm-task}{LLM Task}：用于结构化工作流输出的 JSON-only LLM 步骤（可选 schema 验证）。
+\end{itemize}
+
+
+\subsection{工具清单}
+
+
+\subsubsection{apply\_patch}
+
+
+跨一个或多个文件应用结构化补丁。用于多块编辑。
+实验性：通过 \texttt{tools.exec.applyPatch.enabled} 启用（仅 OpenAI 模型）。
+
+\subsubsection{exec}
+
+
+在工作区中运行 shell 命令。
+
+核心参数：
+
+\begin{itemize}
+  \item \texttt{command}（必需）
+  \item \texttt{yieldMs}（超时后自动后台运行，默认 10000）
+  \item \texttt{background}（立即后台运行）
+  \item \texttt{timeout}（秒；超过则终止进程，默认 1800）
+  \item \texttt{elevated}（布尔值；如果启用/允许提升模式，则在主机上运行；仅在智能体被沙箱隔离时改变行为）
+  \item \texttt{host}（\texttt{sandbox | gateway | node}）
+  \item \texttt{security}（\texttt{deny | allowlist | full}）
+  \item \texttt{ask}（\texttt{off | on-miss | always}）
+  \item \texttt{node}（\texttt{host=node} 时的节点 id/名称）
+  \item 需要真正的 TTY？设置 \texttt{pty: true}。
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item 后台运行时返回带有 \texttt{sessionId} 的 \texttt{status: "running"}。
+  \item 使用 \texttt{process} 来轮询/日志/写入/终止/清除后台会话。
+  \item 如果不允许 \texttt{process}，\texttt{exec} 会同步运行并忽略 \texttt{yieldMs}/\texttt{background}。
+  \item \texttt{elevated} 受 \texttt{tools.elevated} 加上任何 \texttt{agents.list[].tools.elevated} 覆盖的门控（两者都必须允许），是 \texttt{host=gateway} + \texttt{security=full} 的别名。
+  \item \texttt{elevated} 仅在智能体被沙箱隔离时改变行为（否则是空操作）。
+  \item \texttt{host=node} 可以针对 macOS 配套应用或无头节点主机（\texttt{openclaw node run}）。
+  \item Gateway 网关/节点审批和允许列表：\href{/tools/exec-approvals}{执行审批}。
+\end{itemize}
+
+
+\subsubsection{process}
+
+
+管理后台 exec 会话。
+
+核心操作：
+
+\begin{itemize}
+  \item \texttt{list}、\texttt{poll}、\texttt{log}、\texttt{write}、\texttt{kill}、\texttt{clear}、\texttt{remove}
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item \texttt{poll} 返回新输出，完成时返回退出状态。
+  \item \texttt{log} 支持基于行的 \texttt{offset}/\texttt{limit}（省略 \texttt{offset} 以获取最后 N 行）。
+  \item \texttt{process} 按智能体作用域；来自其他智能体的会话不可见。
+\end{itemize}
+
+
+\subsubsection{web\_search}
+
+
+使用 Brave Search API 搜索网络。
+
+核心参数：
+
+\begin{itemize}
+  \item \texttt{query}（必需）
+  \item \texttt{count}（1-10；默认来自 \texttt{tools.web.search.maxResults}）
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item 需要 Brave API 密钥（推荐：\texttt{openclaw configure --section web}，或设置 \texttt{BRAVE\_API\_KEY}）。
+  \item 通过 \texttt{tools.web.search.enabled} 启用。
+  \item 响应被缓存（默认 15 分钟）。
+  \item 参见 \href{/tools/web}{Web 工具} 了解设置。
+\end{itemize}
+
+
+\subsubsection{web\_fetch}
+
+
+从 URL 获取并提取可读内容（HTML → markdown/text）。
+
+核心参数：
+
+\begin{itemize}
+  \item \texttt{url}（必需）
+  \item \texttt{extractMode}（\texttt{markdown} | \texttt{text}）
+  \item \texttt{maxChars}（截断长页面）
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item 通过 \texttt{tools.web.fetch.enabled} 启用。
+  \item 响应被缓存（默认 15 分钟）。
+  \item 对于 JS 密集型网站，优先使用 browser 工具。
+  \item 参见 \href{/tools/web}{Web 工具} 了解设置。
+  \item 参见 \href{/tools/firecrawl}{Firecrawl} 了解可选的反机器人回退。
+\end{itemize}
+
+
+\subsubsection{browser}
+
+
+控制专用的 OpenClaw 管理的浏览器。
+
+核心操作：
+
+\begin{itemize}
+  \item \texttt{status}、\texttt{start}、\texttt{stop}、\texttt{tabs}、\texttt{open}、\texttt{focus}、\texttt{close}
+  \item \texttt{snapshot}（aria/ai）
+  \item \texttt{screenshot}（返回图像块 + \texttt{MEDIA:}）
+  \item \texttt{act}（UI 操作：click/type/press/hover/drag/select/fill/resize/wait/evaluate）
+  \item \texttt{navigate}、\texttt{console}、\texttt{pdf}、\texttt{upload}、\texttt{dialog}
+\end{itemize}
+
+
+配置文件管理：
+
+\begin{itemize}
+  \item \texttt{profiles} — 列出所有浏览器配置文件及其状态
+  \item \texttt{create-profile} — 使用自动分配的端口（或 \texttt{cdpUrl}）创建新配置文件
+  \item \texttt{delete-profile} — 停止浏览器，删除用户数据，从配置中移除（仅本地）
+  \item \texttt{reset-profile} — 终止配置文件端口上的孤儿进程（仅本地）
+\end{itemize}
+
+
+常用参数：
+
+\begin{itemize}
+  \item \texttt{profile}（可选；默认为 \texttt{browser.defaultProfile}）
+  \item \texttt{target}（\texttt{sandbox} | \texttt{host} | \texttt{node}）
+  \item \texttt{node}（可选；选择特定的节点 id/名称）
+\end{itemize}
+
+注意：
+\begin{itemize}
+  \item 需要 \texttt{browser.enabled=true}（默认为 \texttt{true}；设置为 \texttt{false} 以禁用）。
+  \item 所有操作接受可选的 \texttt{profile} 参数以支持多实例。
+  \item 当省略 \texttt{profile} 时，使用 \texttt{browser.defaultProfile}（默认为"chrome"）。
+  \item 配置文件名称：仅小写字母数字 + 连字符（最多 64 字符）。
+  \item 端口范围：18800-18899（最多约 100 个配置文件）。
+  \item 远程配置文件仅支持附加（无 start/stop/reset）。
+  \item 如果连接了支持浏览器的节点，工具可能会自动路由到它（除非你固定了 \texttt{target}）。
+  \item 安装 Playwright 时 \texttt{snapshot} 默认为 \texttt{ai}；使用 \texttt{aria} 获取无障碍树。
+  \item \texttt{snapshot} 还支持角色快照选项（\texttt{interactive}、\texttt{compact}、\texttt{depth}、\texttt{selector}），返回像 \texttt{e12} 这样的引用。
+  \item \texttt{act} 需要来自 \texttt{snapshot} 的 \texttt{ref}（AI 快照中的数字 \texttt{12}，或角色快照中的 \texttt{e12}）；对于罕见的 CSS 选择器需求使用 \texttt{evaluate}。
+  \item 默认避免 \texttt{act} → \texttt{wait}；仅在特殊情况下使用（没有可靠的 UI 状态可等待）。
+  \item \texttt{upload} 可以选择性地传递 \texttt{ref} 以在准备后自动点击。
+  \item \texttt{upload} 还支持 \texttt{inputRef}（aria 引用）或 \texttt{element}（CSS 选择器）以直接设置 ``。
+\end{itemize}
+
+
+\subsubsection{canvas}
+
+
+驱动节点 Canvas（present、eval、snapshot、A2UI）。
+
+核心操作：
+
+\begin{itemize}
+  \item \texttt{present}、\texttt{hide}、\texttt{navigate}、\texttt{eval}
+  \item \texttt{snapshot}（返回图像块 + \texttt{MEDIA:}）
+  \item \texttt{a2ui\_push}、\texttt{a2ui\_reset}
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item 底层使用 Gateway 网关 \texttt{node.invoke}。
+  \item 如果未提供 \texttt{node}，工具会选择默认值（单个连接的节点或本地 mac 节点）。
+  \item A2UI 仅限 v0.8（无 \texttt{createSurface}）；CLI 会拒绝 v0.9 JSONL 并显示行错误。
+  \item 快速冒烟测试：\texttt{openclaw nodes canvas a2ui push --node  --text "Hello from A2UI"}。
+\end{itemize}
+
+
+\subsubsection{nodes}
+
+
+发现和定位配对的节点；发送通知；捕获摄像头/屏幕。
+
+核心操作：
+
+\begin{itemize}
+  \item \texttt{status}、\texttt{describe}
+  \item \texttt{pending}、\texttt{approve}、\texttt{reject}（配对）
+  \item \texttt{notify}（macOS \texttt{system.notify}）
+  \item \texttt{run}（macOS \texttt{system.run}）
+  \item \texttt{camera\_snap}、\texttt{camera\_clip}、\texttt{screen\_record}
+  \item \texttt{location\_get}
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item 摄像头/屏幕命令需要节点应用在前台。
+  \item 图像返回图像块 + \texttt{MEDIA:}。
+  \item 视频返回 \texttt{FILE:}（mp4）。
+  \item 位置返回 JSON 负载（lat/lon/accuracy/timestamp）。
+  \item \texttt{run} 参数：\texttt{command} argv 数组；可选的 \texttt{cwd}、\texttt{env}（\texttt{KEY=VAL}）、\texttt{commandTimeoutMs}、\texttt{invokeTimeoutMs}、\texttt{needsScreenRecording}。
+\end{itemize}
+
+
+示例（\texttt{run}）：
+
+\begin{lstlisting}[language=json]
+{
+  "action": "run",
+  "node": "office-mac",
+  "command": ["echo", "Hello"],
+  "env": ["FOO=bar"],
+  "commandTimeoutMs": 12000,
+  "invokeTimeoutMs": 45000,
+  "needsScreenRecording": false
+}
+\end{lstlisting}
+
+
+\subsubsection{image}
+
+
+使用配置的图像模型分析图像。
+
+核心参数：
+
+\begin{itemize}
+  \item \texttt{image}（必需的路径或 URL）
+  \item \texttt{prompt}（可选；默认为"Describe the image."）
+  \item \texttt{model}（可选覆盖）
+  \item \texttt{maxBytesMb}（可选大小上限）
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item 仅在配置了 \texttt{agents.defaults.imageModel}（主要或回退）时可用，或者当可以从你的默认模型 + 配置的认证推断出隐式图像模型时（尽力配对）。
+  \item 直接使用图像模型（独立于主聊天模型）。
+\end{itemize}
+
+
+\subsubsection{message}
+
+
+跨 Discord/Google Chat/Slack/Telegram/WhatsApp/Signal/iMessage/MS Teams 发送消息和渠道操作。
+
+核心操作：
+
+\begin{itemize}
+  \item \texttt{send}（文本 + 可选媒体；MS Teams 还支持用于 Adaptive Cards 的 \texttt{card}）
+  \item \texttt{poll}（WhatsApp/Discord/MS Teams 投票）
+  \item \texttt{react} / \texttt{reactions} / \texttt{read} / \texttt{edit} / \texttt{delete}
+  \item \texttt{pin} / \texttt{unpin} / \texttt{list-pins}
+  \item \texttt{permissions}
+  \item \texttt{thread-create} / \texttt{thread-list} / \texttt{thread-reply}
+  \item \texttt{search}
+  \item \texttt{sticker}
+  \item \texttt{member-info} / \texttt{role-info}
+  \item \texttt{emoji-list} / \texttt{emoji-upload} / \texttt{sticker-upload}
+  \item \texttt{role-add} / \texttt{role-remove}
+  \item \texttt{channel-info} / \texttt{channel-list}
+  \item \texttt{voice-status}
+  \item \texttt{event-list} / \texttt{event-create}
+  \item \texttt{timeout} / \texttt{kick} / \texttt{ban}
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item \texttt{send} 通过 Gateway 网关路由 WhatsApp；其他渠道直接发送。
+  \item \texttt{poll} 对 WhatsApp 和 MS Teams 使用 Gateway 网关；Discord 投票直接发送。
+  \item 当消息工具调用绑定到活动聊天会话时，发送被限制到该会话的目标以避免跨上下文泄露。
+\end{itemize}
+
+
+\subsubsection{cron}
+
+
+管理 Gateway 网关定时任务和唤醒。
+
+核心操作：
+
+\begin{itemize}
+  \item \texttt{status}、\texttt{list}
+  \item \texttt{add}、\texttt{update}、\texttt{remove}、\texttt{run}、\texttt{runs}
+  \item \texttt{wake}（入队系统事件 + 可选的立即心跳）
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item \texttt{add} 期望完整的定时任务对象（与 \texttt{cron.add} RPC 相同的 schema）。
+  \item \texttt{update} 使用 \texttt{\{ id, patch \}}。
+\end{itemize}
+
+
+\subsubsection{gateway}
+
+
+重启或对运行中的 Gateway 网关进程应用更新（就地）。
+
+核心操作：
+
+\begin{itemize}
+  \item \texttt{restart}（授权 + 发送 \texttt{SIGUSR1} 进行进程内重启；\texttt{openclaw gateway} 就地重启）
+  \item \texttt{config.get} / \texttt{config.schema}
+  \item \texttt{config.apply}（验证 + 写入配置 + 重启 + 唤醒）
+  \item \texttt{config.patch}（合并部分更新 + 重启 + 唤醒）
+  \item \texttt{update.run}（运行更新 + 重启 + 唤醒）
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item 使用 \texttt{delayMs}（默认 2000）以避免中断进行中的回复。
+  \item \texttt{restart} 默认禁用；使用 \texttt{commands.restart: true} 启用。
+\end{itemize}
+
+
+\subsubsection{sessions\_list / sessions\_history / sessions\_send / sessions\_spawn / session\_status}
+
+
+列出会话，检查转录历史，或发送到另一个会话。
+
+核心参数：
+
+\begin{itemize}
+  \item \texttt{sessions\_list}：\texttt{kinds?}、\texttt{limit?}、\texttt{activeMinutes?}、\texttt{messageLimit?}（0 = 无）
+  \item \texttt{sessions\_history}：\texttt{sessionKey}（或 \texttt{sessionId}）、\texttt{limit?}、\texttt{includeTools?}
+  \item \texttt{sessions\_send}：\texttt{sessionKey}（或 \texttt{sessionId}）、\texttt{message}、\texttt{timeoutSeconds?}（0 = fire-and-forget）
+  \item \texttt{sessions\_spawn}：\texttt{task}、\texttt{label?}、\texttt{agentId?}、\texttt{model?}、\texttt{runTimeoutSeconds?}、\texttt{cleanup?}
+  \item \texttt{session\_status}：\texttt{sessionKey?}（默认当前；接受 \texttt{sessionId}）、\texttt{model?}（\texttt{default} 清除覆盖）
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item \texttt{main} 是规范的私聊键；global/unknown 是隐藏的。
+  \item \texttt{messageLimit > 0} 获取每个会话的最后 N 条消息（工具消息被过滤）。
+  \item 当 \texttt{timeoutSeconds > 0} 时，\texttt{sessions\_send} 等待最终完成。
+  \item 递送/宣告发生在完成后，是尽力而为的；\texttt{status: "ok"} 确认智能体运行完成，而不是宣告已递送。
+  \item \texttt{sessions\_spawn} 启动子智能体运行并将宣告回复发送回请求者聊天。
+  \item \texttt{sessions\_spawn} 是非阻塞的，立即返回 \texttt{status: "accepted"}。
+  \item \texttt{sessions\_send} 运行回复往返乒乓（回复 \texttt{REPLY\_SKIP} 以停止；最大轮次通过 \texttt{session.agentToAgent.maxPingPongTurns}，0-5）。
+  \item 乒乓之后，目标智能体运行一个\textbf{宣告步骤}；回复 \texttt{ANNOUNCE\_SKIP} 以抑制宣告。
+\end{itemize}
+
+
+\subsubsection{agents\_list}
+
+
+列出当前会话可以用 \texttt{sessions\_spawn} 定位的智能体 id。
+
+注意：
+
+\begin{itemize}
+  \item 结果受每智能体允许列表限制（\texttt{agents.list[].subagents.allowAgents}）。
+  \item 当配置为 \texttt{["*"]} 时，工具包含所有已配置的智能体并标记 \texttt{allowAny: true}。
+\end{itemize}
+
+
+\subsection{参数（通用）}
+
+
+Gateway 网关支持的工具（\texttt{canvas}、\texttt{nodes}、\texttt{cron}）：
+
+\begin{itemize}
+  \item \texttt{gatewayUrl}（默认 \texttt{ws://127.0.0.1:18789}）
+  \item \texttt{gatewayToken}（如果启用了认证）
+  \item \texttt{timeoutMs}
+\end{itemize}
+
+
+Browser 工具：
+
+\begin{itemize}
+  \item \texttt{profile}（可选；默认为 \texttt{browser.defaultProfile}）
+  \item \texttt{target}（\texttt{sandbox} | \texttt{host} | \texttt{node}）
+  \item \texttt{node}（可选；固定特定的节点 id/名称）
+\end{itemize}
+
+
+\subsection{推荐的智能体流程}
+
+
+浏览器自动化：
+
+\begin{enumerate}
+  \item \texttt{browser} → \texttt{status} / \texttt{start}
+  \item \texttt{snapshot}（ai 或 aria）
+  \item \texttt{act}（click/type/press）
+  \item \texttt{screenshot} 如果你需要视觉确认
+\end{enumerate}
+
+
+Canvas 渲染：
+
+\begin{enumerate}
+  \item \texttt{canvas} → \texttt{present}
+  \item \texttt{a2ui\_push}（可选）
+  \item \texttt{snapshot}
+\end{enumerate}
+
+
+节点定位：
+
+\begin{enumerate}
+  \item \texttt{nodes} → \texttt{status}
+  \item 在选定的节点上 \texttt{describe}
+  \item \texttt{notify} / \texttt{run} / \texttt{camera\_snap} / \texttt{screen\_record}
+\end{enumerate}
+
+
+\subsection{安全性}
+
+
+\begin{itemize}
+  \item 避免直接 \texttt{system.run}；仅在用户明确同意时使用 \texttt{nodes} → \texttt{run}。
+  \item 尊重用户对摄像头/屏幕捕获的同意。
+  \item 在调用媒体命令前使用 \texttt{status/describe} 确保权限。
+\end{itemize}
+
+
+\subsection{工具如何呈现给智能体}
+
+
+工具通过两个并行渠道暴露：
+
+\begin{enumerate}
+  \item \textbf{系统提示文本}：人类可读的列表 + 指导。
+  \item \textbf{工具 schema}：发送到模型 API 的结构化函数定义。
+\end{enumerate}
+
+
+这意味着智能体同时看到"存在哪些工具"和"如何调用它们"。如果工具
+没有出现在系统提示或 schema 中，模型就无法调用它。
+
+
+\clearpage
+
+% === 源文件: tools/llm-task.md ===
+\section{LLM 任务}
+
+
+\texttt{llm-task} 是一个\textbf{可选插件工具}，用于运行纯 JSON 的 LLM 任务并返回结构化输出（可选择根据 JSON Schema 进行验证）。
+
+这非常适合像 Lobster 这样的工作流引擎：你可以添加单个 LLM 步骤，而无需为每个工作流编写自定义 OpenClaw 代码。
+
+\subsection{启用插件}
+
+
+\begin{enumerate}
+  \item 启用插件：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  "plugins": {
+    "entries": {
+      "llm-task": { "enabled": true }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 将工具加入允许列表（它以 \texttt{optional: true} 注册）：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "tools": { "allow": ["llm-task"] }
+      }
+    ]
+  }
+}
+\end{lstlisting}
+
+
+\subsection{配置（可选）}
+
+
+\begin{lstlisting}[language=json]
+{
+  "plugins": {
+    "entries": {
+      "llm-task": {
+        "enabled": true,
+        "config": {
+          "defaultProvider": "openai-codex",
+          "defaultModel": "gpt-5.2",
+          "defaultAuthProfileId": "main",
+          "allowedModels": ["openai-codex/gpt-5.2"],
+          "maxTokens": 800,
+          "timeoutMs": 30000
+        }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\texttt{allowedModels} 是 \texttt{provider/model} 字符串的允许列表。如果设置了该项，任何不在列表中的请求都会被拒绝。
+
+\subsection{工具参数}
+
+
+\begin{itemize}
+  \item \texttt{prompt}（字符串，必填）
+  \item \texttt{input}（任意类型，可选）
+  \item \texttt{schema}（对象，可选 JSON Schema）
+  \item \texttt{provider}（字符串，可选）
+  \item \texttt{model}（字符串，可选）
+  \item \texttt{authProfileId}（字符串，可选）
+  \item \texttt{temperature}（数字，可选）
+  \item \texttt{maxTokens}（数字，可选）
+  \item \texttt{timeoutMs}（数字，可选）
+\end{itemize}
+
+
+\subsection{输出}
+
+
+返回 \texttt{details.json}，包含解析后的 JSON（如果提供了 \texttt{schema}，则会进行验证）。
+
+\subsection{示例：Lobster 工作流步骤}
+
+
+\begin{lstlisting}
+openclaw.invoke --tool llm-task --action json --args-json '{
+  "prompt": "Given the input email, return intent and draft.",
+  "input": {
+    "subject": "Hello",
+    "body": "Can you help?"
+  },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "intent": { "type": "string" },
+      "draft": { "type": "string" }
+    },
+    "required": ["intent", "draft"],
+    "additionalProperties": false
+  }
+}'
+\end{lstlisting}
+
+
+\subsection{安全注意事项}
+
+
+\begin{itemize}
+  \item 该工具为\textbf{纯 JSON 模式}，指示模型仅输出 JSON（无代码围栏、无注释说明）。
+  \item 此次运行不会向模型暴露任何工具。
+  \item 除非使用 \texttt{schema} 进行验证，否则应将输出视为不可信。
+  \item 在任何有副作用的步骤（发送、发布、执行）之前设置审批流程。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/lobster.md ===
+\section{Lobster}
+
+
+Lobster 是一个工作流外壳，让 OpenClaw 能够将多步骤工具序列作为单个确定性操作运行，并带有显式审批检查点。
+
+\subsection{亮点}
+
+
+你的助手可以构建管理自身的工具。请求一个工作流，30 分钟后你就有了一个 CLI 和作为单次调用运行的管道。Lobster 是缺失的那一块：确定性管道、显式审批和可恢复状态。
+
+\subsection{为什么}
+
+
+如今，复杂的工作流需要多次来回的工具调用。每次调用都消耗 token，LLM 必须编排每一步。Lobster 将这种编排移入类型化运行时：
+
+\begin{itemize}
+  \item \textbf{一次调用代替多次}：OpenClaw 运行一次 Lobster 工具调用并获得结构化结果。
+  \item \textbf{内置审批}：副作用（发送邮件、发布评论）会暂停工作流，直到明确批准。
+  \item \textbf{可恢复}：暂停的工作流返回一个令牌；批准并恢复而无需重新运行所有内容。
+\end{itemize}
+
+
+\subsection{为什么用 DSL 而不是普通程序？}
+
+
+Lobster 故意很小。目标不是"一种新语言"，而是一个可预测的、AI 友好的管道规范，具有一流的审批和恢复令牌。
+
+\begin{itemize}
+  \item \textbf{内置批准/恢复}：普通程序可以提示人类，但它无法\textit{暂停和恢复}并带有持久令牌，除非你自己发明那个运行时。
+  \item \textbf{确定性 + 可审计性}：管道是数据，所以它们易于记录、比较、重放和审查。
+  \item \textbf{AI 的受限表面}：微小的语法 + JSON 管道减少了"创造性"代码路径，使验证变得现实可行。
+  \item \textbf{内置安全策略}：超时、输出上限、沙箱检查和白名单由运行时强制执行，而不是每个脚本。
+  \item \textbf{仍然可编程}：每个步骤都可以调用任何 CLI 或脚本。如果你想要 JS/TS，可以从代码生成 \texttt{.lobster} 文件。
+\end{itemize}
+
+
+\subsection{工作原理}
+
+
+OpenClaw 以\textbf{工具模式}启动本地 \texttt{lobster} CLI，并从 stdout 解析 JSON 信封。
+如果管道暂停等待审批，工具会返回一个 \texttt{resumeToken}，以便你稍后继续。
+
+\subsection{模式：小型 CLI + JSON 管道 + 审批}
+
+
+构建输出 JSON 的小命令，然后将它们链接成单个 Lobster 调用。（下面是示例命令名称——替换成你自己的。）
+
+\begin{lstlisting}[language=bash]
+inbox list --json
+inbox categorize --json
+inbox apply --json
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=json]
+{
+  "action": "run",
+  "pipeline": "exec --json --shell 'inbox list --json' | exec --stdin json --shell 'inbox categorize --json' | exec --stdin json --shell 'inbox apply --json' | approve --preview-from-stdin --limit 5 --prompt 'Apply changes?'",
+  "timeoutMs": 30000
+}
+\end{lstlisting}
+
+
+如果管道请求审批，使用令牌恢复：
+
+\begin{lstlisting}[language=json]
+{
+  "action": "resume",
+  "token": "<resumeToken>",
+  "approve": true
+}
+\end{lstlisting}
+
+
+AI 触发工作流；Lobster 执行步骤。审批关卡使副作用显式且可审计。
+
+示例：将输入项映射到工具调用：
+
+\begin{lstlisting}[language=bash]
+gog.gmail.search --query 'newer_than:1d' \
+  | openclaw.invoke --tool message --action send --each --item-key message --args-json '{"provider":"telegram","to":"..."}'
+\end{lstlisting}
+
+
+\subsection{纯 JSON 的 LLM 步骤（llm-task）}
+
+
+对于需要\textbf{结构化 LLM 步骤}的工作流，启用可选的
+\texttt{llm-task} 插件工具并从 Lobster 调用它。这保持了工作流的
+确定性，同时仍然允许你使用模型进行分类/摘要/起草。
+
+启用工具：
+
+\begin{lstlisting}[language=json]
+{
+  "plugins": {
+    "entries": {
+      "llm-task": { "enabled": true }
+    }
+  },
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "tools": { "allow": ["llm-task"] }
+      }
+    ]
+  }
+}
+\end{lstlisting}
+
+
+在管道中使用它：
+
+\begin{lstlisting}
+openclaw.invoke --tool llm-task --action json --args-json '{
+  "prompt": "Given the input email, return intent and draft.",
+  "input": { "subject": "Hello", "body": "Can you help?" },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "intent": { "type": "string" },
+      "draft": { "type": "string" }
+    },
+    "required": ["intent", "draft"],
+    "additionalProperties": false
+  }
+}'
+\end{lstlisting}
+
+
+参见 \href{/tools/llm-task}{LLM Task} 了解详情和配置选项。
+
+\subsection{工作流文件（.lobster）}
+
+
+Lobster 可以运行包含 \texttt{name}、\texttt{args}、\texttt{steps}、\texttt{env}、\texttt{condition} 和 \texttt{approval} 字段的 YAML/JSON 工作流文件。在 OpenClaw 工具调用中，将 \texttt{pipeline} 设置为文件路径。
+
+\begin{lstlisting}[language=yaml]
+name: inbox-triage
+args:
+  tag:
+    default: "family"
+steps:
+  - id: collect
+    command: inbox list --json
+  - id: categorize
+    command: inbox categorize --json
+    stdin: $collect.stdout
+  - id: approve
+    command: inbox apply --approve
+    stdin: $categorize.stdout
+    approval: required
+  - id: execute
+    command: inbox apply --execute
+    stdin: $categorize.stdout
+    condition: $approve.approved
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{stdin: \$step.stdout} 和 \texttt{stdin: \$step.json} 传递前一步骤的输出。
+  \item \texttt{condition}（或 \texttt{when}）可以根据 \texttt{\$step.approved} 控制步骤。
+\end{itemize}
+
+
+\subsection{安装 Lobster}
+
+
+在运行 OpenClaw Gateway 网关的\textbf{同一主机}上安装 Lobster CLI（参见 \href{https://github.com/openclaw/lobster}{Lobster 仓库}），并确保 \texttt{lobster} 在 \texttt{PATH} 中。
+如果你想使用自定义二进制位置，在工具调用中传递\textbf{绝对}路径 \texttt{lobsterPath}。
+
+\subsection{启用工具}
+
+
+Lobster 是一个\textbf{可选}的插件工具（默认未启用）。
+
+推荐（附加，安全）：
+
+\begin{lstlisting}[language=json]
+{
+  "tools": {
+    "alsoAllow": ["lobster"]
+  }
+}
+\end{lstlisting}
+
+
+或每个智能体：
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "tools": {
+          "alsoAllow": ["lobster"]
+        }
+      }
+    ]
+  }
+}
+\end{lstlisting}
+
+
+避免使用 \texttt{tools.allow: ["lobster"]}，除非你打算在限制性白名单模式下运行。
+
+注意：白名单对于可选插件是自愿加入的。如果你的白名单只包含
+插件工具（如 \texttt{lobster}），OpenClaw 会保持核心工具启用。要限制核心
+工具，也要在白名单中包含你想要的核心工具或组。
+
+\subsection{示例：邮件分类}
+
+
+不使用 Lobster：
+
+\begin{lstlisting}
+用户："检查我的邮件并起草回复"
+→ openclaw 调用 gmail.list
+→ LLM 总结
+→ 用户："给 #2 和 #5 起草回复"
+→ LLM 起草
+→ 用户："发送 #2"
+→ openclaw 调用 gmail.send
+（每天重复，不记得已分类的内容）
+\end{lstlisting}
+
+
+使用 Lobster：
+
+\begin{lstlisting}[language=json]
+{
+  "action": "run",
+  "pipeline": "email.triage --limit 20",
+  "timeoutMs": 30000
+}
+\end{lstlisting}
+
+
+返回一个 JSON 信封（已截断）：
+
+\begin{lstlisting}[language=json]
+{
+  "ok": true,
+  "status": "needs_approval",
+  "output": [{ "summary": "5 need replies, 2 need action" }],
+  "requiresApproval": {
+    "type": "approval_request",
+    "prompt": "Send 2 draft replies?",
+    "items": [],
+    "resumeToken": "..."
+  }
+}
+\end{lstlisting}
+
+
+用户批准 → 恢复：
+
+\begin{lstlisting}[language=json]
+{
+  "action": "resume",
+  "token": "<resumeToken>",
+  "approve": true
+}
+\end{lstlisting}
+
+
+一个工作流。确定性。安全。
+
+\subsection{工具参数}
+
+
+\subsubsection{run}
+
+
+以工具模式运行管道。
+
+\begin{lstlisting}[language=json]
+{
+  "action": "run",
+  "pipeline": "gog.gmail.search --query 'newer_than:1d' | email.triage",
+  "cwd": "/path/to/workspace",
+  "timeoutMs": 30000,
+  "maxStdoutBytes": 512000
+}
+\end{lstlisting}
+
+
+使用参数运行工作流文件：
+
+\begin{lstlisting}[language=json]
+{
+  "action": "run",
+  "pipeline": "/path/to/inbox-triage.lobster",
+  "argsJson": "{\"tag\":\"family\"}"
+}
+\end{lstlisting}
+
+
+\subsubsection{resume}
+
+
+在审批后继续暂停的工作流。
+
+\begin{lstlisting}[language=json]
+{
+  "action": "resume",
+  "token": "<resumeToken>",
+  "approve": true
+}
+\end{lstlisting}
+
+
+\subsubsection{可选输入}
+
+
+\begin{itemize}
+  \item \texttt{lobsterPath}：Lobster 二进制文件的绝对路径（省略则使用 \texttt{PATH}）。
+  \item \texttt{cwd}：管道的工作目录（默认为当前进程工作目录）。
+  \item \texttt{timeoutMs}：如果子进程超过此持续时间则终止（默认：20000）。
+  \item \texttt{maxStdoutBytes}：如果 stdout 超过此大小则终止子进程（默认：512000）。
+  \item \texttt{argsJson}：传递给 \texttt{lobster run --args-json} 的 JSON 字符串（仅限工作流文件）。
+\end{itemize}
+
+
+\subsection{输出信封}
+
+
+Lobster 返回一个具有三种状态之一的 JSON 信封：
+
+\begin{itemize}
+  \item \texttt{ok} → 成功完成
+  \item \texttt{needs\_approval} → 已暂停；需要 \texttt{requiresApproval.resumeToken} 才能恢复
+  \item \texttt{cancelled} → 明确拒绝或取消
+\end{itemize}
+
+
+工具在 \texttt{content}（格式化 JSON）和 \texttt{details}（原始对象）中都显示信封。
+
+\subsection{审批}
+
+
+如果存在 \texttt{requiresApproval}，检查提示并决定：
+
+\begin{itemize}
+  \item \texttt{approve: true} → 恢复并继续副作用
+  \item \texttt{approve: false} → 取消并终结工作流
+\end{itemize}
+
+
+使用 \texttt{approve --preview-from-stdin --limit N} 将 JSON 预览附加到审批请求，无需自定义 jq/heredoc 粘合代码。恢复令牌现在很紧凑：Lobster 在其状态目录下存储工作流恢复状态，并返回一个小令牌键。
+
+\subsection{OpenProse}
+
+
+OpenProse 与 Lobster 配合良好：使用 \texttt{/prose} 编排多智能体准备，然后运行 Lobster 管道进行确定性审批。如果 Prose 程序需要 Lobster，通过 \texttt{tools.subagents.tools} 为子智能体允许 \texttt{lobster} 工具。参见 \href{/prose}{OpenProse}。
+
+\subsection{安全}
+
+
+\begin{itemize}
+  \item \textbf{仅限本地子进程} — 插件本身不进行网络调用。
+  \item \textbf{无密钥} — Lobster 不管理 OAuth；它调用管理 OAuth 的 OpenClaw 工具。
+  \item \textbf{沙箱感知} — 当工具上下文处于沙箱隔离状态时禁用。
+  \item \textbf{加固} — 如果指定，\texttt{lobsterPath} 必须是绝对路径；强制执行超时和输出上限。
+\end{itemize}
+
+
+\subsection{故障排除}
+
+
+\begin{itemize}
+  \item \textbf{\texttt{lobster subprocess timed out}} → 增加 \texttt{timeoutMs}，或拆分长管道。
+  \item \textbf{\texttt{lobster output exceeded maxStdoutBytes}} → 提高 \texttt{maxStdoutBytes} 或减少输出大小。
+  \item \textbf{\texttt{lobster returned invalid JSON}} → 确保管道以工具模式运行并只打印 JSON。
+  \item \textbf{\texttt{lobster failed (code …)}} → 在终端中运行相同的管道以检查 stderr。
+\end{itemize}
+
+
+\subsection{了解更多}
+
+
+\begin{itemize}
+  \item \href{/tools/plugin}{插件}
+  \item \href{/plugins/agent-tools}{插件工具开发}
+\end{itemize}
+
+
+\subsection{案例研究：社区工作流}
+
+
+一个公开示例：一个"第二大脑" CLI + Lobster 管道，管理三个 Markdown 库（个人、伴侣、共享）。CLI 为统计、收件箱列表和过时扫描输出 JSON；Lobster 将这些命令链接成 \texttt{weekly-review}、\texttt{inbox-triage}、\texttt{memory-consolidation} 和 \texttt{shared-task-sync} 等工作流，每个都有审批关卡。AI 在可用时处理判断（分类），不可用时回退到确定性规则。
+
+\begin{itemize}
+  \item 帖子：https://x.com/plattenschieber/status/2014508656335770033
+  \item 仓库：https://github.com/bloomedai/brain-cli
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/multi-agent-sandbox-tools.md ===
+\section{多智能体沙箱与工具配置}
+
+
+\subsection{概述}
+
+
+多智能体设置中的每个智能体现在可以拥有自己的：
+
+\begin{itemize}
+  \item \textbf{沙箱配置}（\texttt{agents.list[].sandbox} 覆盖 \texttt{agents.defaults.sandbox}）
+  \item \textbf{工具限制}（\texttt{tools.allow} / \texttt{tools.deny}，以及 \texttt{agents.list[].tools}）
+\end{itemize}
+
+
+这允许你运行具有不同安全配置文件的多个智能体：
+
+\begin{itemize}
+  \item 具有完全访问权限的个人助手
+  \item 具有受限工具的家庭/工作智能体
+  \item 在沙箱中运行的面向公众的智能体
+\end{itemize}
+
+
+\texttt{setupCommand} 属于 \texttt{sandbox.docker} 下（全局或按智能体），在容器创建时运行一次。
+
+认证是按智能体的：每个智能体从其自己的 \texttt{agentDir} 认证存储读取：
+
+\begin{lstlisting}
+~/.openclaw/agents/<agentId>/agent/auth-profiles.json
+\end{lstlisting}
+
+
+凭证\textbf{不会}在智能体之间共享。切勿在智能体之间重用 \texttt{agentDir}。
+如果你想共享凭证，请将 \texttt{auth-profiles.json} 复制到其他智能体的 \texttt{agentDir} 中。
+
+有关沙箱隔离在运行时的行为，请参见\href{/gateway/sandboxing}{沙箱隔离}。
+有关调试"为什么这被阻止了？"，请参见\href{/gateway/sandbox-vs-tool-policy-vs-elevated}{沙箱 vs 工具策略 vs 提权} 和 \texttt{openclaw sandbox explain}。
+
+\hrulefill
+
+
+\subsection{配置示例}
+
+
+\subsubsection{示例 1：个人 + 受限家庭智能体}
+
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "name": "Personal Assistant",
+        "workspace": "~/.openclaw/workspace",
+        "sandbox": { "mode": "off" }
+      },
+      {
+        "id": "family",
+        "name": "Family Bot",
+        "workspace": "~/.openclaw/workspace-family",
+        "sandbox": {
+          "mode": "all",
+          "scope": "agent"
+        },
+        "tools": {
+          "allow": ["read"],
+          "deny": ["exec", "write", "edit", "apply_patch", "process", "browser"]
+        }
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "family",
+      "match": {
+        "provider": "whatsapp",
+        "accountId": "*",
+        "peer": {
+          "kind": "group",
+          "id": "120363424282127706@g.us"
+        }
+      }
+    }
+  ]
+}
+\end{lstlisting}
+
+
+\textbf{结果：}
+
+\begin{itemize}
+  \item \texttt{main} 智能体：在主机上运行，完全工具访问
+  \item \texttt{family} 智能体：在 Docker 中运行（每个智能体一个容器），仅有 \texttt{read} 工具
+\end{itemize}
+
+
+\hrulefill
+
+
+\subsubsection{示例 2：具有共享沙箱的工作智能体}
+
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "list": [
+      {
+        "id": "personal",
+        "workspace": "~/.openclaw/workspace-personal",
+        "sandbox": { "mode": "off" }
+      },
+      {
+        "id": "work",
+        "workspace": "~/.openclaw/workspace-work",
+        "sandbox": {
+          "mode": "all",
+          "scope": "shared",
+          "workspaceRoot": "/tmp/work-sandboxes"
+        },
+        "tools": {
+          "allow": ["read", "write", "apply_patch", "exec"],
+          "deny": ["browser", "gateway", "discord"]
+        }
+      }
+    ]
+  }
+}
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsubsection{示例 2b：全局编码配置文件 + 仅消息智能体}
+
+
+\begin{lstlisting}[language=json]
+{
+  "tools": { "profile": "coding" },
+  "agents": {
+    "list": [
+      {
+        "id": "support",
+        "tools": { "profile": "messaging", "allow": ["slack"] }
+      }
+    ]
+  }
+}
+\end{lstlisting}
+
+
+\textbf{结果：}
+
+\begin{itemize}
+  \item 默认智能体获得编码工具
+  \item \texttt{support} 智能体仅用于消息（+ Slack 工具）
+\end{itemize}
+
+
+\hrulefill
+
+
+\subsubsection{示例 3：每个智能体不同的沙箱模式}
+
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "defaults": {
+      "sandbox": {
+        "mode": "non-main", // 全局默认
+        "scope": "session"
+      }
+    },
+    "list": [
+      {
+        "id": "main",
+        "workspace": "~/.openclaw/workspace",
+        "sandbox": {
+          "mode": "off" // 覆盖：main 永不沙箱隔离
+        }
+      },
+      {
+        "id": "public",
+        "workspace": "~/.openclaw/workspace-public",
+        "sandbox": {
+          "mode": "all", // 覆盖：public 始终沙箱隔离
+          "scope": "agent"
+        },
+        "tools": {
+          "allow": ["read"],
+          "deny": ["exec", "write", "edit", "apply_patch"]
+        }
+      }
+    ]
+  }
+}
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{配置优先级}
+
+
+当全局（\texttt{agents.defaults.\textit{}）和智能体特定（\texttt{agents.list[].}}）配置同时存在时：
+
+\subsubsection{沙箱配置}
+
+
+智能体特定设置覆盖全局：
+
+\begin{lstlisting}
+agents.list[].sandbox.mode > agents.defaults.sandbox.mode
+agents.list[].sandbox.scope > agents.defaults.sandbox.scope
+agents.list[].sandbox.workspaceRoot > agents.defaults.sandbox.workspaceRoot
+agents.list[].sandbox.workspaceAccess > agents.defaults.sandbox.workspaceAccess
+agents.list[].sandbox.docker.* > agents.defaults.sandbox.docker.*
+agents.list[].sandbox.browser.* > agents.defaults.sandbox.browser.*
+agents.list[].sandbox.prune.* > agents.defaults.sandbox.prune.*
+\end{lstlisting}
+
+
+\textbf{注意事项：}
+
+\begin{itemize}
+  \item \texttt{agents.list[].sandbox.\{docker,browser,prune\}.\textit{} 为该智能体覆盖 \texttt{agents.defaults.sandbox.\{docker,browser,prune\}.}}（当沙箱 scope 解析为 \texttt{"shared"} 时忽略）。
+\end{itemize}
+
+
+\subsubsection{工具限制}
+
+
+过滤顺序是：
+
+\begin{enumerate}
+  \item \textbf{工具配置文件}（\texttt{tools.profile} 或 \texttt{agents.list[].tools.profile}）
+  \item \textbf{提供商工具配置文件}（\texttt{tools.byProvider[provider].profile} 或 \texttt{agents.list[].tools.byProvider[provider].profile}）
+  \item \textbf{全局工具策略}（\texttt{tools.allow} / \texttt{tools.deny}）
+  \item \textbf{提供商工具策略}（\texttt{tools.byProvider[provider].allow/deny}）
+  \item \textbf{智能体特定工具策略}（\texttt{agents.list[].tools.allow/deny}）
+  \item \textbf{智能体提供商策略}（\texttt{agents.list[].tools.byProvider[provider].allow/deny}）
+  \item \textbf{沙箱工具策略}（\texttt{tools.sandbox.tools} 或 \texttt{agents.list[].tools.sandbox.tools}）
+  \item \textbf{子智能体工具策略}（\texttt{tools.subagents.tools}，如适用）
+\end{enumerate}
+
+
+每个级别可以进一步限制工具，但不能恢复之前级别拒绝的工具。
+如果设置了 \texttt{agents.list[].tools.sandbox.tools}，它将替换该智能体的 \texttt{tools.sandbox.tools}。
+如果设置了 \texttt{agents.list[].tools.profile}，它将覆盖该智能体的 \texttt{tools.profile}。
+提供商工具键接受 \texttt{provider}（例如 \texttt{google-antigravity}）或 \texttt{provider/model}（例如 \texttt{openai/gpt-5.2}）。
+
+\subsubsection{工具组（简写）}
+
+
+工具策略（全局、智能体、沙箱）支持 \texttt{group:*} 条目，可扩展为多个具体工具：
+
+\begin{itemize}
+  \item \texttt{group:runtime}：\texttt{exec}、\texttt{bash}、\texttt{process}
+  \item \texttt{group:fs}：\texttt{read}、\texttt{write}、\texttt{edit}、\texttt{apply\_patch}
+  \item \texttt{group:sessions}：\texttt{sessions\_list}、\texttt{sessions\_history}、\texttt{sessions\_send}、\texttt{sessions\_spawn}、\texttt{session\_status}
+  \item \texttt{group:memory}：\texttt{memory\_search}、\texttt{memory\_get}
+  \item \texttt{group:ui}：\texttt{browser}、\texttt{canvas}
+  \item \texttt{group:automation}：\texttt{cron}、\texttt{gateway}
+  \item \texttt{group:messaging}：\texttt{message}
+  \item \texttt{group:nodes}：\texttt{nodes}
+  \item \texttt{group:openclaw}：所有内置 OpenClaw 工具（不包括提供商插件）
+\end{itemize}
+
+
+\subsubsection{提权模式}
+
+
+\texttt{tools.elevated} 是全局基线（基于发送者的允许列表）。\texttt{agents.list[].tools.elevated} 可以为特定智能体进一步限制提权（两者都必须允许）。
+
+缓解模式：
+
+\begin{itemize}
+  \item 为不受信任的智能体拒绝 \texttt{exec}（\texttt{agents.list[].tools.deny: ["exec"]}）
+  \item 避免将发送者加入允许列表后路由到受限智能体
+  \item 如果你只想要沙箱隔离执行，全局禁用提权（\texttt{tools.elevated.enabled: false}）
+  \item 为敏感配置文件按智能体禁用提权（\texttt{agents.list[].tools.elevated.enabled: false}）
+\end{itemize}
+
+
+\hrulefill
+
+
+\subsection{从单智能体迁移}
+
+
+\textbf{之前（单智能体）：}
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.openclaw/workspace",
+      "sandbox": {
+        "mode": "non-main"
+      }
+    }
+  },
+  "tools": {
+    "sandbox": {
+      "tools": {
+        "allow": ["read", "write", "apply_patch", "exec"],
+        "deny": []
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\textbf{之后（具有不同配置文件的多智能体）：}
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "workspace": "~/.openclaw/workspace",
+        "sandbox": { "mode": "off" }
+      }
+    ]
+  }
+}
+\end{lstlisting}
+
+
+旧版 \texttt{agent.*} 配置由 \texttt{openclaw doctor} 迁移；今后请优先使用 \texttt{agents.defaults} + \texttt{agents.list}。
+
+\hrulefill
+
+
+\subsection{工具限制示例}
+
+
+\subsubsection{只读智能体}
+
+
+\begin{lstlisting}[language=json]
+{
+  "tools": {
+    "allow": ["read"],
+    "deny": ["exec", "write", "edit", "apply_patch", "process"]
+  }
+}
+\end{lstlisting}
+
+
+\subsubsection{安全执行智能体（无文件修改）}
+
+
+\begin{lstlisting}[language=json]
+{
+  "tools": {
+    "allow": ["read", "exec", "process"],
+    "deny": ["write", "edit", "apply_patch", "browser", "gateway"]
+  }
+}
+\end{lstlisting}
+
+
+\subsubsection{仅通信智能体}
+
+
+\begin{lstlisting}[language=json]
+{
+  "tools": {
+    "allow": ["sessions_list", "sessions_send", "sessions_history", "session_status"],
+    "deny": ["exec", "write", "edit", "apply_patch", "read", "browser"]
+  }
+}
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{常见陷阱："non-main"}
+
+
+\texttt{agents.defaults.sandbox.mode: "non-main"} 基于 \texttt{session.mainKey}（默认 \texttt{"main"}），
+而不是智能体 id。群组/渠道会话始终获得自己的键，因此它们
+被视为非 main 并将被沙箱隔离。如果你希望智能体永不
+沙箱隔离，请设置 \texttt{agents.list[].sandbox.mode: "off"}。
+
+\hrulefill
+
+
+\subsection{测试}
+
+
+配置多智能体沙箱和工具后：
+
+\begin{enumerate}
+  \item \textbf{检查智能体解析：}
+\end{enumerate}
+
+
+\begin{lstlisting}
+   openclaw agents list --bindings
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item \textbf{验证沙箱容器：}
+\end{enumerate}
+
+
+\begin{lstlisting}
+   docker ps --filter "name=openclaw-sbx-"
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item \textbf{测试工具限制：}
+\end{enumerate}
+
+\begin{itemize}
+  \item 发送需要受限工具的消息
+  \item 验证智能体无法使用被拒绝的工具
+\end{itemize}
+
+
+\begin{enumerate}
+  \item \textbf{监控日志：}
+\begin{lstlisting}
+   tail -f "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/logs/gateway.log" | grep -E "routing|sandbox|tools"
+\end{lstlisting}
+
+\end{enumerate}
+
+
+\hrulefill
+
+
+\subsection{故障排除}
+
+
+\subsubsection{尽管设置了 mode: "all" 但智能体未被沙箱隔离}
+
+
+\begin{itemize}
+  \item 检查是否有全局 \texttt{agents.defaults.sandbox.mode} 覆盖它
+  \item 智能体特定配置优先，因此设置 \texttt{agents.list[].sandbox.mode: "all"}
+\end{itemize}
+
+
+\subsubsection{尽管有拒绝列表但工具仍然可用}
+
+
+\begin{itemize}
+  \item 检查工具过滤顺序：全局 → 智能体 → 沙箱 → 子智能体
+  \item 每个级别只能进一步限制，不能恢复
+  \item 通过日志验证：\texttt{[tools] filtering tools for agent:\$\{agentId\}}
+\end{itemize}
+
+
+\subsubsection{容器未按智能体隔离}
+
+
+\begin{itemize}
+  \item 在智能体特定沙箱配置中设置 \texttt{scope: "agent"}
+  \item 默认是 \texttt{"session"}，每个会话创建一个容器
+\end{itemize}
+
+
+\hrulefill
+
+
+\subsection{另请参阅}
+
+
+\begin{itemize}
+  \item \href{/concepts/multi-agent}{多智能体路由}
+  \item \href{/gateway/configuration\#agentsdefaults-sandbox}{沙箱配置}
+  \item \href{/concepts/session}{会话管理}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/plugin.md ===
+\section{插件（扩展）}
+
+
+\subsection{快速开始（插件新手？）}
+
+
+插件只是一个\textbf{小型代码模块}，用额外功能（命令、工具和 Gateway 网关 RPC）扩展 OpenClaw。
+
+大多数时候，当你想要一个尚未内置到核心 OpenClaw 的功能（或你想将可选功能排除在主安装之外）时，你会使用插件。
+
+快速路径：
+
+\begin{enumerate}
+  \item 查看已加载的内容：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins list
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 安装官方插件（例如：Voice Call）：
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install @openclaw/voice-call
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 重启 Gateway 网关，然后在 \texttt{plugins.entries..config} 下配置。
+\end{enumerate}
+
+
+参见 \href{/plugins/voice-call}{Voice Call} 了解具体的插件示例。
+
+\subsection{可用插件（官方）}
+
+
+\begin{itemize}
+  \item 从 2026.1.15 起 Microsoft Teams 仅作为插件提供；如果使用 Teams，请安装 \texttt{@openclaw/msteams}。
+  \item Memory (Core) — 捆绑的记忆搜索插件（通过 \texttt{plugins.slots.memory} 默认启用）
+  \item Memory (LanceDB) — 捆绑的长期记忆插件（自动召回/捕获；设置 \texttt{plugins.slots.memory = "memory-lancedb"}）
+  \item \href{/plugins/voice-call}{Voice Call} — \texttt{@openclaw/voice-call}
+  \item \href{/plugins/zalouser}{Zalo Personal} — \texttt{@openclaw/zalouser}
+  \item \href{/channels/matrix}{Matrix} — \texttt{@openclaw/matrix}
+  \item \href{/channels/nostr}{Nostr} — \texttt{@openclaw/nostr}
+  \item \href{/channels/zalo}{Zalo} — \texttt{@openclaw/zalo}
+  \item \href{/channels/msteams}{Microsoft Teams} — \texttt{@openclaw/msteams}
+  \item Google Antigravity OAuth（提供商认证）— 作为 \texttt{google-antigravity-auth} 捆绑（默认禁用）
+  \item Gemini CLI OAuth（提供商认证）— 作为 \texttt{google-gemini-cli-auth} 捆绑（默认禁用）
+  \item Qwen OAuth（提供商认证）— 作为 \texttt{qwen-portal-auth} 捆绑（默认禁用）
+  \item Copilot Proxy（提供商认证）— 本地 VS Code Copilot Proxy 桥接；与内置 \texttt{github-copilot} 设备登录不同（捆绑，默认禁用）
+\end{itemize}
+
+
+OpenClaw 插件是通过 jiti 在运行时加载的 \textbf{TypeScript 模块}。\textbf{配置验证不会执行插件代码}；它使用插件清单和 JSON Schema。参见 \href{/plugins/manifest}{插件清单}。
+
+插件可以注册：
+
+\begin{itemize}
+  \item Gateway 网关 RPC 方法
+  \item Gateway 网关 HTTP 处理程序
+  \item 智能体工具
+  \item CLI 命令
+  \item 后台服务
+  \item 可选的配置验证
+  \item \textbf{Skills}（通过在插件清单中列出 \texttt{skills} 目录）
+  \item \textbf{自动回复命令}（不调用 AI 智能体即可执行）
+\end{itemize}
+
+
+插件与 Gateway 网关\textbf{在同一进程中}运行，因此将它们视为受信任的代码。
+工具编写指南：\href{/plugins/agent-tools}{插件智能体工具}。
+
+\subsection{运行时辅助工具}
+
+
+插件可以通过 \texttt{api.runtime} 访问选定的核心辅助工具。对于电话 TTS：
+
+\begin{lstlisting}[language=typescript]
+const result = await api.runtime.tts.textToSpeechTelephony({
+  text: "Hello from OpenClaw",
+  cfg: api.config,
+});
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 使用核心 \texttt{messages.tts} 配置（OpenAI 或 ElevenLabs）。
+  \item 返回 PCM 音频缓冲区 + 采样率。插件必须为提供商重新采样/编码。
+  \item Edge TTS 不支持电话。
+\end{itemize}
+
+
+\subsection{发现和优先级}
+
+
+OpenClaw 按顺序扫描：
+
+\begin{enumerate}
+  \item 配置路径
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{plugins.load.paths}（文件或目录）
+\end{itemize}
+
+
+\begin{enumerate}
+  \item 工作区扩展
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{/.openclaw/extensions/*.ts}
+  \item \texttt{/.openclaw/extensions/*/index.ts}
+\end{itemize}
+
+
+\begin{enumerate}
+  \item 全局扩展
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/.openclaw/extensions/*.ts}
+  \item \texttt{\textasciitilde{}/.openclaw/extensions/*/index.ts}
+\end{itemize}
+
+
+\begin{enumerate}
+  \item 捆绑扩展（随 OpenClaw 一起发布，\textbf{默认禁用}）
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{/extensions/*}
+\end{itemize}
+
+
+捆绑插件必须通过 \texttt{plugins.entries..enabled} 或 \texttt{openclaw plugins enable } 显式启用。已安装的插件默认启用，但可以用相同方式禁用。
+
+每个插件必须在其根目录中包含 \texttt{openclaw.plugin.json} 文件。如果路径指向文件，则插件根目录是文件的目录，必须包含清单。
+
+如果多个插件解析到相同的 id，上述顺序中的第一个匹配项获胜，较低优先级的副本被忽略。
+
+\subsubsection{包集合}
+
+
+插件目录可以包含带有 \texttt{openclaw.extensions} 的 \texttt{package.json}：
+
+\begin{lstlisting}[language=json]
+{
+  "name": "my-pack",
+  "openclaw": {
+    "extensions": ["./src/safety.ts", "./src/tools.ts"]
+  }
+}
+\end{lstlisting}
+
+
+每个条目成为一个插件。如果包列出多个扩展，插件 id 变为 \texttt{name/}。
+
+如果你的插件导入 npm 依赖，请在该目录中安装它们以便 \texttt{node\_modules} 可用（\texttt{npm install} / \texttt{pnpm install}）。
+
+\subsubsection{渠道目录元数据}
+
+
+渠道插件可以通过 \texttt{openclaw.channel} 广播新手引导元数据，通过 \texttt{openclaw.install} 广播安装提示。这使核心目录保持无数据。
+
+示例：
+
+\begin{lstlisting}[language=json]
+{
+  "name": "@openclaw/nextcloud-talk",
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "channel": {
+      "id": "nextcloud-talk",
+      "label": "Nextcloud Talk",
+      "selectionLabel": "Nextcloud Talk (self-hosted)",
+      "docsPath": "/channels/nextcloud-talk",
+      "docsLabel": "nextcloud-talk",
+      "blurb": "Self-hosted chat via Nextcloud Talk webhook bots.",
+      "order": 65,
+      "aliases": ["nc-talk", "nc"]
+    },
+    "install": {
+      "npmSpec": "@openclaw/nextcloud-talk",
+      "localPath": "extensions/nextcloud-talk",
+      "defaultChoice": "npm"
+    }
+  }
+}
+\end{lstlisting}
+
+
+OpenClaw 还可以合并\textbf{外部渠道目录}（例如，MPM 注册表导出）。将 JSON 文件放在以下位置之一：
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/.openclaw/mpm/plugins.json}
+  \item \texttt{\textasciitilde{}/.openclaw/mpm/catalog.json}
+  \item \texttt{\textasciitilde{}/.openclaw/plugins/catalog.json}
+\end{itemize}
+
+
+或将 \texttt{OPENCLAW\_PLUGIN\_CATALOG\_PATHS}（或 \texttt{OPENCLAW\_MPM\_CATALOG\_PATHS}）指向一个或多个 JSON 文件（逗号/分号/\texttt{PATH} 分隔）。每个文件应包含 \texttt{\{ "entries": [ \{ "name": "@scope/pkg", "openclaw": \{ "channel": \{...\}, "install": \{...\} \} \} ] \}}。
+
+\subsection{插件 ID}
+
+
+默认插件 id：
+
+\begin{itemize}
+  \item 包集合：\texttt{package.json} 的 \texttt{name}
+  \item 独立文件：文件基本名称（\texttt{\textasciitilde{}/.../voice-call.ts} → \texttt{voice-call}）
+\end{itemize}
+
+
+如果插件导出 \texttt{id}，OpenClaw 会使用它，但当它与配置的 id 不匹配时会发出警告。
+
+\subsection{配置}
+
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    enabled: true,
+    allow: ["voice-call"],
+    deny: ["untrusted-plugin"],
+    load: { paths: ["~/Projects/oss/voice-call-extension"] },
+    entries: {
+      "voice-call": { enabled: true, config: { provider: "twilio" } },
+    },
+  },
+}
+\end{lstlisting}
+
+
+字段：
+
+\begin{itemize}
+  \item \texttt{enabled}：主开关（默认：true）
+  \item \texttt{allow}：允许列表（可选）
+  \item \texttt{deny}：拒绝列表（可选；deny 优先）
+  \item \texttt{load.paths}：额外的插件文件/目录
+  \item \texttt{entries.}：每个插件的开关 + 配置
+\end{itemize}
+
+
+配置更改\textbf{需要重启 Gateway 网关}。
+
+验证规则（严格）：
+
+\begin{itemize}
+  \item \texttt{entries}、\texttt{allow}、\texttt{deny} 或 \texttt{slots} 中的未知插件 id 是\textbf{错误}。
+  \item 未知的 \texttt{channels.} 键是\textbf{错误}，除非插件清单声明了渠道 id。
+  \item 插件配置使用嵌入在 \texttt{openclaw.plugin.json}（\texttt{configSchema}）中的 JSON Schema 进行验证。
+  \item 如果插件被禁用，其配置会保留并发出\textbf{警告}。
+\end{itemize}
+
+
+\subsection{插件槽位（独占类别）}
+
+
+某些插件类别是\textbf{独占的}（一次只有一个活跃）。使用 \texttt{plugins.slots} 选择哪个插件拥有该槽位：
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    slots: {
+      memory: "memory-core", // or "none" to disable memory plugins
+    },
+  },
+}
+\end{lstlisting}
+
+
+如果多个插件声明 \texttt{kind: "memory"}，只有选定的那个加载。其他的被禁用并带有诊断信息。
+
+\subsection{控制界面（schema + 标签）}
+
+
+控制界面使用 \texttt{config.schema}（JSON Schema + \texttt{uiHints}）来渲染更好的表单。
+
+OpenClaw 在运行时根据发现的插件增强 \texttt{uiHints}：
+
+\begin{itemize}
+  \item 为 \texttt{plugins.entries.} / \texttt{.enabled} / \texttt{.config} 添加每插件标签
+  \item 在以下位置合并可选的插件提供的配置字段提示：
+\end{itemize}
+
+\texttt{plugins.entries..config.}
+
+如果你希望插件配置字段显示良好的标签/占位符（并将密钥标记为敏感），请在插件清单中提供 \texttt{uiHints} 和 JSON Schema。
+
+示例：
+
+\begin{lstlisting}[language=json]
+{
+  "id": "my-plugin",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiKey": { "type": "string" },
+      "region": { "type": "string" }
+    }
+  },
+  "uiHints": {
+    "apiKey": { "label": "API Key", "sensitive": true },
+    "region": { "label": "Region", "placeholder": "us-east-1" }
+  }
+}
+\end{lstlisting}
+
+
+\subsection{CLI}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins list
+openclaw plugins info <id>
+openclaw plugins install <path>                 # copy a local file/dir into ~/.openclaw/extensions/<id>
+openclaw plugins install ./extensions/voice-call # relative path ok
+openclaw plugins install ./plugin.tgz           # install from a local tarball
+openclaw plugins install ./plugin.zip           # install from a local zip
+openclaw plugins install -l ./extensions/voice-call # link (no copy) for dev
+openclaw plugins install @openclaw/voice-call # install from npm
+openclaw plugins update <id>
+openclaw plugins update --all
+openclaw plugins enable <id>
+openclaw plugins disable <id>
+openclaw plugins doctor
+\end{lstlisting}
+
+
+\texttt{plugins update} 仅适用于在 \texttt{plugins.installs} 下跟踪的 npm 安装。
+
+插件也可以注册自己的顶级命令（例如：\texttt{openclaw voicecall}）。
+
+\subsection{插件 API（概述）}
+
+
+插件导出以下之一：
+
+\begin{itemize}
+  \item 函数：\texttt{(api) => \{ ... \}}
+  \item 对象：\texttt{\{ id, name, configSchema, register(api) \{ ... \} \}}
+\end{itemize}
+
+
+\subsection{插件钩子}
+
+
+插件可以附带钩子并在运行时注册它们。这让插件可以捆绑事件驱动的自动化，而无需单独安装钩子包。
+
+\subsubsection{示例}
+
+
+\begin{lstlisting}
+import { registerPluginHooksFromDir } from "openclaw/plugin-sdk";
+
+export default function register(api) {
+  registerPluginHooksFromDir(api, "./hooks");
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 钩子目录遵循正常的钩子结构（\texttt{HOOK.md} + \texttt{handler.ts}）。
+  \item 钩子资格规则仍然适用（操作系统/二进制文件/环境/配置要求）。
+  \item 插件管理的钩子在 \texttt{openclaw hooks list} 中显示为 \texttt{plugin:}。
+  \item 你不能通过 \texttt{openclaw hooks} 启用/禁用插件管理的钩子；而是启用/禁用插件。
+\end{itemize}
+
+
+\subsection{提供商插件（模型认证）}
+
+
+插件可以注册\textbf{模型提供商认证}流程，以便用户可以在 OpenClaw 内运行 OAuth 或 API 密钥设置（无需外部脚本）。
+
+通过 \texttt{api.registerProvider(...)} 注册提供商。每个提供商暴露一个或多个认证方法（OAuth、API 密钥、设备码等）。这些方法驱动：
+
+\begin{itemize}
+  \item \texttt{openclaw models auth login --provider  [--method ]}
+\end{itemize}
+
+
+示例：
+
+\begin{lstlisting}[language=typescript]
+api.registerProvider({
+  id: "acme",
+  label: "AcmeAI",
+  auth: [
+    {
+      id: "oauth",
+      label: "OAuth",
+      kind: "oauth",
+      run: async (ctx) => {
+        // Run OAuth flow and return auth profiles.
+        return {
+          profiles: [
+            {
+              profileId: "acme:default",
+              credential: {
+                type: "oauth",
+                provider: "acme",
+                access: "...",
+                refresh: "...",
+                expires: Date.now() + 3600 * 1000,
+              },
+            },
+          ],
+          defaultModel: "acme/opus-1",
+        };
+      },
+    },
+  ],
+});
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{run} 接收带有 \texttt{prompter}、\texttt{runtime}、\texttt{openUrl} 和 \texttt{oauth.createVpsAwareHandlers} 辅助工具的 \texttt{ProviderAuthContext}。
+  \item 当需要添加默认模型或提供商配置时返回 \texttt{configPatch}。
+  \item 返回 \texttt{defaultModel} 以便 \texttt{--set-default} 可以更新智能体默认值。
+\end{itemize}
+
+
+\subsubsection{注册消息渠道}
+
+
+插件可以注册\textbf{渠道插件}，其行为类似于内置渠道（WhatsApp、Telegram 等）。渠道配置位于 \texttt{channels.} 下，由你的渠道插件代码验证。
+
+\begin{lstlisting}[language=typescript]
+const myChannel = {
+  id: "acmechat",
+  meta: {
+    id: "acmechat",
+    label: "AcmeChat",
+    selectionLabel: "AcmeChat (API)",
+    docsPath: "/channels/acmechat",
+    blurb: "demo channel plugin.",
+    aliases: ["acme"],
+  },
+  capabilities: { chatTypes: ["direct"] },
+  config: {
+    listAccountIds: (cfg) => Object.keys(cfg.channels?.acmechat?.accounts ?? {}),
+    resolveAccount: (cfg, accountId) =>
+      cfg.channels?.acmechat?.accounts?.[accountId ?? "default"] ?? {
+        accountId,
+      },
+  },
+  outbound: {
+    deliveryMode: "direct",
+    sendText: async () => ({ ok: true }),
+  },
+};
+
+export default function (api) {
+  api.registerChannel({ plugin: myChannel });
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 将配置放在 \texttt{channels.} 下（而不是 \texttt{plugins.entries}）。
+  \item \texttt{meta.label} 用于 CLI/UI 列表中的标签。
+  \item \texttt{meta.aliases} 添加用于规范化和 CLI 输入的备用 id。
+  \item \texttt{meta.preferOver} 列出当两者都配置时要跳过自动启用的渠道 id。
+  \item \texttt{meta.detailLabel} 和 \texttt{meta.systemImage} 让 UI 显示更丰富的渠道标签/图标。
+\end{itemize}
+
+
+\subsubsection{编写新的消息渠道（分步指南）}
+
+
+当你想要一个\textbf{新的聊天界面}（"消息渠道"）而不是模型提供商时使用此方法。
+模型提供商文档位于 \texttt{/providers/*} 下。
+
+\begin{enumerate}
+  \item 选择 id + 配置结构
+\end{enumerate}
+
+
+\begin{itemize}
+  \item 所有渠道配置位于 \texttt{channels.} 下。
+  \item 对于多账户设置，优先使用 \texttt{channels..accounts.}。
+\end{itemize}
+
+
+\begin{enumerate}
+  \item 定义渠道元数据
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{meta.label}、\texttt{meta.selectionLabel}、\texttt{meta.docsPath}、\texttt{meta.blurb} 控制 CLI/UI 列表。
+  \item \texttt{meta.docsPath} 应指向像 \texttt{/channels/} 这样的文档页面。
+  \item \texttt{meta.preferOver} 让插件替换另一个渠道（自动启用优先选择它）。
+  \item \texttt{meta.detailLabel} 和 \texttt{meta.systemImage} 被 UI 用于详细文本/图标。
+\end{itemize}
+
+
+\begin{enumerate}
+  \item 实现必需的适配器
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{config.listAccountIds} + \texttt{config.resolveAccount}
+  \item \texttt{capabilities}（聊天类型、媒体、线程等）
+  \item \texttt{outbound.deliveryMode} + \texttt{outbound.sendText}（用于基本发送）
+\end{itemize}
+
+
+\begin{enumerate}
+  \item 根据需要添加可选适配器
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{setup}（向导）、\texttt{security}（私信策略）、\texttt{status}（健康/诊断）
+  \item \texttt{gateway}（启动/停止/登录）、\texttt{mentions}、\texttt{threading}、\texttt{streaming}
+  \item \texttt{actions}（消息操作）、\texttt{commands}（原生命令行为）
+\end{itemize}
+
+
+\begin{enumerate}
+  \item 在插件中注册渠道
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{api.registerChannel(\{ plugin \})}
+\end{itemize}
+
+
+最小配置示例：
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    acmechat: {
+      accounts: {
+        default: { token: "ACME_TOKEN", enabled: true },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+最小渠道插件（仅出站）：
+
+\begin{lstlisting}[language=typescript]
+const plugin = {
+  id: "acmechat",
+  meta: {
+    id: "acmechat",
+    label: "AcmeChat",
+    selectionLabel: "AcmeChat (API)",
+    docsPath: "/channels/acmechat",
+    blurb: "AcmeChat messaging channel.",
+    aliases: ["acme"],
+  },
+  capabilities: { chatTypes: ["direct"] },
+  config: {
+    listAccountIds: (cfg) => Object.keys(cfg.channels?.acmechat?.accounts ?? {}),
+    resolveAccount: (cfg, accountId) =>
+      cfg.channels?.acmechat?.accounts?.[accountId ?? "default"] ?? {
+        accountId,
+      },
+  },
+  outbound: {
+    deliveryMode: "direct",
+    sendText: async ({ text }) => {
+      // deliver `text` to your channel here
+      return { ok: true };
+    },
+  },
+};
+
+export default function (api) {
+  api.registerChannel({ plugin });
+}
+\end{lstlisting}
+
+
+加载插件（扩展目录或 \texttt{plugins.load.paths}），重启 Gateway 网关，然后在配置中配置 \texttt{channels.}。
+
+\subsubsection{智能体工具}
+
+
+参见专门指南：\href{/plugins/agent-tools}{插件智能体工具}。
+
+\subsubsection{注册 Gateway 网关 RPC 方法}
+
+
+\begin{lstlisting}[language=typescript]
+export default function (api) {
+  api.registerGatewayMethod("myplugin.status", ({ respond }) => {
+    respond(true, { ok: true });
+  });
+}
+\end{lstlisting}
+
+
+\subsubsection{注册 CLI 命令}
+
+
+\begin{lstlisting}[language=typescript]
+export default function (api) {
+  api.registerCli(
+    ({ program }) => {
+      program.command("mycmd").action(() => {
+        console.log("Hello");
+      });
+    },
+    { commands: ["mycmd"] },
+  );
+}
+\end{lstlisting}
+
+
+\subsubsection{注册自动回复命令}
+
+
+插件可以注册自定义斜杠命令，\textbf{无需调用 AI 智能体}即可执行。这对于切换命令、状态检查或不需要 LLM 处理的快速操作很有用。
+
+\begin{lstlisting}[language=typescript]
+export default function (api) {
+  api.registerCommand({
+    name: "mystatus",
+    description: "Show plugin status",
+    handler: (ctx) => ({
+      text: `Plugin is running! Channel: ${ctx.channel}`,
+    }),
+  });
+}
+\end{lstlisting}
+
+
+命令处理程序上下文：
+
+\begin{itemize}
+  \item \texttt{senderId}：发送者的 ID（如可用）
+  \item \texttt{channel}：发送命令的渠道
+  \item \texttt{isAuthorizedSender}：发送者是否是授权用户
+  \item \texttt{args}：命令后传递的参数（如果 \texttt{acceptsArgs: true}）
+  \item \texttt{commandBody}：完整的命令文本
+  \item \texttt{config}：当前 OpenClaw 配置
+\end{itemize}
+
+
+命令选项：
+
+\begin{itemize}
+  \item \texttt{name}：命令名称（不带前导 \texttt{/}）
+  \item \texttt{description}：命令列表中显示的帮助文本
+  \item \texttt{acceptsArgs}：命令是否接受参数（默认：false）。如果为 false 且提供了参数，命令不会匹配，消息会传递给其他处理程序
+  \item \texttt{requireAuth}：是否需要授权发送者（默认：true）
+  \item \texttt{handler}：返回 \texttt{\{ text: string \}} 的函数（可以是异步的）
+\end{itemize}
+
+
+带授权和参数的示例：
+
+\begin{lstlisting}[language=typescript]
+api.registerCommand({
+  name: "setmode",
+  description: "Set plugin mode",
+  acceptsArgs: true,
+  requireAuth: true,
+  handler: async (ctx) => {
+    const mode = ctx.args?.trim() || "default";
+    await saveMode(mode);
+    return { text: `Mode set to: ${mode}` };
+  },
+});
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 插件命令在内置命令和 AI 智能体\textbf{之前}处理
+  \item 命令全局注册，适用于所有渠道
+  \item 命令名称不区分大小写（\texttt{/MyStatus} 匹配 \texttt{/mystatus}）
+  \item 命令名称必须以字母开头，只能包含字母、数字、连字符和下划线
+  \item 保留的命令名称（如 \texttt{help}、\texttt{status}、\texttt{reset} 等）不能被插件覆盖
+  \item 跨插件的重复命令注册将失败并显示诊断错误
+\end{itemize}
+
+
+\subsubsection{注册后台服务}
+
+
+\begin{lstlisting}[language=typescript]
+export default function (api) {
+  api.registerService({
+    id: "my-service",
+    start: () => api.logger.info("ready"),
+    stop: () => api.logger.info("bye"),
+  });
+}
+\end{lstlisting}
+
+
+\subsection{命名约定}
+
+
+\begin{itemize}
+  \item Gateway 网关方法：\texttt{pluginId.action}（例如：\texttt{voicecall.status}）
+  \item 工具：\texttt{snake\_case}（例如：\texttt{voice\_call}）
+  \item CLI 命令：kebab 或 camel，但避免与核心命令冲突
+\end{itemize}
+
+
+\subsection{Skills}
+
+
+插件可以在仓库中附带 Skills（\texttt{skills//SKILL.md}）。
+使用 \texttt{plugins.entries..enabled}（或其他配置门控）启用它，并确保它存在于你的工作区/托管 Skills 位置。
+
+\subsection{分发（npm）}
+
+
+推荐的打包方式：
+
+\begin{itemize}
+  \item 主包：\texttt{openclaw}（本仓库）
+  \item 插件：\texttt{@openclaw/*} 下的独立 npm 包（例如：\texttt{@openclaw/voice-call}）
+\end{itemize}
+
+
+发布契约：
+
+\begin{itemize}
+  \item 插件 \texttt{package.json} 必须包含带有一个或多个入口文件的 \texttt{openclaw.extensions}。
+  \item 入口文件可以是 \texttt{.js} 或 \texttt{.ts}（jiti 在运行时加载 TS）。
+  \item \texttt{openclaw plugins install } 使用 \texttt{npm pack}，提取到 \texttt{\textasciitilde{}/.openclaw/extensions//}，并在配置中启用它。
+  \item 配置键稳定性：作用域包被规范化为 \texttt{plugins.entries.*} 的\textbf{无作用域} id。
+\end{itemize}
+
+
+\subsection{示例插件：Voice Call}
+
+
+本仓库包含一个语音通话插件（Twilio 或 log 回退）：
+
+\begin{itemize}
+  \item 源码：\texttt{extensions/voice-call}
+  \item Skills：\texttt{skills/voice-call}
+  \item CLI：\texttt{openclaw voicecall start|status}
+  \item 工具：\texttt{voice\_call}
+  \item RPC：\texttt{voicecall.start}、\texttt{voicecall.status}
+  \item 配置（twilio）：\texttt{provider: "twilio"} + \texttt{twilio.accountSid/authToken/from}（可选 \texttt{statusCallbackUrl}、\texttt{twimlUrl}）
+  \item 配置（dev）：\texttt{provider: "log"}（无网络）
+\end{itemize}
+
+
+参见 \href{/plugins/voice-call}{Voice Call} 和 \texttt{extensions/voice-call/README.md} 了解设置和用法。
+
+\subsection{安全注意事项}
+
+
+插件与 Gateway 网关在同一进程中运行。将它们视为受信任的代码：
+
+\begin{itemize}
+  \item 只安装你信任的插件。
+  \item 优先使用 \texttt{plugins.allow} 允许列表。
+  \item 更改后重启 Gateway 网关。
+\end{itemize}
+
+
+\subsection{测试插件}
+
+
+插件可以（也应该）附带测试：
+
+\begin{itemize}
+  \item 仓库内插件可以在 \texttt{src/**} 下保留 Vitest 测试（例如：\texttt{src/plugins/voice-call.plugin.test.ts}）。
+  \item 单独发布的插件应运行自己的 CI（lint/构建/测试）并验证 \texttt{openclaw.extensions} 指向构建的入口点（\texttt{dist/index.js}）。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/reactions.md ===
+\section{表情回应工具}
+
+
+跨渠道共享的表情回应语义：
+
+\begin{itemize}
+  \item 添加表情回应时，\texttt{emoji} 为必填项。
+  \item \texttt{emoji=""} 在支持的情况下移除机器人的表情回应。
+  \item \texttt{remove: true} 在支持的情况下移除指定的表情（需要提供 \texttt{emoji}）。
+\end{itemize}
+
+
+渠道说明：
+
+\begin{itemize}
+  \item \textbf{Discord/Slack}：空 \texttt{emoji} 移除机器人在该消息上的所有表情回应；\texttt{remove: true} 仅移除指定的表情。
+  \item \textbf{Google Chat}：空 \texttt{emoji} 移除应用在该消息上的表情回应；\texttt{remove: true} 仅移除指定的表情。
+  \item \textbf{Telegram}：空 \texttt{emoji} 移除机器人的表情回应；\texttt{remove: true} 同样移除表情回应，但工具验证仍要求 \texttt{emoji} 为非空值。
+  \item \textbf{WhatsApp}：空 \texttt{emoji} 移除机器人的表情回应；\texttt{remove: true} 映射为空 emoji（仍需提供 \texttt{emoji}）。
+  \item \textbf{Signal}：当启用 \texttt{channels.signal.reactionNotifications} 时，收到的表情回应通知会触发系统事件。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/skills-config.md ===
+\section{Skills 配置}
+
+
+所有 Skills 相关配置都位于 \texttt{\textasciitilde{}/.openclaw/openclaw.json} 中的 \texttt{skills} 下。
+
+\begin{lstlisting}[language=json]
+{
+  skills: {
+    allowBundled: ["gemini", "peekaboo"],
+    load: {
+      extraDirs: ["~/Projects/agent-scripts/skills", "~/Projects/oss/some-skill-pack/skills"],
+      watch: true,
+      watchDebounceMs: 250,
+    },
+    install: {
+      preferBrew: true,
+      nodeManager: "npm", // npm | pnpm | yarn | bun（Gateway 网关运行时仍为 Node；不推荐 bun）
+    },
+    entries: {
+      "nano-banana-pro": {
+        enabled: true,
+        apiKey: "GEMINI_KEY_HERE",
+        env: {
+          GEMINI_API_KEY: "GEMINI_KEY_HERE",
+        },
+      },
+      peekaboo: { enabled: true },
+      sag: { enabled: false },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{字段}
+
+
+\begin{itemize}
+  \item \texttt{allowBundled}：可选的仅用于\textbf{内置} Skills 的白名单。设置后，只有列表中的内置 Skills 才有资格（托管/工作区 Skills 不受影响）。
+  \item \texttt{load.extraDirs}：要扫描的附加 Skills 目录（最低优先级）。
+  \item \texttt{load.watch}：监视 Skills 文件夹并刷新 Skills 快照（默认：true）。
+  \item \texttt{load.watchDebounceMs}：Skills 监视器事件的防抖时间（毫秒）（默认：250）。
+  \item \texttt{install.preferBrew}：在可用时优先使用 brew 安装器（默认：true）。
+  \item \texttt{install.nodeManager}：node 安装器偏好（\texttt{npm} | \texttt{pnpm} | \texttt{yarn} | \texttt{bun}，默认：npm）。这仅影响 \textbf{Skills 安装}；Gateway 网关运行时应仍为 Node（不推荐 Bun 用于 WhatsApp/Telegram）。
+  \item \texttt{entries.}：单 Skills 覆盖。
+\end{itemize}
+
+
+单 Skills 字段：
+
+\begin{itemize}
+  \item \texttt{enabled}：设置为 \texttt{false} 以禁用某个 Skills，即使它是内置/已安装的。
+  \item \texttt{env}：为智能体运行注入的环境变量（仅在尚未设置时）。
+  \item \texttt{apiKey}：可选的便捷字段，用于声明主环境变量的 Skills。
+\end{itemize}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item \texttt{entries} 下的键默认映射到 Skills 名称。如果 Skills 定义了 \texttt{metadata.openclaw.skillKey}，则使用该键。
+  \item 启用监视器后，Skills 的更改会在下一个智能体轮次被获取。
+\end{itemize}
+
+
+\subsubsection{沙箱隔离的 Skills + 环境变量}
+
+
+当会话处于\textbf{沙箱隔离}状态时，Skills 进程在 Docker 内运行。沙箱\textbf{不会}继承宿主机的 \texttt{process.env}。
+
+使用以下方式之一：
+
+\begin{itemize}
+  \item \texttt{agents.defaults.sandbox.docker.env}（或单智能体的 \texttt{agents.list[].sandbox.docker.env}）
+  \item 将环境变量烘焙到你的自定义沙箱镜像中
+\end{itemize}
+
+
+全局 \texttt{env} 和 \texttt{skills.entries..env/apiKey} 仅适用于\textbf{宿主机}运行。
+
+
+\clearpage
+
+% === 源文件: tools/skills.md ===
+\section{Skills（OpenClaw）}
+
+
+OpenClaw 使用\textbf{兼容 \href{https://agentskills.io}{AgentSkills}} 的 Skills 文件夹来教智能体如何使用工具。每个 Skills 是一个包含带有 YAML frontmatter 和说明的 \texttt{SKILL.md} 的目录。OpenClaw 加载\textbf{内置 Skills} 以及可选的本地覆盖，并在加载时根据环境、配置和二进制文件存在情况进行过滤。
+
+\subsection{位置和优先级}
+
+
+Skills 从\textbf{三个}位置加载：
+
+\begin{enumerate}
+  \item \textbf{内置 Skills}：随安装包一起发布（npm 包或 OpenClaw.app）
+  \item \textbf{托管/本地 Skills}：\texttt{\textasciitilde{}/.openclaw/skills}
+  \item \textbf{工作区 Skills}：\texttt{/skills}
+\end{enumerate}
+
+
+如果 Skills 名称冲突，优先级为：
+
+\texttt{/skills}（最高）→ \texttt{\textasciitilde{}/.openclaw/skills} → 内置 Skills（最低）
+
+此外，你可以通过 \texttt{\textasciitilde{}/.openclaw/openclaw.json} 中的 \texttt{skills.load.extraDirs} 配置额外的 Skills 文件夹（最低优先级）。
+
+\subsection{单智能体 vs 共享 Skills}
+
+
+在\textbf{多智能体}设置中，每个智能体有自己的工作区。这意味着：
+
+\begin{itemize}
+  \item \textbf{单智能体 Skills} 位于 \texttt{/skills} 中，仅供该智能体使用。
+  \item \textbf{共享 Skills} 位于 \texttt{\textasciitilde{}/.openclaw/skills}（托管/本地），对同一机器上的\textbf{所有智能体}可见。
+  \item 如果你想要多个智能体使用一个通用的 Skills 包，也可以通过 \texttt{skills.load.extraDirs}（最低优先级）添加\textbf{共享文件夹}。
+\end{itemize}
+
+
+如果同一个 Skills 名称存在于多个位置，将应用通常的优先级规则：工作区优先，然后是托管/本地，最后是内置。
+
+\subsection{插件 + Skills}
+
+
+插件可以通过在 \texttt{openclaw.plugin.json} 中列出 \texttt{skills} 目录（相对于插件根目录的路径）来发布自己的 Skills。插件 Skills 在插件启用时加载，并参与正常的 Skills 优先级规则。你可以通过插件配置条目上的 \texttt{metadata.openclaw.requires.config} 对它们进行门控。参见\href{/tools/plugin}{插件}了解发现/配置，以及\href{/tools}{工具}了解这些 Skills 所教授的工具接口。
+
+\subsection{ClawHub（安装 + 同步）}
+
+
+ClawHub 是 OpenClaw 的公共 Skills 注册表。浏览 https://clawhub.com。使用它来发现、安装、更新和备份 Skills。完整指南：\href{/tools/clawhub}{ClawHub}。
+
+常见流程：
+
+\begin{itemize}
+  \item 将 Skills 安装到你的工作区：
+  \item \texttt{clawhub install }
+  \item 更新所有已安装的 Skills：
+  \item \texttt{clawhub update --all}
+  \item 同步（扫描 + 发布更新）：
+  \item \texttt{clawhub sync --all}
+\end{itemize}
+
+
+默认情况下，\texttt{clawhub} 安装到当前工作目录下的 \texttt{./skills}（或回退到配置的 OpenClaw 工作区）。OpenClaw 在下一个会话中将其识别为 \texttt{/skills}。
+
+\subsection{安全注意事项}
+
+
+\begin{itemize}
+  \item 将第三方 Skills 视为\textbf{不受信任的代码}。启用前请阅读它们。
+  \item 对于不受信任的输入和高风险工具，优先使用沙箱隔离运行。参见\href{/gateway/sandboxing}{沙箱隔离}。
+  \item \texttt{skills.entries.\textit{.env} 和 \texttt{skills.entries.}.apiKey} 为该智能体轮次将秘密注入到\textbf{宿主机}进程中（而非沙箱）。将秘密保持在提示词和日志之外。
+  \item 有关更广泛的威胁模型和检查清单，参见\href{/gateway/security}{安全性}。
+\end{itemize}
+
+
+\subsection{格式（AgentSkills + Pi 兼容）}
+
+
+\texttt{SKILL.md} 必须至少包含：
+
+\begin{lstlisting}
+---
+name: nano-banana-pro
+description: Generate or edit images via Gemini 3 Pro Image
+---
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 我们遵循 AgentSkills 规范的布局/意图。
+  \item 内嵌智能体使用的解析器仅支持\textbf{单行} frontmatter 键。
+  \item \texttt{metadata} 应该是\textbf{单行 JSON 对象}。
+  \item 在说明中使用 \texttt{\{baseDir\}} 来引用 Skills 文件夹路径。
+  \item 可选的 frontmatter 键：
+  \item \texttt{homepage} — 在 macOS Skills UI 中显示为"Website"的 URL（也支持通过 \texttt{metadata.openclaw.homepage}）。
+  \item \texttt{user-invocable} — \texttt{true|false}（默认：\texttt{true}）。当为 \texttt{true} 时，Skills 作为用户斜杠命令暴露。
+  \item \texttt{disable-model-invocation} — \texttt{true|false}（默认：\texttt{false}）。当为 \texttt{true} 时，Skills 从模型提示词中排除（仍可通过用户调用使用）。
+  \item \texttt{command-dispatch} — \texttt{tool}（可选）。当设置为 \texttt{tool} 时，斜杠命令绕过模型直接调度到工具。
+  \item \texttt{command-tool} — 当设置 \texttt{command-dispatch: tool} 时要调用的工具名称。
+  \item \texttt{command-arg-mode} — \texttt{raw}（默认）。对于工具调度，将原始参数字符串转发到工具（无核心解析）。
+\end{itemize}
+
+
+工具使用以下参数调用：
+\texttt{\{ command: "", commandName: "", skillName: "" \}}。
+
+\subsection{门控（加载时过滤）}
+
+
+OpenClaw 使用 \texttt{metadata}（单行 JSON）\textbf{在加载时过滤 Skills}：
+
+\begin{lstlisting}
+---
+name: nano-banana-pro
+description: Generate or edit images via Gemini 3 Pro Image
+metadata:
+  {
+    "openclaw":
+      {
+        "requires": { "bins": ["uv"], "env": ["GEMINI_API_KEY"], "config": ["browser.enabled"] },
+        "primaryEnv": "GEMINI_API_KEY",
+      },
+  }
+---
+\end{lstlisting}
+
+
+\texttt{metadata.openclaw} 下的字段：
+
+\begin{itemize}
+  \item \texttt{always: true} — 始终包含该 Skills（跳过其他门控）。
+  \item \texttt{emoji} — macOS Skills UI 使用的可选表情符号。
+  \item \texttt{homepage} — 在 macOS Skills UI 中显示为"Website"的可选 URL。
+  \item \texttt{os} — 可选的平台列表（\texttt{darwin}、\texttt{linux}、\texttt{win32}）。如果设置，该 Skills 仅在这些操作系统上有资格。
+  \item \texttt{requires.bins} — 列表；每个都必须存在于 \texttt{PATH} 中。
+  \item \texttt{requires.anyBins} — 列表；至少一个必须存在于 \texttt{PATH} 中。
+  \item \texttt{requires.env} — 列表；环境变量必须存在\textbf{或}在配置中提供。
+  \item \texttt{requires.config} — \texttt{openclaw.json} 路径列表，必须为真值。
+  \item \texttt{primaryEnv} — 与 \texttt{skills.entries..apiKey} 关联的环境变量名称。
+  \item \texttt{install} — macOS Skills UI 使用的可选安装器规格数组（brew/node/go/uv/download）。
+\end{itemize}
+
+
+沙箱隔离注意事项：
+
+\begin{itemize}
+  \item \texttt{requires.bins} 在 Skills 加载时在\textbf{宿主机}上检查。
+  \item 如果智能体处于沙箱隔离状态，二进制文件也必须存在于\textbf{容器内部}。通过 \texttt{agents.defaults.sandbox.docker.setupCommand}（或自定义镜像）安装它。\texttt{setupCommand} 在容器创建后运行一次。包安装还需要网络出口、可写的根文件系统和沙箱中的 root 用户。示例：\texttt{summarize} Skills（\texttt{skills/summarize/SKILL.md}）需要 \texttt{summarize} CLI 在沙箱容器中才能运行。
+\end{itemize}
+
+
+安装器示例：
+
+\begin{lstlisting}
+---
+name: gemini
+description: Use Gemini CLI for coding assistance and Google search lookups.
+metadata:
+  {
+    "openclaw":
+      {
+        "emoji": "♊️",
+        "requires": { "bins": ["gemini"] },
+        "install":
+          [
+            {
+              "id": "brew",
+              "kind": "brew",
+              "formula": "gemini-cli",
+              "bins": ["gemini"],
+              "label": "Install Gemini CLI (brew)",
+            },
+          ],
+      },
+  }
+---
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 如果列出了多个安装器，Gateway 网关会选择\textbf{单个}首选选项（可用时选择 brew，否则选择 node）。
+  \item 如果所有安装器都是 \texttt{download}，OpenClaw 会列出每个条目，以便你查看可用的构件。
+  \item 安装器规格可以包含 \texttt{os: ["darwin"|"linux"|"win32"]} 按平台过滤选项。
+  \item Node 安装遵循 \texttt{openclaw.json} 中的 \texttt{skills.install.nodeManager}（默认：npm；选项：npm/pnpm/yarn/bun）。这仅影响 \textbf{Skills 安装}；Gateway 网关运行时应仍为 Node（不推荐 Bun 用于 WhatsApp/Telegram）。
+  \item Go 安装：如果缺少 \texttt{go} 且 \texttt{brew} 可用，Gateway 网关会首先通过 Homebrew 安装 Go，并在可能时将 \texttt{GOBIN} 设置为 Homebrew 的 \texttt{bin}。
+  \item Download 安装：\texttt{url}（必填）、\texttt{archive}（\texttt{tar.gz} | \texttt{tar.bz2} | \texttt{zip}）、\texttt{extract}（默认：检测到归档时自动）、\texttt{stripComponents}、\texttt{targetDir}（默认：\texttt{\textasciitilde{}/.openclaw/tools/}）。
+\end{itemize}
+
+
+如果没有 \texttt{metadata.openclaw}，该 Skills 始终有资格（除非在配置中禁用或被 \texttt{skills.allowBundled} 阻止用于内置 Skills）。
+
+\subsection{配置覆盖（\textasciitilde{}/.openclaw/openclaw.json）}
+
+
+内置/托管 Skills 可以被切换并提供环境变量值：
+
+\begin{lstlisting}[language=json]
+{
+  skills: {
+    entries: {
+      "nano-banana-pro": {
+        enabled: true,
+        apiKey: "GEMINI_KEY_HERE",
+        env: {
+          GEMINI_API_KEY: "GEMINI_KEY_HERE",
+        },
+        config: {
+          endpoint: "https://example.invalid",
+          model: "nano-pro",
+        },
+      },
+      peekaboo: { enabled: true },
+      sag: { enabled: false },
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意：如果 Skills 名称包含连字符，请用引号括起键名（JSON5 允许带引号的键名）。
+
+配置键默认匹配 \textbf{Skills 名称}。如果 Skills 定义了 \texttt{metadata.openclaw.skillKey}，请在 \texttt{skills.entries} 下使用该键。
+
+规则：
+
+\begin{itemize}
+  \item \texttt{enabled: false} 禁用该 Skills，即使它是内置/已安装的。
+  \item \texttt{env}：\textbf{仅在}变量在进程中尚未设置时注入。
+  \item \texttt{apiKey}：为声明 \texttt{metadata.openclaw.primaryEnv} 的 Skills 提供的便捷字段。
+  \item \texttt{config}：用于自定义单 Skills 字段的可选容器；自定义键必须放在这里。
+  \item \texttt{allowBundled}：可选的仅用于\textbf{内置} Skills 的白名单。如果设置，只有列表中的内置 Skills 才有资格（托管/工作区 Skills 不受影响）。
+\end{itemize}
+
+
+\subsection{环境变量注入（每次智能体运行）}
+
+
+当智能体运行开始时，OpenClaw：
+
+\begin{enumerate}
+  \item 读取 Skills 元数据。
+  \item 将任何 \texttt{skills.entries..env} 或 \texttt{skills.entries..apiKey} 应用到 \texttt{process.env}。
+  \item 使用\textbf{有资格的} Skills 构建系统提示词。
+  \item 在运行结束后恢复原始环境。
+\end{enumerate}
+
+
+这是\textbf{限定于智能体运行范围内的}，不是全局 shell 环境。
+
+\subsection{会话快照（性能）}
+
+
+OpenClaw 在\textbf{会话开始时}对有资格的 Skills 进行快照，并在同一会话的后续轮次中重用该列表。对 Skills 或配置的更改在下一个新会话中生效。
+
+当 Skills 监视器启用或出现新的有资格的远程节点时，Skills 也可以在会话中刷新（见下文）。将此视为\textbf{热重载}：刷新后的列表会在下一个智能体轮次被获取。
+
+\subsection{远程 macOS 节点（Linux Gateway 网关）}
+
+
+如果 Gateway 网关运行在 Linux 上但连接了一个\textbf{允许 \texttt{system.run} 的 macOS 节点}（Exec 批准安全设置未设为 \texttt{deny}），当所需的二进制文件存在于该节点上时，OpenClaw 可以将仅限 macOS 的 Skills 视为有资格。智能体应通过 \texttt{nodes} 工具（通常是 \texttt{nodes.run}）执行这些 Skills。
+
+这依赖于节点报告其命令支持以及通过 \texttt{system.run} 进行的二进制文件探测。如果 macOS 节点稍后离线，Skills 仍然可见；调用可能会失败，直到节点重新连接。
+
+\subsection{Skills 监视器（自动刷新）}
+
+
+默认情况下，OpenClaw 监视 Skills 文件夹，并在 \texttt{SKILL.md} 文件更改时更新 Skills 快照。在 \texttt{skills.load} 下配置：
+
+\begin{lstlisting}[language=json]
+{
+  skills: {
+    load: {
+      watch: true,
+      watchDebounceMs: 250,
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Token 影响（Skills 列表）}
+
+
+当 Skills 有资格时，OpenClaw 将可用 Skills 的紧凑 XML 列表注入到系统提示词中（通过 \texttt{pi-coding-agent} 中的 \texttt{formatSkillsForPrompt}）。成本是确定性的：
+
+\begin{itemize}
+  \item \textbf{基础开销（仅当 ≥1 个 Skills 时）：} 195 字符。
+  \item \textbf{每个 Skills：} 97 字符 + XML 转义的 `\texttt{、}\texttt{ 和 }` 值的长度。
+\end{itemize}
+
+
+公式（字符）：
+
+\begin{lstlisting}
+total = 195 + Σ (97 + len(name_escaped) + len(description_escaped) + len(location_escaped))
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item XML 转义将 \texttt{\& < > " '} 扩展为实体（\texttt{\&amp;}、\texttt{\&lt;} 等），增加长度。
+  \item Token 数量因模型分词器而异。粗略的 OpenAI 风格估计是 \textasciitilde{}4 字符/token，所以\textbf{每个 Skills 97 字符 ≈ 24 token} 加上你的实际字段长度。
+\end{itemize}
+
+
+\subsection{托管 Skills 生命周期}
+
+
+OpenClaw 作为安装的一部分（npm 包或 OpenClaw.app）发布一组基线 Skills 作为\textbf{内置 Skills}。\texttt{\textasciitilde{}/.openclaw/skills} 用于本地覆盖（例如，在不更改内置副本的情况下固定/修补 Skills）。工作区 Skills 由用户拥有，在名称冲突时覆盖两者。
+
+\subsection{配置参考}
+
+
+参见 \href{/tools/skills-config}{Skills 配置}了解完整的配置 schema。
+
+\subsection{寻找更多 Skills？}
+
+
+浏览 https://clawhub.com。
+
+\hrulefill
+
+
+
+\clearpage
+
+% === 源文件: tools/slash-commands.md ===
+\section{斜杠命令}
+
+
+命令由 Gateway 网关处理。大多数命令必须作为以 \texttt{/} 开头的\textbf{独立}消息发送。
+仅主机的 bash 聊天命令使用 \texttt{! }（\texttt{/bash } 是别名）。
+
+有两个相关系统：
+
+\begin{itemize}
+  \item \textbf{命令}：独立的 \texttt{/...} 消息。
+  \item \textbf{指令}：\texttt{/think}、\texttt{/verbose}、\texttt{/reasoning}、\texttt{/elevated}、\texttt{/exec}、\texttt{/model}、\texttt{/queue}。
+  \item 指令在模型看到消息之前被剥离。
+  \item 在普通聊天消息中（不是仅指令消息），它们被视为"内联提示"，\textbf{不会}持久化会话设置。
+  \item 在仅指令消息中（消息只包含指令），它们会持久化到会话并回复确认。
+  \item 指令仅对\textbf{授权发送者}生效（渠道白名单/配对加上 \texttt{commands.useAccessGroups}）。
+\end{itemize}
+
+未授权发送者的指令被视为纯文本。
+
+还有一些\textbf{内联快捷方式}（仅限白名单/授权发送者）：\texttt{/help}、\texttt{/commands}、\texttt{/status}、\texttt{/whoami}（\texttt{/id}）。
+它们立即运行，在模型看到消息之前被剥离，剩余文本继续通过正常流程。
+
+\subsection{配置}
+
+
+\begin{lstlisting}[language=json]
+{
+  commands: {
+    native: "auto",
+    nativeSkills: "auto",
+    text: true,
+    bash: false,
+    bashForegroundMs: 2000,
+    config: false,
+    debug: false,
+    restart: false,
+    useAccessGroups: true,
+  },
+}
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item \texttt{commands.text}（默认 \texttt{true}）启用解析聊天消息中的 \texttt{/...}。
+  \item 在没有原生命令的平台上（WhatsApp/WebChat/Signal/iMessage/Google Chat/MS Teams），即使你将此设置为 \texttt{false}，文本命令仍然有效。
+  \item \texttt{commands.native}（默认 \texttt{"auto"}）注册原生命令。
+  \item Auto：在 Discord/Telegram 上启用；在 Slack 上禁用（直到你添加斜杠命令）；在不支持原生命令的提供商上忽略。
+  \item 设置 \texttt{channels.discord.commands.native}、\texttt{channels.telegram.commands.native} 或 \texttt{channels.slack.commands.native} 以按提供商覆盖（布尔值或 \texttt{"auto"}）。
+  \item \texttt{false} 在启动时清除 Discord/Telegram 上之前注册的命令。Slack 命令在 Slack 应用中管理，不会自动删除。
+  \item \texttt{commands.nativeSkills}（默认 \texttt{"auto"}）在支持时原生注册 \textbf{Skill} 命令。
+  \item Auto：在 Discord/Telegram 上启用；在 Slack 上禁用（Slack 需要为每个 Skill 创建一个斜杠命令）。
+  \item 设置 \texttt{channels.discord.commands.nativeSkills}、\texttt{channels.telegram.commands.nativeSkills} 或 \texttt{channels.slack.commands.nativeSkills} 以按提供商覆盖（布尔值或 \texttt{"auto"}）。
+  \item \texttt{commands.bash}（默认 \texttt{false}）启用 \texttt{! } 来运行主机 shell 命令（\texttt{/bash } 是别名；需要 \texttt{tools.elevated} 白名单）。
+  \item \texttt{commands.bashForegroundMs}（默认 \texttt{2000}）控制 bash 切换到后台模式之前等待多长时间（\texttt{0} 立即后台运行）。
+  \item \texttt{commands.config}（默认 \texttt{false}）启用 \texttt{/config}（读写 \texttt{openclaw.json}）。
+  \item \texttt{commands.debug}（默认 \texttt{false}）启用 \texttt{/debug}（仅运行时覆盖）。
+  \item \texttt{commands.useAccessGroups}（默认 \texttt{true}）对命令强制执行白名单/策略。
+\end{itemize}
+
+
+\subsection{命令列表}
+
+
+文本 + 原生（启用时）：
+
+\begin{itemize}
+  \item \texttt{/help}
+  \item \texttt{/commands}
+  \item \texttt{/skill  [input]}（按名称运行 Skill）
+  \item \texttt{/status}（显示当前状态；在可用时包含当前模型提供商的提供商使用量/配额）
+  \item \texttt{/allowlist}（列出/添加/删除白名单条目）
+  \item \texttt{/approve  allow-once|allow-always|deny}（解决 exec 审批提示）
+  \item \texttt{/context [list|detail|json]}（解释"上下文"；\texttt{detail} 显示每个文件 + 每个工具 + 每个 Skill + 系统提示词大小）
+  \item \texttt{/whoami}（显示你的发送者 ID；别名：\texttt{/id}）
+  \item \texttt{/subagents list|kill|log|info|send|steer|spawn}（检查、控制或创建当前会话的子智能体运行）
+  \item \texttt{/config show|get|set|unset}（将配置持久化到磁盘，仅所有者；需要 \texttt{commands.config: true}）
+  \item \texttt{/debug show|set|unset|reset}（运行时覆盖，仅所有者；需要 \texttt{commands.debug: true}）
+  \item \texttt{/usage off|tokens|full|cost}（每响应使用量页脚或本地成本摘要）
+  \item \texttt{/tts off|always|inbound|tagged|status|provider|limit|summary|audio}（控制 TTS；参见 \href{/tts}{/tts}）
+  \item Discord：原生命令是 \texttt{/voice}（Discord 保留了 \texttt{/tts}）；文本 \texttt{/tts} 仍然有效。
+  \item \texttt{/stop}
+  \item \texttt{/restart}
+  \item \texttt{/dock-telegram}（别名：\texttt{/dock\_telegram}）（将回复切换到 Telegram）
+  \item \texttt{/dock-discord}（别名：\texttt{/dock\_discord}）（将回复切换到 Discord）
+  \item \texttt{/dock-slack}（别名：\texttt{/dock\_slack}）（将回复切换到 Slack）
+  \item \texttt{/activation mention|always}（仅限群组）
+  \item \texttt{/send on|off|inherit}（仅所有者）
+  \item \texttt{/reset} 或 \texttt{/new [model]}（可选模型提示；其余部分传递）
+  \item \texttt{/think }（按模型/提供商动态选择；别名：\texttt{/thinking}、\texttt{/t}）
+  \item \texttt{/verbose on|full|off}（别名：\texttt{/v}）
+  \item \texttt{/reasoning on|off|stream}（别名：\texttt{/reason}；启用时，发送带有 \texttt{Reasoning:} 前缀的单独消息；\texttt{stream} = 仅 Telegram 草稿）
+  \item \texttt{/elevated on|off|ask|full}（别名：\texttt{/elev}；\texttt{full} 跳过 exec 审批）
+  \item \texttt{/exec host= security= ask= node=}（发送 \texttt{/exec} 显示当前设置）
+  \item \texttt{/model }（别名：\texttt{/models}；或 \texttt{agents.defaults.models.*.alias} 中的 \texttt{/}）
+  \item \texttt{/queue }（加上选项如 \texttt{debounce:2s cap:25 drop:summarize}；发送 \texttt{/queue} 查看当前设置）
+  \item \texttt{/bash }（仅主机；\texttt{! } 的别名；需要 \texttt{commands.bash: true} + \texttt{tools.elevated} 白名单）
+\end{itemize}
+
+
+仅文本：
+
+\begin{itemize}
+  \item \texttt{/compact [instructions]}（参见 \href{/concepts/compaction}{/concepts/compaction}）
+  \item \texttt{! }（仅主机；一次一个；对长时间运行的任务使用 \texttt{!poll} + \texttt{!stop}）
+  \item \texttt{!poll}（检查输出/状态；接受可选的 \texttt{sessionId}；\texttt{/bash poll} 也可用）
+  \item \texttt{!stop}（停止正在运行的 bash 任务；接受可选的 \texttt{sessionId}；\texttt{/bash stop} 也可用）
+\end{itemize}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 命令接受命令和参数之间的可选 \texttt{:}（例如 \texttt{/think: high}、\texttt{/send: on}、\texttt{/help:}）。
+  \item \texttt{/new } 接受模型别名、\texttt{provider/model} 或提供商名称（模糊匹配）；如果没有匹配，文本被视为消息正文。
+  \item 要获取完整的提供商使用量分解，使用 \texttt{openclaw status --usage}。
+  \item \texttt{/allowlist add|remove} 需要 \texttt{commands.config=true} 并遵循渠道 \texttt{configWrites}。
+  \item \texttt{/usage} 控制每响应使用量页脚；\texttt{/usage cost} 从 OpenClaw 会话日志打印本地成本摘要。
+  \item \texttt{/restart} 默认禁用；设置 \texttt{commands.restart: true} 启用它。
+  \item \texttt{/verbose} 用于调试和额外可见性；在正常使用中保持\textbf{关闭}。
+  \item \texttt{/reasoning}（和 \texttt{/verbose}）在群组设置中有风险：它们可能会暴露你不打算公开的内部推理或工具输出。最好保持关闭，尤其是在群聊中。
+  \item \textbf{快速路径：} 来自白名单发送者的仅命令消息会立即处理（绕过队列 + 模型）。
+  \item \textbf{群组提及门控：} 来自白名单发送者的仅命令消息绕过提及要求。
+  \item \textbf{内联快捷方式（仅限白名单发送者）：} 某些命令在嵌入普通消息时也能工作，并在模型看到剩余文本之前被剥离。
+  \item 示例：\texttt{hey /status} 触发状态回复，剩余文本继续通过正常流程。
+  \item 目前：\texttt{/help}、\texttt{/commands}、\texttt{/status}、\texttt{/whoami}（\texttt{/id}）。
+  \item 未授权的仅命令消息被静默忽略，内联 \texttt{/...} 令牌被视为纯文本。
+  \item \textbf{Skill 命令：} \texttt{user-invocable} Skills 作为斜杠命令公开。名称被清理为 \texttt{a-z0-9\_}（最多 32 个字符）；冲突获得数字后缀（例如 \texttt{\_2}）。
+  \item \texttt{/skill  [input]} 按名称运行 Skill（当原生命令限制阻止每个 Skill 命令时有用）。
+  \item 默认情况下，Skill 命令作为普通请求转发给模型。
+  \item Skills 可以选择声明 \texttt{command-dispatch: tool} 将命令直接路由到工具（确定性，无模型）。
+  \item 示例：\texttt{/prose}（OpenProse 插件）— 参见 \href{/prose}{OpenProse}。
+  \item \textbf{原生命令参数：} Discord 使用自动完成进行动态选项（以及当你省略必需参数时的按钮菜单）。当命令支持选择且你省略参数时，Telegram 和 Slack 显示按钮菜单。
+\end{itemize}
+
+
+\subsection{使用量显示（什么显示在哪里）}
+
+
+\begin{itemize}
+  \item \textbf{提供商使用量/配额}（示例："Claude 80\% left"）在启用使用量跟踪时显示在 \texttt{/status} 中，针对当前模型提供商。
+  \item \textbf{每响应令牌/成本}由 \texttt{/usage off|tokens|full} 控制（附加到普通回复）。
+  \item \texttt{/model status} 是关于\textbf{模型/认证/端点}的，不是使用量。
+\end{itemize}
+
+
+\subsection{模型选择（/model）}
+
+
+\texttt{/model} 作为指令实现。
+
+示例：
+
+\begin{lstlisting}
+/model
+/model list
+/model 3
+/model openai/gpt-5.2
+/model opus@anthropic:default
+/model status
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{/model} 和 \texttt{/model list} 显示紧凑的编号选择器（模型系列 + 可用提供商）。
+  \item \texttt{/model <\#>} 从该选择器中选择（并在可能时优先选择当前提供商）。
+  \item \texttt{/model status} 显示详细视图，包括在可用时配置的提供商端点（\texttt{baseUrl}）和 API 模式（\texttt{api}）。
+\end{itemize}
+
+
+\subsection{调试覆盖}
+
+
+\texttt{/debug} 让你设置\textbf{仅运行时}的配置覆盖（内存，不写磁盘）。仅所有者。默认禁用；使用 \texttt{commands.debug: true} 启用。
+
+示例：
+
+\begin{lstlisting}
+/debug show
+/debug set messages.responsePrefix="[openclaw]"
+/debug set channels.whatsapp.allowFrom=["+1555","+4477"]
+/debug unset messages.responsePrefix
+/debug reset
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 覆盖立即应用于新的配置读取，但\textbf{不会}写入 \texttt{openclaw.json}。
+  \item 使用 \texttt{/debug reset} 清除所有覆盖并返回到磁盘上的配置。
+\end{itemize}
+
+
+\subsection{配置更新}
+
+
+\texttt{/config} 写入你的磁盘配置（\texttt{openclaw.json}）。仅所有者。默认禁用；使用 \texttt{commands.config: true} 启用。
+
+示例：
+
+\begin{lstlisting}
+/config show
+/config show messages.responsePrefix
+/config get messages.responsePrefix
+/config set messages.responsePrefix="[openclaw]"
+/config unset messages.responsePrefix
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 配置在写入前会验证；无效更改会被拒绝。
+  \item \texttt{/config} 更新在重启后持久化。
+\end{itemize}
+
+
+\subsection{平台注意事项}
+
+
+\begin{itemize}
+  \item \textbf{文本命令}在普通聊天会话中运行（私信共享 \texttt{main}，群组有自己的会话）。
+  \item \textbf{原生命令}使用隔离的会话：
+  \item Discord：\texttt{agent::discord:slash:}
+  \item Slack：\texttt{agent::slack:slash:}（前缀可通过 \texttt{channels.slack.slashCommand.sessionPrefix} 配置）
+  \item Telegram：\texttt{telegram:slash:}（通过 \texttt{CommandTargetSessionKey} 定向到聊天会话）
+  \item \textbf{\texttt{/stop}} 定向到活动聊天会话，因此可以中止当前运行。
+  \item \textbf{Slack：} \texttt{channels.slack.slashCommand} 仍然支持单个 \texttt{/openclaw} 风格的命令。如果你启用 \texttt{commands.native}，你必须为每个内置命令创建一个 Slack 斜杠命令（与 \texttt{/help} 相同的名称）。Slack 的命令参数菜单以临时 Block Kit 按钮形式发送。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/subagents.md ===
+\section{子智能体}
+
+
+子智能体是从现有智能体运行中生成的后台智能体运行。它们在自己的会话中运行（\texttt{agent::subagent:}），完成后将结果\textbf{通告}回请求者的聊天渠道。
+
+\subsection{斜杠命令}
+
+
+使用 \texttt{/subagents} 检查或控制\textbf{当前会话}的子智能体运行：
+
+\begin{itemize}
+  \item \texttt{/subagents list}
+  \item \texttt{/subagents kill }
+  \item \texttt{/subagents log  [limit] [tools]}
+  \item \texttt{/subagents info }
+  \item \texttt{/subagents send  }
+  \item \texttt{/subagents steer  }
+  \item \texttt{/subagents spawn   [--model ] [--thinking ]}
+\end{itemize}
+
+
+\texttt{/subagents info} 显示运行元数据（状态、时间戳、会话 id、转录路径、清理）。
+
+\subsubsection{启动行为}
+
+
+\texttt{/subagents spawn} 以用户命令方式启动后台子智能体，任务完成后会向请求者聊天频道回发一条最终完成消息。
+
+\begin{itemize}
+  \item 该命令非阻塞，先返回 \texttt{runId}。
+  \item 完成后，子智能体会将汇总/结果消息发布到请求者聊天渠道。
+  \item \texttt{--model} 与 \texttt{--thinking} 可仅对本次运行做覆盖设置。
+  \item 可在完成后通过 \texttt{info}/\texttt{log} 查看详细信息和输出。
+\end{itemize}
+
+
+主要目标：
+
+\begin{itemize}
+  \item 并行化"研究 / 长任务 / 慢工具"工作，而不阻塞主运行。
+  \item 默认保持子智能体隔离（会话分离 + 可选沙箱隔离）。
+  \item 保持工具接口难以滥用：子智能体默认\textbf{不}获得会话工具。
+  \item 避免嵌套扇出：子智能体不能生成子智能体。
+\end{itemize}
+
+
+成本说明：每个子智能体都有\textbf{自己的}上下文和 token 使用量。对于繁重或重复的任务，为子智能体设置更便宜的模型，而让主智能体使用更高质量的模型。你可以通过 \texttt{agents.defaults.subagents.model} 或每智能体覆盖来配置。
+
+\subsection{工具}
+
+
+使用 \texttt{sessions\_spawn}：
+
+\begin{itemize}
+  \item 启动子智能体运行（\texttt{deliver: false}，全局队列：\texttt{subagent}）
+  \item 然后运行通告步骤，并将通告回复发布到请求者的聊天渠道
+  \item 默认模型：继承调用者，除非你设置了 \texttt{agents.defaults.subagents.model}（或每智能体的 \texttt{agents.list[].subagents.model}）；显式的 \texttt{sessions\_spawn.model} 仍然优先。
+  \item 默认思考：继承调用者，除非你设置了 \texttt{agents.defaults.subagents.thinking}（或每智能体的 \texttt{agents.list[].subagents.thinking}）；显式的 \texttt{sessions\_spawn.thinking} 仍然优先。
+\end{itemize}
+
+
+工具参数：
+
+\begin{itemize}
+  \item \texttt{task}（必需）
+  \item \texttt{label?}（可选）
+  \item \texttt{agentId?}（可选；如果允许，在另一个智能体 id 下生成）
+  \item \texttt{model?}（可选；覆盖子智能体模型；无效值会被跳过，子智能体将使用默认模型运行并在工具结果中显示警告）
+  \item \texttt{thinking?}（可选；覆盖子智能体运行的思考级别）
+  \item \texttt{runTimeoutSeconds?}（默认 \texttt{0}；设置后，子智能体运行在 N 秒后中止）
+  \item \texttt{cleanup?}（\texttt{delete|keep}，默认 \texttt{keep}）
+\end{itemize}
+
+
+允许列表：
+
+\begin{itemize}
+  \item \texttt{agents.list[].subagents.allowAgents}：可以通过 \texttt{agentId} 指定的智能体 id 列表（\texttt{["*"]} 允许任意）。默认：仅限请求者智能体。
+\end{itemize}
+
+
+发现：
+
+\begin{itemize}
+  \item 使用 \texttt{agents\_list} 查看当前允许用于 \texttt{sessions\_spawn} 的智能体 id。
+\end{itemize}
+
+
+自动归档：
+
+\begin{itemize}
+  \item 子智能体会话在 \texttt{agents.defaults.subagents.archiveAfterMinutes} 后自动归档（默认：60）。
+  \item 归档使用 \texttt{sessions.delete} 并将转录重命名为 \texttt{*.deleted.}（同一文件夹）。
+  \item \texttt{cleanup: "delete"} 在通告后立即归档（仍通过重命名保留转录）。
+  \item 自动归档是尽力而为的；如果 Gateway 网关重启，待处理的定时器会丢失。
+  \item \texttt{runTimeoutSeconds} \textbf{不会}自动归档；它只停止运行。会话会保留直到自动归档。
+\end{itemize}
+
+
+\subsection{认证}
+
+
+子智能体认证按\textbf{智能体 id} 解析，而不是按会话类型：
+
+\begin{itemize}
+  \item 子智能体会话键是 \texttt{agent::subagent:}。
+  \item 认证存储从该智能体的 \texttt{agentDir} 加载。
+  \item 主智能体的认证配置文件作为\textbf{回退}合并；智能体配置文件在冲突时覆盖主配置文件。
+\end{itemize}
+
+
+注意：合并是累加的，所以主配置文件始终可用作回退。目前尚不支持每智能体完全隔离的认证。
+
+\subsection{通告}
+
+
+子智能体通过通告步骤报告：
+
+\begin{itemize}
+  \item 通告步骤在子智能体会话中运行（不是请求者会话）。
+  \item 如果子智能体精确回复 \texttt{ANNOUNCE\_SKIP}，则不发布任何内容。
+  \item 否则，通告回复通过后续的 \texttt{agent} 调用（\texttt{deliver=true}）发布到请求者的聊天渠道。
+  \item 通告回复在可用时保留线程/话题路由（Slack 线程、Telegram 话题、Matrix 线程）。
+  \item 通告消息被规范化为稳定模板：
+  \item \texttt{Status:} 从运行结果派生（\texttt{success}、\texttt{error}、\texttt{timeout} 或 \texttt{unknown}）。
+  \item \texttt{Result:} 通告步骤的摘要内容（如果缺失则为 \texttt{(not available)}）。
+  \item \texttt{Notes:} 错误详情和其他有用的上下文。
+  \item \texttt{Status} 不是从模型输出推断的；它来自运行时结果信号。
+\end{itemize}
+
+
+通告负载在末尾包含统计行（即使被包装）：
+
+\begin{itemize}
+  \item 运行时间（例如 \texttt{runtime 5m12s}）
+  \item Token 使用量（输入/输出/总计）
+  \item 配置模型定价时的估计成本（\texttt{models.providers.*.models[].cost}）
+  \item \texttt{sessionKey}、\texttt{sessionId} 和转录路径（以便主智能体可以通过 \texttt{sessions\_history} 获取历史记录或检查磁盘上的文件）
+\end{itemize}
+
+
+\subsection{工具策略（子智能体工具）}
+
+
+默认情况下，子智能体获得\textbf{除会话工具外的所有工具}：
+
+\begin{itemize}
+  \item \texttt{sessions\_list}
+  \item \texttt{sessions\_history}
+  \item \texttt{sessions\_send}
+  \item \texttt{sessions\_spawn}
+\end{itemize}
+
+
+通过配置覆盖：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      subagents: {
+        maxConcurrent: 1,
+      },
+    },
+  },
+  tools: {
+    subagents: {
+      tools: {
+        // deny 优先
+        deny: ["gateway", "cron"],
+        // 如果设置了 allow，则变为仅允许模式（deny 仍然优先）
+        // allow: ["read", "exec", "process"]
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{并发}
+
+
+子智能体使用专用的进程内队列通道：
+
+\begin{itemize}
+  \item 通道名称：\texttt{subagent}
+  \item 并发数：\texttt{agents.defaults.subagents.maxConcurrent}（默认 \texttt{8}）
+\end{itemize}
+
+
+\subsection{停止}
+
+
+\begin{itemize}
+  \item 在请求者聊天中发送 \texttt{/stop} 会中止请求者会话并停止从中生成的任何活动子智能体运行。
+\end{itemize}
+
+
+\subsection{限制}
+
+
+\begin{itemize}
+  \item 子智能体通告是\textbf{尽力而为}的。如果 Gateway 网关重启，待处理的"通告回复"工作会丢失。
+  \item 子智能体仍然共享相同的 Gateway 网关进程资源；将 \texttt{maxConcurrent} 视为安全阀。
+  \item \texttt{sessions\_spawn} 始终是非阻塞的：它立即返回 \texttt{\{ status: "accepted", runId, childSessionKey \}}。
+  \item 子智能体上下文仅注入 \texttt{AGENTS.md} + \texttt{TOOLS.md}（无 \texttt{SOUL.md}、\texttt{IDENTITY.md}、\texttt{USER.md}、\texttt{HEARTBEAT.md} 或 \texttt{BOOTSTRAP.md}）。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/thinking.md ===
+\section{思考级别（/think 指令）}
+
+
+\subsection{功能说明}
+
+
+\begin{itemize}
+  \item 在任何入站消息正文中使用内联指令：\texttt{/t }、\texttt{/think:} 或 \texttt{/thinking }。
+  \item 级别（别名）：\texttt{off | minimal | low | medium | high | xhigh}（仅 GPT-5.2 + Codex 模型）
+  \item minimal → "think"
+  \item low → "think hard"
+  \item medium → "think harder"
+  \item high → "ultrathink"（最大预算）
+  \item xhigh → "ultrathink+"（仅 GPT-5.2 + Codex 模型）
+  \item \texttt{highest}、\texttt{max} 映射为 \texttt{high}。
+  \item 提供商说明：
+  \item Z.AI（\texttt{zai/*}）仅支持二元思考（\texttt{on}/\texttt{off}）。任何非 \texttt{off} 级别均视为 \texttt{on}（映射为 \texttt{low}）。
+\end{itemize}
+
+
+\subsection{解析优先顺序}
+
+
+\begin{enumerate}
+  \item 消息上的内联指令（仅适用于该条消息）。
+  \item 会话覆盖（通过发送仅包含指令的消息设置）。
+  \item 全局默认值（配置中的 \texttt{agents.defaults.thinkingDefault}）。
+  \item 回退：具备推理能力的模型为 low；否则为 off。
+\end{enumerate}
+
+
+\subsection{设置会话默认值}
+
+
+\begin{itemize}
+  \item 发送一条\textbf{仅包含}指令的消息（允许空白），例如 \texttt{/think:medium} 或 \texttt{/t high}。
+  \item 该设置在当前会话中持续生效（默认按发送者）；通过 \texttt{/think:off} 或会话空闲重置来清除。
+  \item 会发送确认回复（\texttt{Thinking level set to high.} / \texttt{Thinking disabled.}）。如果级别无效（例如 \texttt{/thinking big}），命令将被拒绝并给出提示，会话状态保持不变。
+  \item 不带参数发送 \texttt{/think}（或 \texttt{/think:}）可查看当前思考级别。
+\end{itemize}
+
+
+\subsection{按智能体应用}
+
+
+\begin{itemize}
+  \item \textbf{内嵌 Pi}：解析后的级别传递给进程内的 Pi 智能体运行时。
+\end{itemize}
+
+
+\subsection{详细模式指令（/verbose 或 /v）}
+
+
+\begin{itemize}
+  \item 级别：\texttt{on}（最小）| \texttt{full} | \texttt{off}（默认）。
+  \item 仅包含指令的消息切换会话详细模式并回复 \texttt{Verbose logging enabled.} / \texttt{Verbose logging disabled.}；无效级别返回提示且不改变状态。
+  \item \texttt{/verbose off} 存储一个显式的会话覆盖；通过会话 UI 选择 \texttt{inherit} 来清除。
+  \item 内联指令仅影响该条消息；否则应用会话/全局默认值。
+  \item 不带参数发送 \texttt{/verbose}（或 \texttt{/verbose:}）可查看当前详细模式级别。
+  \item 启用详细模式后，发出结构化工具结果的智能体（Pi 及其他 JSON 智能体）会将每个工具调用作为独立的元数据消息发回，可用时以 \texttt{ : } 为前缀（路径/命令）。这些工具摘要在每个工具启动时立即发送（独立气泡），而非作为流式增量。
+  \item 当详细模式为 \texttt{full} 时，工具输出也会在完成后转发（独立气泡，截断至安全长度）。如果在运行过程中切换 \texttt{/verbose on|full|off}，后续的工具气泡会遵循新设置。
+\end{itemize}
+
+
+\subsection{推理可见性（/reasoning）}
+
+
+\begin{itemize}
+  \item 级别：\texttt{on|off|stream}。
+  \item 仅包含指令的消息切换回复中是否显示思考块。
+  \item 启用时，推理内容作为\textbf{独立消息}发送，以 \texttt{Reasoning:} 为前缀。
+  \item \texttt{stream}（仅 Telegram）：在回复生成期间将推理内容流式输出到 Telegram 草稿气泡中，然后发送不包含推理的最终回答。
+  \item 别名：\texttt{/reason}。
+  \item 不带参数发送 \texttt{/reasoning}（或 \texttt{/reasoning:}）可查看当前推理级别。
+\end{itemize}
+
+
+\subsection{相关内容}
+
+
+\begin{itemize}
+  \item 提权模式文档位于\href{/tools/elevated}{提权模式}。
+\end{itemize}
+
+
+\subsection{心跳}
+
+
+\begin{itemize}
+  \item 心跳探测正文为配置的心跳提示词（默认：\texttt{Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT\_OK.}）。心跳消息中的内联指令照常生效（但避免从心跳中更改会话默认值）。
+  \item 心跳投递默认仅包含最终负载。要同时发送单独的 \texttt{Reasoning:} 消息（如果可用），请设置 \texttt{agents.defaults.heartbeat.includeReasoning: true} 或按智能体 \texttt{agents.list[].heartbeat.includeReasoning: true}。
+\end{itemize}
+
+
+\subsection{Web 聊天 UI}
+
+
+\begin{itemize}
+  \item Web 聊天的思考选择器在页面加载时从入站会话存储/配置中读取并反映会话的已存储级别。
+  \item 选择另一个级别仅应用于下一条消息（\texttt{thinkingOnce}）；发送后，选择器会回到已存储的会话级别。
+  \item 要更改会话默认值，请发送 \texttt{/think:} 指令（和之前一样）；选择器将在下次刷新后反映该设置。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/web.md ===
+\section{Web 工具}
+
+
+OpenClaw 提供两个轻量级 Web 工具：
+
+\begin{itemize}
+  \item \texttt{web\_search} — 通过 Brave Search API（默认）或 Perplexity Sonar（直连或通过 OpenRouter）搜索网络。
+  \item \texttt{web\_fetch} — HTTP 获取 + 可读性提取（HTML → markdown/文本）。
+\end{itemize}
+
+
+这些\textbf{不是}浏览器自动化。对于 JS 密集型网站或需要登录的情况，请使用\href{/tools/browser}{浏览器工具}。
+
+\subsection{工作原理}
+
+
+\begin{itemize}
+  \item \texttt{web\_search} 调用你配置的提供商并返回结果。
+  \item \textbf{Brave}（默认）：返回结构化结果（标题、URL、摘要）。
+  \item \textbf{Perplexity}：返回带有实时网络搜索引用的 AI 综合答案。
+  \item 结果按查询缓存 15 分钟（可配置）。
+  \item \texttt{web\_fetch} 执行普通 HTTP GET 并提取可读内容（HTML → markdown/文本）。它\textbf{不}执行 JavaScript。
+  \item \texttt{web\_fetch} 默认启用（除非显式禁用）。
+\end{itemize}
+
+
+\subsection{选择搜索提供商}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+提供商 & 优点 & 缺点 & API 密钥 \\
+\hline
+\textbf{Brave}（默认） & 快速、结构化结果、免费层 & 传统搜索结果 & \texttt{BRAVE\_API\_KEY} \\
+\hline
+\textbf{Perplexity} & AI 综合答案、引用、实时 & 需要 Perplexity 或 OpenRouter 访问 & \texttt{OPENROUTER\_API\_KEY} 或 \texttt{PERPLEXITY\_API\_KEY} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+参见 \href{/brave-search}{Brave Search 设置} 和 \href{/perplexity}{Perplexity Sonar} 了解提供商特定详情。
+
+在配置中设置提供商：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    web: {
+      search: {
+        provider: "brave", // 或 "perplexity"
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+示例：切换到 Perplexity Sonar（直连 API）：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    web: {
+      search: {
+        provider: "perplexity",
+        perplexity: {
+          apiKey: "pplx-...",
+          baseUrl: "https://api.perplexity.ai",
+          model: "perplexity/sonar-pro",
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{获取 Brave API 密钥}
+
+
+\begin{enumerate}
+  \item 在 https://brave.com/search/api/ 创建 Brave Search API 账户
+  \item 在控制面板中，选择 \textbf{Data for Search} 计划（不是"Data for AI"）并生成 API 密钥。
+  \item 运行 \texttt{openclaw configure --section web} 将密钥存储在配置中（推荐），或在环境中设置 \texttt{BRAVE\_API\_KEY}。
+\end{enumerate}
+
+
+Brave 提供免费层和付费计划；查看 Brave API 门户了解当前限制和定价。
+
+\subsubsection{在哪里设置密钥（推荐）}
+
+
+\textbf{推荐：} 运行 \texttt{openclaw configure --section web}。它将密钥存储在 \texttt{\textasciitilde{}/.openclaw/openclaw.json} 的 \texttt{tools.web.search.apiKey} 下。
+
+\textbf{环境变量替代方案：} 在 Gateway 网关进程环境中设置 \texttt{BRAVE\_API\_KEY}。对于 Gateway 网关安装，将其放在 \texttt{\textasciitilde{}/.openclaw/.env}（或你的服务环境）中。参见\href{/help/faq\#how-does-openclaw-load-environment-variables}{环境变量}。
+
+\subsection{使用 Perplexity（直连或通过 OpenRouter）}
+
+
+Perplexity Sonar 模型具有内置的网络搜索功能，并返回带有引用的 AI 综合答案。你可以通过 OpenRouter 使用它们（无需信用卡 - 支持加密货币/预付费）。
+
+\subsubsection{获取 OpenRouter API 密钥}
+
+
+\begin{enumerate}
+  \item 在 https://openrouter.ai/ 创建账户
+  \item 添加额度（支持加密货币、预付费或信用卡）
+  \item 在账户设置中生成 API 密钥
+\end{enumerate}
+
+
+\subsubsection{设置 Perplexity 搜索}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    web: {
+      search: {
+        enabled: true,
+        provider: "perplexity",
+        perplexity: {
+          // API 密钥（如果设置了 OPENROUTER_API_KEY 或 PERPLEXITY_API_KEY 则可选）
+          apiKey: "sk-or-v1-...",
+          // 基础 URL（如果省略则根据密钥感知默认值）
+          baseUrl: "https://openrouter.ai/api/v1",
+          // 模型（默认为 perplexity/sonar-pro）
+          model: "perplexity/sonar-pro",
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\textbf{环境变量替代方案：} 在 Gateway 网关环境中设置 \texttt{OPENROUTER\_API\_KEY} 或 \texttt{PERPLEXITY\_API\_KEY}。对于 Gateway 网关安装，将其放在 \texttt{\textasciitilde{}/.openclaw/.env} 中。
+
+如果未设置基础 URL，OpenClaw 会根据 API 密钥来源选择默认值：
+
+\begin{itemize}
+  \item \texttt{PERPLEXITY\_API\_KEY} 或 \texttt{pplx-...} → \texttt{https://api.perplexity.ai}
+  \item \texttt{OPENROUTER\_API\_KEY} 或 \texttt{sk-or-...} → \texttt{https://openrouter.ai/api/v1}
+  \item 未知密钥格式 → OpenRouter（安全回退）
+\end{itemize}
+
+
+\subsubsection{可用的 Perplexity 模型}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+模型 & 描述 & 最适合 \\
+\hline
+\texttt{perplexity/sonar} & 带网络搜索的快速问答 & 快速查询 \\
+\hline
+\texttt{perplexity/sonar-pro}（默认） & 带网络搜索的多步推理 & 复杂问题 \\
+\hline
+\texttt{perplexity/sonar-reasoning-pro} & 思维链分析 & 深度研究 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{web\_search}
+
+
+使用配置的提供商搜索网络。
+
+\subsubsection{要求}
+
+
+\begin{itemize}
+  \item \texttt{tools.web.search.enabled} 不能为 \texttt{false}（默认：启用）
+  \item 所选提供商的 API 密钥：
+  \item \textbf{Brave}：\texttt{BRAVE\_API\_KEY} 或 \texttt{tools.web.search.apiKey}
+  \item \textbf{Perplexity}：\texttt{OPENROUTER\_API\_KEY}、\texttt{PERPLEXITY\_API\_KEY} 或 \texttt{tools.web.search.perplexity.apiKey}
+\end{itemize}
+
+
+\subsubsection{配置}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    web: {
+      search: {
+        enabled: true,
+        apiKey: "BRAVE_API_KEY_HERE", // 如果设置了 BRAVE_API_KEY 则可选
+        maxResults: 5,
+        timeoutSeconds: 30,
+        cacheTtlMinutes: 15,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{工具参数}
+
+
+\begin{itemize}
+  \item \texttt{query}（必需）
+  \item \texttt{count}（1–10；默认来自配置）
+  \item \texttt{country}（可选）：用于特定地区结果的 2 字母国家代码（例如"DE"、"US"、"ALL"）。如果省略，Brave 选择其默认地区。
+  \item \texttt{search\_lang}（可选）：搜索结果的 ISO 语言代码（例如"de"、"en"、"fr"）
+  \item \texttt{ui\_lang}（可选）：UI 元素的 ISO 语言代码
+  \item \texttt{freshness}（可选，仅限 Brave）：按发现时间过滤（\texttt{pd}、\texttt{pw}、\texttt{pm}、\texttt{py} 或 \texttt{YYYY-MM-DDtoYYYY-MM-DD}）
+\end{itemize}
+
+
+\textbf{示例：}
+
+\begin{lstlisting}[language=javascript]
+// 德国特定搜索
+await web_search({
+  query: "TV online schauen",
+  count: 10,
+  country: "DE",
+  search_lang: "de",
+});
+
+// 带法语 UI 的法语搜索
+await web_search({
+  query: "actualités",
+  country: "FR",
+  search_lang: "fr",
+  ui_lang: "fr",
+});
+
+// 最近结果（过去一周）
+await web_search({
+  query: "TMBG interview",
+  freshness: "pw",
+});
+\end{lstlisting}
+
+
+\subsection{web\_fetch}
+
+
+获取 URL 并提取可读内容。
+
+\subsubsection{要求}
+
+
+\begin{itemize}
+  \item \texttt{tools.web.fetch.enabled} 不能为 \texttt{false}（默认：启用）
+  \item 可选的 Firecrawl 回退：设置 \texttt{tools.web.fetch.firecrawl.apiKey} 或 \texttt{FIRECRAWL\_API\_KEY}。
+\end{itemize}
+
+
+\subsubsection{配置}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    web: {
+      fetch: {
+        enabled: true,
+        maxChars: 50000,
+        timeoutSeconds: 30,
+        cacheTtlMinutes: 15,
+        maxRedirects: 3,
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        readability: true,
+        firecrawl: {
+          enabled: true,
+          apiKey: "FIRECRAWL_API_KEY_HERE", // 如果设置了 FIRECRAWL_API_KEY 则可选
+          baseUrl: "https://api.firecrawl.dev",
+          onlyMainContent: true,
+          maxAgeMs: 86400000, // 毫秒（1 天）
+          timeoutSeconds: 60,
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{工具参数}
+
+
+\begin{itemize}
+  \item \texttt{url}（必需，仅限 http/https）
+  \item \texttt{extractMode}（\texttt{markdown} | \texttt{text}）
+  \item \texttt{maxChars}（截断长页面）
+\end{itemize}
+
+
+注意：
+
+\begin{itemize}
+  \item \texttt{web\_fetch} 首先使用 Readability（主要内容提取），然后使用 Firecrawl（如果已配置）。如果两者都失败，工具返回错误。
+  \item Firecrawl 请求使用机器人规避模式并默认缓存结果。
+  \item \texttt{web\_fetch} 默认发送类 Chrome 的 User-Agent 和 \texttt{Accept-Language}；如需要可覆盖 \texttt{userAgent}。
+  \item \texttt{web\_fetch} 阻止私有/内部主机名并重新检查重定向（用 \texttt{maxRedirects} 限制）。
+  \item \texttt{web\_fetch} 是尽力提取；某些网站需要浏览器工具。
+  \item 参见 \href{/tools/firecrawl}{Firecrawl} 了解密钥设置和服务详情。
+  \item 响应会被缓存（默认 15 分钟）以减少重复获取。
+  \item 如果你使用工具配置文件/允许列表，添加 \texttt{web\_search}/\texttt{web\_fetch} 或 \texttt{group:web}。
+  \item 如果缺少 Brave 密钥，\texttt{web\_search} 返回一个简短的设置提示和文档链接。
+\end{itemize}
+
+
+
+\clearpage

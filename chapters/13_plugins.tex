@@ -1,0 +1,560 @@
+\chapter{插件开发}
+
+% === 源文件: plugins/agent-tools.md ===
+\section{插件智能体工具}
+
+
+OpenClaw 插件可以注册\textbf{智能体工具}（JSON 模式函数），这些工具在智能体运行期间暴露给 LLM。工具可以是\textbf{必需的}（始终可用）或\textbf{可选的}（选择启用）。
+
+智能体工具在主配置的 \texttt{tools} 下配置，或在每个智能体的 \texttt{agents.list[].tools} 下配置。允许列表/拒绝列表策略控制智能体可以调用哪些工具。
+
+\subsection{基本工具}
+
+
+\begin{lstlisting}[language=typescript]
+import { Type } from "@sinclair/typebox";
+
+export default function (api) {
+  api.registerTool({
+    name: "my_tool",
+    description: "Do a thing",
+    parameters: Type.Object({
+      input: Type.String(),
+    }),
+    async execute(_id, params) {
+      return { content: [{ type: "text", text: params.input }] };
+    },
+  });
+}
+\end{lstlisting}
+
+
+\subsection{可选工具（选择启用）}
+
+
+可选工具\textbf{永远不会}自动启用。用户必须将它们添加到智能体允许列表中。
+
+\begin{lstlisting}[language=typescript]
+export default function (api) {
+  api.registerTool(
+    {
+      name: "workflow_tool",
+      description: "Run a local workflow",
+      parameters: {
+        type: "object",
+        properties: {
+          pipeline: { type: "string" },
+        },
+        required: ["pipeline"],
+      },
+      async execute(_id, params) {
+        return { content: [{ type: "text", text: params.pipeline }] };
+      },
+    },
+    { optional: true },
+  );
+}
+\end{lstlisting}
+
+
+在 \texttt{agents.list[].tools.allow}（或全局 \texttt{tools.allow}）中启用可选工具：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [
+      {
+        id: "main",
+        tools: {
+          allow: [
+            "workflow_tool", // 特定工具名称
+            "workflow", // 插件 id（启用该插件的所有工具）
+            "group:plugins", // 所有插件工具
+          ],
+        },
+      },
+    ],
+  },
+}
+\end{lstlisting}
+
+
+其他影响工具可用性的配置选项：
+
+\begin{itemize}
+  \item 仅包含插件工具名称的允许列表被视为插件选择启用；核心工具保持启用，除非你在允许列表中也包含核心工具或组。
+  \item \texttt{tools.profile} / \texttt{agents.list[].tools.profile}（基础允许列表）
+  \item \texttt{tools.byProvider} / \texttt{agents.list[].tools.byProvider}（特定提供商的允许/拒绝）
+  \item \texttt{tools.sandbox.tools.*}（沙箱隔离时的沙箱工具策略）
+\end{itemize}
+
+
+\subsection{规则 + 提示}
+
+
+\begin{itemize}
+  \item 工具名称\textbf{不能}与核心工具名称冲突；冲突的工具会被跳过。
+  \item 允许列表中使用的插件 id 不能与核心工具名称冲突。
+  \item 对于触发副作用或需要额外二进制文件/凭证的工具，优先使用 \texttt{optional: true}。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: plugins/manifest.md ===
+\section{插件清单（openclaw.plugin.json）}
+
+
+每个插件都\textbf{必须}在\textbf{插件根目录}下提供一个 \texttt{openclaw.plugin.json} 文件。OpenClaw 使用此清单来\textbf{在不执行插件代码的情况下}验证配置。缺失或无效的清单将被视为插件错误，并阻止配置验证。
+
+参阅完整的插件系统指南：\href{/tools/plugin}{插件}。
+
+\subsection{必填字段}
+
+
+\begin{lstlisting}[language=json]
+{
+  "id": "voice-call",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
+\end{lstlisting}
+
+
+必填键：
+
+\begin{itemize}
+  \item \texttt{id}（字符串）：插件的规范 id。
+  \item \texttt{configSchema}（对象）：插件配置的 JSON Schema（内联形式）。
+\end{itemize}
+
+
+可选键：
+
+\begin{itemize}
+  \item \texttt{kind}（字符串）：插件类型（例如：\texttt{"memory"}）。
+  \item \texttt{channels}（数组）：此插件注册的渠道 id（例如：\texttt{["matrix"]}）。
+  \item \texttt{providers}（数组）：此插件注册的提供商 id。
+  \item \texttt{skills}（数组）：要加载的 Skills 目录（相对于插件根目录）。
+  \item \texttt{name}（字符串）：插件的显示名称。
+  \item \texttt{description}（字符串）：插件简短描述。
+  \item \texttt{uiHints}（对象）：用于 UI 渲染的配置字段标签/占位符/敏感标志。
+  \item \texttt{version}（字符串）：插件版本（仅供参考）。
+\end{itemize}
+
+
+\subsection{JSON Schema 要求}
+
+
+\begin{itemize}
+  \item \textbf{每个插件都必须提供 JSON Schema}，即使不接受任何配置也是如此。
+  \item 空 Schema 是可以接受的（例如 \texttt{\{ "type": "object", "additionalProperties": false \}}）。
+  \item Schema 在配置读取/写入时进行验证，而非在运行时。
+\end{itemize}
+
+
+\subsection{验证行为}
+
+
+\begin{itemize}
+  \item 未知的 \texttt{channels.*} 键会被视为\textbf{错误}，除非该渠道 id 已在插件清单中声明。
+  \item \texttt{plugins.entries.}、\texttt{plugins.allow}、\texttt{plugins.deny} 和 \texttt{plugins.slots.*} 必须引用\textbf{可发现的}插件 id。未知 id 会被视为\textbf{错误}。
+  \item 如果插件已安装但清单或 Schema 损坏或缺失，验证将失败，Doctor 会报告插件错误。
+  \item 如果插件配置存在但插件已\textbf{禁用}，配置会被保留，并在 Doctor 和日志中显示\textbf{警告}。
+\end{itemize}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 清单对\textbf{所有插件}都是必需的，包括从本地文件系统加载的插件。
+  \item 运行时仍然会单独加载插件模块；清单仅用于发现和验证。
+  \item 如果你的插件依赖原生模块，请记录构建步骤以及所有包管理器允许列表要求（例如 pnpm 的 \texttt{allow-build-scripts} - \texttt{pnpm rebuild }）。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: plugins/voice-call.md ===
+\section{Voice Call（插件）}
+
+
+通过插件为 OpenClaw 提供语音通话。支持出站通知和带有入站策略的多轮对话。
+
+当前提供商：
+
+\begin{itemize}
+  \item \texttt{twilio}（Programmable Voice + Media Streams）
+  \item \texttt{telnyx}（Call Control v2）
+  \item \texttt{plivo}（Voice API + XML transfer + GetInput speech）
+  \item \texttt{mock}（开发/无网络）
+\end{itemize}
+
+
+快速心智模型：
+
+\begin{itemize}
+  \item 安装插件
+  \item 重启 Gateway 网关
+  \item 在 \texttt{plugins.entries.voice-call.config} 下配置
+  \item 使用 \texttt{openclaw voicecall ...} 或 \texttt{voice\_call} 工具
+\end{itemize}
+
+
+\subsection{运行位置（本地 vs 远程）}
+
+
+Voice Call 插件运行在 \textbf{Gateway 网关进程内部}。
+
+如果你使用远程 Gateway 网关，在\textbf{运行 Gateway 网关的机器}上安装/配置插件，然后重启 Gateway 网关以加载它。
+
+\subsection{安装}
+
+
+\subsubsection{选项 A：从 npm 安装（推荐）}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install @openclaw/voice-call
+\end{lstlisting}
+
+
+之后重启 Gateway 网关。
+
+\subsubsection{选项 B：从本地文件夹安装（开发，不复制）}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install ./extensions/voice-call
+cd ./extensions/voice-call && pnpm install
+\end{lstlisting}
+
+
+之后重启 Gateway 网关。
+
+\subsection{配置}
+
+
+在 \texttt{plugins.entries.voice-call.config} 下设置配置：
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        enabled: true,
+        config: {
+          provider: "twilio", // 或 "telnyx" | "plivo" | "mock"
+          fromNumber: "+15550001234",
+          toNumber: "+15550005678",
+
+          twilio: {
+            accountSid: "ACxxxxxxxx",
+            authToken: "...",
+          },
+
+          plivo: {
+            authId: "MAxxxxxxxxxxxxxxxxxxxx",
+            authToken: "...",
+          },
+
+          // Webhook 服务器
+          serve: {
+            port: 3334,
+            path: "/voice/webhook",
+          },
+
+          // 公开暴露（选一个）
+          // publicUrl: "https://example.ngrok.app/voice/webhook",
+          // tunnel: { provider: "ngrok" },
+          // tailscale: { mode: "funnel", path: "/voice/webhook" }
+
+          outbound: {
+            defaultMode: "notify", // notify | conversation
+          },
+
+          streaming: {
+            enabled: true,
+            streamPath: "/voice/stream",
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item Twilio/Telnyx 需要\textbf{可公开访问}的 webhook URL。
+  \item Plivo 需要\textbf{可公开访问}的 webhook URL。
+  \item \texttt{mock} 是本地开发提供商（无网络调用）。
+  \item \texttt{skipSignatureVerification} 仅用于本地测试。
+  \item 如果你使用 ngrok 免费版，将 \texttt{publicUrl} 设置为确切的 ngrok URL；签名验证始终强制执行。
+  \item \texttt{tunnel.allowNgrokFreeTierLoopbackBypass: true} 允许带有无效签名的 Twilio webhooks，\textbf{仅当} \texttt{tunnel.provider="ngrok"} 且 \texttt{serve.bind} 是 loopback（ngrok 本地代理）时。仅用于本地开发。
+  \item Ngrok 免费版 URL 可能会更改或添加中间页面行为；如果 \texttt{publicUrl} 漂移，Twilio 签名将失败。对于生产环境，优先使用稳定域名或 Tailscale funnel。
+\end{itemize}
+
+
+\subsection{通话的 TTS}
+
+
+Voice Call 使用核心 \texttt{messages.tts} 配置（OpenAI 或 ElevenLabs）进行通话中的流式语音。你可以在插件配置下使用\textbf{相同的结构}覆盖它——它会与 \texttt{messages.tts} 深度合并。
+
+\begin{lstlisting}[language=json]
+{
+  tts: {
+    provider: "elevenlabs",
+    elevenlabs: {
+      voiceId: "pMsXgVXv3BLzUgSXRplE",
+      modelId: "eleven_multilingual_v2",
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \textbf{语音通话忽略 Edge TTS}（电话音频需要 PCM；Edge 输出不可靠）。
+  \item 当启用 Twilio 媒体流时使用核心 TTS；否则通话回退到提供商原生语音。
+\end{itemize}
+
+
+\subsubsection{更多示例}
+
+
+仅使用核心 TTS（无覆盖）：
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      provider: "openai",
+      openai: { voice: "alloy" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+仅为通话覆盖为 ElevenLabs（其他地方保持核心默认）：
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        config: {
+          tts: {
+            provider: "elevenlabs",
+            elevenlabs: {
+              apiKey: "elevenlabs_key",
+              voiceId: "pMsXgVXv3BLzUgSXRplE",
+              modelId: "eleven_multilingual_v2",
+            },
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+仅为通话覆盖 OpenAI 模型（深度合并示例）：
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        config: {
+          tts: {
+            openai: {
+              model: "gpt-4o-mini-tts",
+              voice: "marin",
+            },
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{入站通话}
+
+
+入站策略默认为 \texttt{disabled}。要启用入站通话，设置：
+
+\begin{lstlisting}[language=json]
+{
+  inboundPolicy: "allowlist",
+  allowFrom: ["+15550001234"],
+  inboundGreeting: "Hello! How can I help?",
+}
+\end{lstlisting}
+
+
+自动响应使用智能体系统。通过以下方式调整：
+
+\begin{itemize}
+  \item \texttt{responseModel}
+  \item \texttt{responseSystemPrompt}
+  \item \texttt{responseTimeoutMs}
+\end{itemize}
+
+
+\subsection{CLI}
+
+
+\begin{lstlisting}[language=bash]
+openclaw voicecall call --to "+15555550123" --message "Hello from OpenClaw"
+openclaw voicecall continue --call-id <id> --message "Any questions?"
+openclaw voicecall speak --call-id <id> --message "One moment"
+openclaw voicecall end --call-id <id>
+openclaw voicecall status --call-id <id>
+openclaw voicecall tail
+openclaw voicecall expose --mode funnel
+\end{lstlisting}
+
+
+\subsection{智能体工具}
+
+
+工具名称：\texttt{voice\_call}
+
+操作：
+
+\begin{itemize}
+  \item \texttt{initiate\_call}（message、to?、mode?）
+  \item \texttt{continue\_call}（callId、message）
+  \item \texttt{speak\_to\_user}（callId、message）
+  \item \texttt{end\_call}（callId）
+  \item \texttt{get\_status}（callId）
+\end{itemize}
+
+
+此仓库在 \texttt{skills/voice-call/SKILL.md} 提供了配套的 skill 文档。
+
+\subsection{Gateway 网关 RPC}
+
+
+\begin{itemize}
+  \item \texttt{voicecall.initiate}（\texttt{to?}、\texttt{message}、\texttt{mode?}）
+  \item \texttt{voicecall.continue}（\texttt{callId}、\texttt{message}）
+  \item \texttt{voicecall.speak}（\texttt{callId}、\texttt{message}）
+  \item \texttt{voicecall.end}（\texttt{callId}）
+  \item \texttt{voicecall.status}（\texttt{callId}）
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: plugins/zalouser.md ===
+\section{Zalo Personal（插件）}
+
+
+通过插件为 OpenClaw 提供 Zalo Personal 支持，使用 \texttt{zca-cli} 自动化普通 Zalo 用户账户。
+
+\begin{quote}
+\textbf{警告：} 非官方自动化可能导致账户被暂停/封禁。使用风险自负。
+\end{quote}
+
+
+\subsection{命名}
+
+
+渠道 id 是 \texttt{zalouser}，以明确表示这是自动化\textbf{个人 Zalo 用户账户}（非官方）。我们保留 \texttt{zalo} 用于潜在的未来官方 Zalo API 集成。
+
+\subsection{运行位置}
+
+
+此插件\textbf{在 Gateway 网关进程内}运行。
+
+如果你使用远程 Gateway 网关，请在\textbf{运行 Gateway 网关的机器}上安装/配置它，然后重启 Gateway 网关。
+
+\subsection{安装}
+
+
+\subsubsection{选项 A：从 npm 安装}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install @openclaw/zalouser
+\end{lstlisting}
+
+
+之后重启 Gateway 网关。
+
+\subsubsection{选项 B：从本地文件夹安装（开发）}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install ./extensions/zalouser
+cd ./extensions/zalouser && pnpm install
+\end{lstlisting}
+
+
+之后重启 Gateway 网关。
+
+\subsection{前置条件：zca-cli}
+
+
+Gateway 网关机器必须在 \texttt{PATH} 中有 \texttt{zca}：
+
+\begin{lstlisting}[language=bash]
+zca --version
+\end{lstlisting}
+
+
+\subsection{配置}
+
+
+渠道配置位于 \texttt{channels.zalouser} 下（不是 \texttt{plugins.entries.*}）：
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    zalouser: {
+      enabled: true,
+      dmPolicy: "pairing",
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{CLI}
+
+
+\begin{lstlisting}[language=bash]
+openclaw channels login --channel zalouser
+openclaw channels logout --channel zalouser
+openclaw channels status --probe
+openclaw message send --channel zalouser --target <threadId> --message "Hello from OpenClaw"
+openclaw directory peers list --channel zalouser --query "name"
+\end{lstlisting}
+
+
+\subsection{智能体工具}
+
+
+工具名称：\texttt{zalouser}
+
+操作：\texttt{send}、\texttt{image}、\texttt{link}、\texttt{friends}、\texttt{groups}、\texttt{me}、\texttt{status}
+
+
+\clearpage
