@@ -1,0 +1,1398 @@
+\chapter{实战：服务器部署与配置详解}
+
+\begin{quote}
+基于实际操作记录，涵盖远程服务器部署 OpenClaw、API 配置、目录结构解析、Agent 与会话管理等内容。
+\end{quote}
+
+\section{远程服务器部署}
+
+
+\subsection{环境信息}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|p{0.7\textwidth}|}
+\hline
+项目 & 值 \\
+\hline
+服务器 IP & \texttt{<your-server-ip>} \\
+\hline
+用户名 & ubuntu \\
+\hline
+操作系统 & Ubuntu Linux 6.8.0-51-generic (x86\_64) \\
+\hline
+私钥文件 & \texttt{\textasciitilde{}/.ssh/your-key.pem} \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{SSH 连接}
+
+
+\begin{lstlisting}[language=bash]
+# 私钥权限必须为 600，否则 SSH 会拒绝连接
+chmod 600 ~/.ssh/your-key.pem
+
+# 连接服务器
+ssh -i ~/.ssh/your-key.pem ubuntu@<your-server-ip>
+\end{lstlisting}
+
+\begin{quote}
+\textbf{注意}：如果私钥权限过宽（如 644），SSH 会报错 \texttt{Permissions 0644 for key are too open}，必须先修复权限。
+\end{quote}
+
+\subsection{安装 OpenClaw}
+
+\subsubsection{系统要求}
+
+\begin{itemize}
+  \item \textbf{Node.js 22+}（安装器脚本会自动检测并安装）
+  \item macOS、Linux 或通过 WSL2 的 Windows
+  \item \texttt{pnpm} 仅在从源代码构建时需要
+\end{itemize}
+
+\subsubsection{方式一：安装器脚本（推荐）}
+
+安装器脚本会自动处理 Node.js 检测、安装以及新手引导，一步到位：
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://openclaw.ai/install.sh | bash
+\end{lstlisting}
+
+安装器会自动执行以下步骤：
+\begin{enumerate}
+  \item 检测操作系统（macOS / Linux / WSL）
+  \item 确保 Node.js 22+ 已安装（Linux 通过 NodeSource 安装）
+  \item 确保 Git 已安装
+  \item 通过 npm 全局安装 OpenClaw
+  \item 运行新手引导（onboarding）
+\end{enumerate}
+
+如需跳过新手引导（适用于自动化部署场景）：
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
+\end{lstlisting}
+
+\subsubsection{方式二：全局 npm 安装（手动）}
+
+如果服务器上已经有 Node.js 22+，可以直接通过 npm 安装：
+
+\begin{lstlisting}[language=bash]
+# 确认 Node.js 版本 >= 22
+node -v
+
+# 全局安装 OpenClaw
+npm install -g openclaw@latest
+\end{lstlisting}
+
+\subsubsection{方式三：从源代码构建}
+
+适用于需要自定义修改或参与开发的场景：
+
+\begin{lstlisting}[language=bash]
+git clone https://github.com/openclaw/openclaw.git
+cd openclaw
+pnpm install
+pnpm build
+
+# 将 openclaw 命令链接到全局
+pnpm link --global
+\end{lstlisting}
+
+\subsubsection{安装后验证}
+
+\begin{lstlisting}[language=bash]
+# 检查安装是否成功
+openclaw --version
+
+# 运行诊断检查
+openclaw doctor
+
+# 如果跳过了新手引导，手动执行
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+\begin{quote}
+\textbf{提示}：如果安装完成后在新终端中找不到 \texttt{openclaw} 命令，通常是 Node/npm 的 PATH 配置问题。可以将 npm 全局 bin 目录加入 PATH：
+\begin{lstlisting}[language=bash]
+export PATH="$(npm prefix -g)/bin:$PATH"
+\end{lstlisting}
+建议将上述命令添加到 \texttt{\textasciitilde{}/.bashrc} 或 \texttt{\textasciitilde{}/.zshrc} 中以持久生效。
+\end{quote}
+
+安装完成后，通过 \texttt{openclaw} 命令即可使用。
+
+\hrulefill
+
+\section{API 配置}
+
+
+\subsection{配置方式}
+
+
+推荐使用 \texttt{openclaw config set} 命令逐项配置，避免手动编辑 JSON 格式出错。
+
+\begin{lstlisting}[language=bash]
+# 设置 API Provider（以某个 Provider 为例）
+openclaw config set secrets.providers.<provider>.apiKey "your-api-key"
+openclaw config set secrets.providers.<provider>.apiUrl "https://<api-endpoint>/v1/"
+
+# 设置模型
+openclaw config set models.<provider>/Kimi-K2.5.provider "<provider>"
+openclaw config set models.<provider>/Kimi-K2.5.api "openai-completions"
+
+# 设置默认模型
+openclaw config set defaults.model "<provider>/Kimi-K2.5"
+
+# 设置网关模式为本地
+openclaw config set gateway.mode "local"
+\end{lstlisting}
+
+\subsection{配置文件结构}
+
+
+配置文件位于 \texttt{\textasciitilde{}/.openclaw/openclaw.json}，核心结构如下：
+
+\begin{lstlisting}[language=json]
+{
+  "secrets": {
+    "providers": {
+      "<provider>": {
+        "apiKey": "your-api-key",
+        "apiUrl": "https://<api-endpoint>/v1/"
+      }
+    }
+  },
+  "models": {
+    "<provider>/Kimi-K2.5": {
+      "provider": "<provider>",
+      "api": "openai-completions"
+    }
+  },
+  "defaults": {
+    "model": "<provider>/Kimi-K2.5"
+  },
+  "gateway": {
+    "mode": "local"
+  }
+}
+\end{lstlisting}
+
+\subsection{关键字段说明}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|p{0.7\textwidth}|}
+\hline
+字段 & 说明 \\
+\hline
+\texttt{secrets.providers.<name>.apiKey} & API 密钥 \\
+\hline
+\texttt{secrets.providers.<name>.apiUrl} & API 端点地址 \\
+\hline
+\texttt{models.<model>.provider} & 模型对应的 Provider 名称 \\
+\hline
+\texttt{models.<model>.api} & API 协议类型（如 \texttt{openai-completions}） \\
+\hline
+\texttt{defaults.model} & 默认使用的模型 \\
+\hline
+\texttt{gateway.mode} & 网关模式，\texttt{local} 为本地模式 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{常见配置错误}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+错误 & 原因 & 解决方案 \\
+\hline
+\texttt{config validate} 失败 & api 类型写成了 \texttt{openai-chat} & 改为 \texttt{openai-completions} \\
+\hline
+\texttt{No API provider registered for api: undefined} & 模型配置缺少 \texttt{api} 字段 & 添加 \texttt{api: "openai-completions"} \\
+\hline
+网关未启动 & 未设置 \texttt{gateway.mode} 或未启动 & 设置为 \texttt{local}，执行 \texttt{openclaw gateway} \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{启动网关}
+
+
+\begin{lstlisting}[language=bash]
+# 前台运行（调试用）
+openclaw gateway
+
+# 后台运行
+nohup openclaw gateway &
+\end{lstlisting}
+
+\subsection{验证配置}
+
+
+\begin{lstlisting}[language=bash]
+# 验证配置是否正确
+openclaw config validate
+
+# 测试 Agent 调用
+openclaw agent --agent main --session-id test "你好"
+\end{lstlisting}
+
+\hrulefill
+
+\section{\texttt{\textasciitilde{}/.openclaw/} 目录结构详解}
+
+
+\begin{quote}
+以下为服务器上 \texttt{\textasciitilde{}/.openclaw/} 的\textbf{实际完整目录树}（基于实际环境采集）。
+\end{quote}
+
+\begin{lstlisting}
+~/.openclaw/
++-- openclaw.json              # 主配置文件（API密钥、模型、网关、渠道等）
++-- openclaw.json.bak          # 配置文件自动备份（每次修改自动生成，最多保留5份）
++-- openclaw.json.bak.1
++-- openclaw.json.bak.2
++-- openclaw.json.bak.3
++-- openclaw.json.bak.4
++-- update-check.json          # 版本更新检查记录（记录上次检查时间）
+|
++-- agents/                    # Agent 注册目录（每个 Agent 一个子目录）
+|   +-- main/                  # 默认 Agent "main"
+|       +-- agent/
+|       |   +-- models.json    # 该 Agent 运行时解析后的模型信息快照
+|       +-- sessions/
+|           +-- sessions.json  # 会话索引（记录所有会话的元数据、Token用量等）
+|           +-- <uuid>.jsonl   # 具体会话的消息历史（JSONL格式，每行一条消息）
+|
++-- canvas/                    # Canvas 画布功能
+|   +-- index.html             # 可视化画布的前端页面
+|
++-- completions/               # Shell 自动补全脚本
+|   +-- openclaw.bash          # Bash 补全
+|   +-- openclaw.zsh           # Zsh 补全
+|   +-- openclaw.fish          # Fish 补全
+|   +-- openclaw.ps1           # PowerShell 补全
+|
++-- cron/                      # 定时任务
+|   +-- jobs.json              # 定时任务注册表（cron表达式 + 任务定义）
+|
++-- devices/                   # 设备管理（手机等Node节点）
+|   +-- paired.json            # 已配对的设备列表
+|   +-- pending.json           # 待配对的设备列表
+|
++-- identity/                  # 身份与认证
+|   +-- device.json            # 当前设备标识（设备ID、名称等）
+|   +-- device-auth.json       # 设备认证凭据
+|
++-- logs/                      # 运行日志
+|   +-- config-audit.jsonl     # 配置变更审计日志（每次config修改自动记录）
+|
++-- memory/                    # 记忆存储
+|   +-- main.sqlite            # 默认Agent的SQLite记忆数据库
+|
++-- workspace/                 # 默认工作空间（Agent 人设与知识库）
+    +-- .git/                  # Git仓库（workspace自带版本控制）
+    +-- .clawhub/              # ClawHub 包管理（类似 node_modules 的锁文件）
+    |   +-- lock.json          #   已安装 Skills 的版本锁定文件
+    +-- .openclaw/
+    |   +-- workspace-state.json  # 工作空间状态（如bootstrap时间）
+    +-- SOUL.md                # 核心人设定义（性格、语气、行为准则）
+    +-- AGENTS.md              # Agent工作流程定义（启动流程、记忆管理规范）
+    +-- IDENTITY.md            # Agent身份信息（名字、emoji、风格等）
+    +-- USER.md                # 用户画像（用户偏好、习惯、备注）
+    +-- BOOTSTRAP.md           # 首次启动引导脚本（初始化后可删除）
+    +-- HEARTBEAT.md           # 心跳任务定义（周期性检查任务）
+    +-- TOOLS.md               # 本地工具备忘（环境特有的SSH、设备等信息）
+    |
+    +-- skills/                # 已安装的工作空间级 Skills（优先级最高）
+        +-- xiaohongshu-mcp/   #   示例：小红书自动化 Skill
+            +-- .clawhub/
+            |   +-- origin.json    # 安装来源（registry地址、版本、安装时间）
+            +-- _meta.json         # Skill 元数据（作者ID、slug、版本、发布时间）
+            +-- SKILL.md           # Skill 定义文件（名称、描述、使用指南）
+            +-- scripts/           # Skill 附带的脚本
+                +-- xhs_client.py  # 小红书 MCP 客户端 Python 脚本
+\end{lstlisting}
+
+\subsection{根级文件详解}
+
+
+\subsubsection{openclaw.json --- 主配置文件}
+
+
+系统的核心配置，包含以下顶级字段：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|p{0.7\textwidth}|}
+\hline
+字段 & 说明 \\
+\hline
+\texttt{secrets.providers} & API Provider 的密钥和端点 \\
+\hline
+\texttt{models} & 可用模型列表及其 Provider 映射、API 协议类型 \\
+\hline
+\texttt{defaults} & 默认模型、默认 Agent 等全局缺省值 \\
+\hline
+\texttt{gateway} & 网关模式（\texttt{local}/\texttt{cloud}）和端口配置 \\
+\hline
+\texttt{channels} & 渠道连接配置（Telegram/飞书/WhatsApp等） \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{openclaw.json.bak* --- 配置自动备份}
+
+
+每次通过 \texttt{openclaw config set} 或其他方式修改配置时，系统会自动备份上一版配置。最多保留 \textbf{5 份}备份（\texttt{.bak} \textasciitilde{} \texttt{.bak.4}），按时间倒序排列，最新的为 \texttt{.bak}。
+
+\begin{quote}
+如果配置改坏了，可以直接 \texttt{cp openclaw.json.bak openclaw.json} 回退。
+\end{quote}
+
+\subsubsection{update-check.json --- 版本检查记录}
+
+
+\begin{lstlisting}[language=json]
+{ "lastCheckedAt": "2026-03-06T14:18:59.388Z" }
+\end{lstlisting}
+
+记录上次检查 OpenClaw 新版本的时间，避免频繁请求更新服务器。
+
+\subsection{\texttt{agents/} --- Agent 注册与会话存储}
+
+
+每个 Agent 拥有独立的子目录，内含运行时数据：
+
+\begin{lstlisting}
+agents/main/
++-- agent/
+|   +-- models.json        # 运行时模型快照
++-- sessions/
+    +-- sessions.json      # 会话索引
+    +-- <uuid>.jsonl       # 会话消息历史
+\end{lstlisting}
+
+\subsubsection{agent/models.json --- 运行时模型信息}
+
+
+Gateway 启动时从主配置解析生成，包含模型的完整信息：
+
+\begin{lstlisting}[language=json]
+{
+  "providers": {
+    "<provider>": {
+      "baseUrl": "https://<api-endpoint>/v1/",
+      "apiKey": "***",
+      "models": [{
+        "id": "Kimi-K2.5",
+        "api": "openai-completions",
+        "reasoning": false,
+        "input": ["text"],
+        "contextWindow": 200000,
+        "maxTokens": 8192,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+      }]
+    }
+  }
+}
+\end{lstlisting}
+
+\subsubsection{sessions/sessions.json --- 会话索引}
+
+
+记录该 Agent 下所有会话的元数据，键名格式为 \texttt{agent:<agent名>:<会话名>}：
+
+\begin{lstlisting}[language=json]
+{
+  "agent:main:main": {
+    "sessionId": "<session-uuid>",
+    "sessionFile": "~/.openclaw/agents/main/sessions/<session-uuid>.jsonl",
+    "model": "Kimi-K2.5",
+    "modelProvider": "<provider>",
+    "contextTokens": 200000,
+    "inputTokens": 32,
+    "outputTokens": 162,
+    "totalTokens": 13050,
+    "cacheRead": 13018,
+    "skillsSnapshot": { }
+  }
+}
+\end{lstlisting}
+
+\begin{quote}
+可以从这里看到每个会话的模型、Token 用量、关联的 Skills 等信息。
+\end{quote}
+
+\subsubsection{sessions/<uuid>.jsonl --- 会话消息历史}
+
+
+以 JSONL 格式（每行一条 JSON）存储完整的消息交互记录，包括用户消息、Agent 回复、工具调用等。文件名为会话的 UUID。
+
+\subsection{\texttt{canvas/} --- Canvas 画布}
+
+
+\begin{lstlisting}
+canvas/
++-- index.html
+\end{lstlisting}
+
+提供一个本地 Web 可视化画布页面，Agent 可以在上面渲染图表、代码预览等富内容。通过浏览器访问。
+
+\subsection{\texttt{completions/} --- Shell 自动补全}
+
+
+\begin{lstlisting}
+completions/
++-- openclaw.bash
++-- openclaw.zsh
++-- openclaw.fish
++-- openclaw.ps1
+\end{lstlisting}
+
+安装时自动生成的各 Shell 补全脚本，使 \texttt{openclaw} 命令支持 Tab 自动补全。加载方式：
+
+\begin{lstlisting}[language=bash]
+# Bash
+source ~/.openclaw/completions/openclaw.bash
+
+# Zsh
+source ~/.openclaw/completions/openclaw.zsh
+\end{lstlisting}
+
+\subsection{\texttt{cron/} --- 定时任务}
+
+
+\begin{lstlisting}[language=json]
+// cron/jobs.json
+{ "version": 1, "jobs": [] }
+\end{lstlisting}
+
+注册 Agent 的定时任务。Agent 可以通过 \texttt{cron} Skill 创建周期性任务（如定时发送提醒、定时检查系统状态等），任务定义存储在 \texttt{jobs.json} 中。
+
+\subsection{\texttt{devices/} --- 设备管理}
+
+
+\begin{lstlisting}
+devices/
++-- paired.json     # 已配对设备
++-- pending.json    # 待配对设备
+\end{lstlisting}
+
+用于管理通过 WebSocket 连接到 Gateway 的外部设备（手机、平板等 Node 节点）。设备可以暴露硬件能力（摄像头、GPS、通知等），Agent 通过 Gateway 远程调用这些能力。
+
+\subsection{\texttt{identity/} --- 身份认证}
+
+
+\begin{lstlisting}
+identity/
++-- device.json         # 当前设备标识信息
++-- device-auth.json    # 设备认证凭据
+\end{lstlisting}
+
+标识当前安装实例的唯一身份，用于多设备场景下的认证与区分。
+
+\subsection{\texttt{logs/} --- 审计日志}
+
+
+\begin{lstlisting}
+logs/
++-- config-audit.jsonl
+\end{lstlisting}
+
+以 JSONL 格式记录每次配置变更的完整审计信息，包括：
+
+\begin{itemize}
+  \item \textbf{时间戳}（\texttt{ts}）
+  \item \textbf{触发命令}（\texttt{argv}），如 \texttt{openclaw config set gateway.mode local}
+  \item \textbf{变更前后的配置哈希}（\texttt{previousHash} / \texttt{nextHash}）
+  \item \textbf{文件大小变化}（\texttt{previousBytes} / \texttt{nextBytes}）
+  \item \textbf{可疑操作标记}（\texttt{suspicious}）
+\end{itemize}
+
+\begin{quote}
+便于排查配置问题和追溯变更历史。
+\end{quote}
+
+\subsection{\texttt{memory/} --- 记忆数据库}
+
+
+\begin{lstlisting}
+memory/
++-- main.sqlite
+\end{lstlisting}
+
+使用 SQLite 数据库持久化 Agent 的长期记忆。文件名对应 Agent 名称（\texttt{main.sqlite} 对应 \texttt{main} Agent）。存储内容包括：
+
+\begin{itemize}
+  \item 对话摘要
+  \item 用户偏好
+  \item 重要事件
+  \item 提取的关键信息
+\end{itemize}
+
+\subsection{\texttt{workspace/} --- 工作空间（人设与知识库）}
+
+
+这是 Agent 的"灵魂所在"，包含人设定义、工作流程和已安装的 Skills：
+
+\begin{lstlisting}
+workspace/
++-- .git/                          # 自带Git版本控制
++-- .clawhub/                      # ClawHub 包管理
+|   +-- lock.json                  # Skills 版本锁定文件
++-- .openclaw/workspace-state.json # 工作空间状态
++-- SOUL.md          # 核心人设
++-- AGENTS.md        # 工作流程
++-- IDENTITY.md      # 身份信息
++-- USER.md          # 用户画像
++-- BOOTSTRAP.md     # 首次引导
++-- HEARTBEAT.md     # 心跳任务
++-- TOOLS.md         # 本地工具备忘
+|
++-- skills/          # 通过 ClawHub 安装的工作空间级 Skills
+    +-- <skill-name>/
+        +-- .clawhub/origin.json   # 安装来源信息
+        +-- _meta.json             # Skill 元数据
+        +-- SKILL.md               # Skill 定义文件
+        +-- scripts/               # Skill 附带脚本（可选）
+\end{lstlisting}
+
+\subsubsection{SOUL.md --- 核心人设定义}
+
+
+定义 Agent 的性格和行为准则，\textbf{是最重要的人设文件}。默认内容要点：
+
+\begin{itemize}
+  \item \textbf{真诚帮助}：跳过客套话（如"Great question!"），直接解决问题
+  \item \textbf{有观点}：允许有偏好和意见，不做没有个性的搜索引擎
+  \item \textbf{先自己查}：先读文件、查上下文、搜索，实在找不到再问用户
+  \item \textbf{尊重隐私}：用户给了访问权限，不要滥用，隐私信息不外泄
+  \item \textbf{对外谨慎，对内大胆}：对外操作（发邮件、发推）要确认，对内操作（读文件、整理）可以主动
+\end{itemize}
+
+\subsubsection{AGENTS.md --- Agent 工作流程定义}
+
+
+规定 Agent 每次启动时的标准流程：
+
+\begin{enumerate}
+  \item 读取 \texttt{SOUL.md} --- 知道自己是谁
+  \item 读取 \texttt{USER.md} --- 知道在帮谁
+  \item 读取 \texttt{memory/YYYY-MM-DD.md}（今天+昨天）--- 获取近期上下文
+  \item 如果是主会话，还要读取 \texttt{MEMORY.md} --- 长期记忆
+\end{enumerate}
+
+还定义了记忆管理规范：日志写到 \texttt{memory/YYYY-MM-DD.md}，精华提炼到 \texttt{MEMORY.md}。
+
+\subsubsection{IDENTITY.md --- Agent 身份信息}
+
+
+存储 Agent 的具体身份标识：名字、物种/形态、沟通风格、代表 emoji 等。在首次引导（Bootstrap）时由用户和 Agent 共同确定。
+
+\subsubsection{USER.md --- 用户画像}
+
+
+记录用户的基本信息和偏好：
+
+\begin{lstlisting}
+- **Name:** （用户姓名）
+- **What to call them:** （如何称呼）
+- **Timezone:** （时区）
+- **Notes:** （备注、喜好、项目等）
+\end{lstlisting}
+
+Agent 通过持续交互不断更新此文件，以便更好地理解和服务用户。
+
+\subsubsection{BOOTSTRAP.md --- 首次启动引导}
+
+
+新安装后的"出生引导"脚本，引导 Agent 完成：
+
+\begin{enumerate}
+  \item 了解用户（名字、称呼、时区）
+  \item 确定自己的身份（名字、风格、emoji）
+  \item 更新 \texttt{IDENTITY.md}、\texttt{USER.md}、\texttt{SOUL.md}
+  \item 可选配置消息渠道（WhatsApp/Telegram等）
+  \item \textbf{完成后删除此文件}（不再需要引导）
+\end{enumerate}
+
+\subsubsection{HEARTBEAT.md --- 心跳任务}
+
+
+定义 Agent 需要周期性执行的检查任务。文件为空或仅有注释时，跳过心跳调用。添加任务后，Agent 会按周期自动执行。
+
+\subsubsection{TOOLS.md --- 本地工具备忘}
+
+
+记录当前环境特有的工具和设备信息，如：SSH 主机别名、摄像头名称、TTS 语音偏好、智能设备昵称等。Skills 是通用的，TOOLS.md 是"你的环境独有的"。
+
+\subsubsection{.clawhub/lock.json --- Skills 版本锁定}
+
+
+类似 \texttt{package-lock.json}，记录通过 ClawHub 安装的所有 Skills 的版本和安装时间：
+
+\begin{lstlisting}[language=json]
+{
+  "version": 1,
+  "skills": {
+    "xiaohongshu-mcp": {
+      "version": "1.0.0",
+      "installedAt": 1772864060491
+    }
+  }
+}
+\end{lstlisting}
+
+\subsubsection{skills/ --- 已安装的工作空间级 Skills}
+
+
+通过 ClawHub 市场安装的 Skills 会存放在此目录下。每个 Skill 是一个独立子目录，内部结构：
+
+\begin{lstlisting}
+skills/<skill-name>/
++-- .clawhub/
+|   +-- origin.json        # 安装来源（registry、slug、版本、安装时间）
++-- _meta.json             # Skill 元数据（作者ID、slug、版本、发布时间）
++-- SKILL.md               # Skill 定义文件（名称、描述、使用指南）
++-- scripts/               # Skill 附带的可执行脚本（可选）
+\end{lstlisting}
+
+\textbf{origin.json} --- 记录 Skill 从哪里安装的：
+
+\begin{lstlisting}[language=json]
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "xiaohongshu-mcp",
+  "installedVersion": "1.0.0",
+  "installedAt": 1772864060489
+}
+\end{lstlisting}
+
+\textbf{\_meta.json} --- Skill 的发布元数据：
+
+\begin{lstlisting}[language=json]
+{
+  "ownerId": "<owner-id>",
+  "slug": "xiaohongshu-mcp",
+  "version": "1.0.0",
+  "publishedAt": 1769938539127
+}
+\end{lstlisting}
+
+\textbf{SKILL.md} --- Skill 的核心定义文件，包含 YAML frontmatter（名称、描述、触发条件）和 Markdown 正文（使用指南、命令说明）。
+
+\begin{quote}
+\textbf{与内置 Skills 的区别}：内置 Skills 在 \texttt{/usr/lib/node\_modules/openclaw/skills/} 下，不含 \texttt{.clawhub/} 和 \texttt{\_meta.json}；通过 ClawHub 安装的 Skills 带有完整的来源追踪信息。
+\end{quote}
+
+\subsubsection{实例：已安装的 xiaohongshu-mcp Skill}
+
+
+当前服务器上已安装了小红书自动化 Skill，它提供：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+功能 & 命令 & 说明 \\
+\hline
+检查登录状态 & \texttt{python scripts/xhs\_client.py status} & 确认 MCP 服务器是否运行 \\
+\hline
+搜索笔记 & \texttt{python scripts/xhs\_client.py search "关键词"} & 按关键词搜索小红书笔记 \\
+\hline
+获取笔记详情 & \texttt{python scripts/xhs\_client.py detail <feed\_id> <xsec\_token>} & 获取指定笔记的完整内容和评论 \\
+\hline
+获取推荐流 & \texttt{python scripts/xhs\_client.py feeds} & 获取推荐信息流 \\
+\hline
+发布笔记 & \texttt{python scripts/xhs\_client.py publish "标题" "内容" "图片URL"} & 发布图文笔记 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+使用前需先在本地启动 \texttt{xiaohongshu-mcp} 服务器（监听 \texttt{localhost:18060}）并完成扫码登录。
+\end{quote}
+
+\subsubsection{.openclaw/workspace-state.json --- 工作空间状态}
+
+
+\begin{lstlisting}[language=json]
+{ "version": 1, "bootstrapSeededAt": "2026-03-06T14:21:02.015Z" }
+\end{lstlisting}
+
+记录工作空间的初始化时间等状态信息。
+
+\subsubsection{.git/ --- 版本控制}
+
+
+workspace 目录自带 Git 仓库，Agent 对人设文件的修改可以通过 Git 追踪和回滚。
+
+\hrulefill
+
+\section{Skills 系统详解}
+
+
+\subsection{Skills 三层存放路径}
+
+
+Skills 分三层存放，\textbf{优先级从高到低}：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+层级 & 路径 & 说明 \\
+\hline
+\textbf{工作空间 Skills} & \texttt{\textasciitilde{}/.openclaw/workspace/skills/} & 仅当前工作空间 Agent 可用，优先级\textbf{最高} \\
+\hline
+\textbf{全局共享 Skills} & \texttt{\textasciitilde{}/.openclaw/skills/} & 所有 Agent 共享的自定义 Skills \\
+\hline
+\textbf{内置 Skills} & \texttt{/usr/lib/node\_modules/openclaw/skills/} & 随 OpenClaw 安装自带，优先级\textbf{最低} \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+同名 Skill 时，高优先级路径的会覆盖低优先级的。
+\end{quote}
+
+\subsection{Skill 的目录结构}
+
+
+每个 Skill 就是一个目录，核心是 \texttt{SKILL.md} 文件。根据来源不同，目录结构有所差异：
+
+\textbf{手动创建 / 内置 Skill（最简结构）}：
+
+\begin{lstlisting}
+weather/
++-- SKILL.md       # Skill 定义文件
+\end{lstlisting}
+
+\textbf{通过 ClawHub 市场安装的 Skill（完整结构）}：
+
+\begin{lstlisting}
+xiaohongshu-mcp/
++-- .clawhub/
+|   +-- origin.json        # 安装来源（registry URL、版本、安装时间）
++-- _meta.json             # 发布元数据（作者ID、slug、版本、发布时间）
++-- SKILL.md               # Skill 定义文件
++-- scripts/               # 附带的可执行脚本（可选）
+    +-- xhs_client.py
+\end{lstlisting}
+
+\texttt{SKILL.md} 由两部分组成：
+
+\begin{itemize}
+  \item \textbf{Frontmatter}（YAML 头部）：声明名称、描述、依赖要求等元数据
+  \item \textbf{正文}（Markdown）：详细的使用指南和命令说明
+\end{itemize}
+
+示例（\texttt{weather} Skill）：
+
+\begin{lstlisting}[language=yaml]
+---
+name: weather
+description: "Get current weather and forecasts via wttr.in or Open-Meteo..."
+homepage: https://wttr.in/:help
+metadata: { "openclaw": { "emoji": "...", "requires": { "bins": ["curl"] } } }
+---
+
+# Weather Skill
+## Commands
+...
+\end{lstlisting}
+
+\subsection{Skill 的依赖检测与激活}
+
+
+OpenClaw 启动时会自动检测每个 Skill 的依赖是否满足，\textbf{缺依赖的 Skill 不会被加载}。
+
+依赖类型有四种：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+依赖类型 & 说明 & 示例 \\
+\hline
+\texttt{bins} & 需要系统中安装的命令行工具 & \texttt{curl}、\texttt{gh}、\texttt{rg}、\texttt{clawhub} \\
+\hline
+\texttt{env} & 需要设置的环境变量 & \texttt{OPENAI\_API\_KEY}、\texttt{GEMINI\_API\_KEY} \\
+\hline
+\texttt{os} & 要求特定操作系统 & \texttt{darwin}（仅 macOS） \\
+\hline
+\texttt{config} & 需要在配置文件中设置的字段 & \texttt{channels.discord.token} \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{激活方法就是满足对应依赖}，例如：
+
+\begin{lstlisting}[language=bash]
+# clawhub skill 缺 clawhub 命令 -> 安装即可激活
+sudo npm install -g clawhub
+
+# github/gh-issues skill 缺 gh 命令
+sudo apt install gh
+
+# session-logs skill 缺 rg (ripgrep) 命令
+sudo apt install ripgrep
+
+# notion skill 缺环境变量
+export NOTION_API_KEY="your-key"
+
+# apple-notes skill 要求 os: darwin -> Linux 上无法激活，仅 macOS 可用
+\end{lstlisting}
+
+\subsection{Skills 管理命令}
+
+
+\begin{lstlisting}[language=bash]
+# 查看所有 Skills 的状态（哪些可用、哪些缺依赖）
+openclaw skills check
+
+# 列出所有 Skills
+openclaw skills list
+
+# 仅列出已就绪的 Skills
+openclaw skills list --eligible
+
+# 查看某个 Skill 的详细信息（含依赖要求和安装提示）
+openclaw skills info <name>
+# 示例：
+openclaw skills info clawhub
+# 输出：  clawhub  Missing requirements
+#       Requirements:
+#         Binaries:  clawhub
+#       Install options:
+#         -> Install clawhub (npm)
+\end{lstlisting}
+
+\subsection{安装第三方 Skills}
+
+
+\subsubsection{方式一：通过 ClawHub 市场安装（推荐）}
+
+
+ClawHub 是 OpenClaw 的 Skills 市场（https://clawhub.ai），类似 npm 之于 Node.js：
+
+\begin{lstlisting}[language=bash]
+# 先安装 clawhub CLI
+sudo npm install -g clawhub
+
+# 搜索、安装、同步 Skills
+npx clawhub
+\end{lstlisting}
+
+安装后的文件变化：
+
+% [Auto-converted from ASCII art to TikZ]
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+  \node[dirtree] {
+    workspace/\\
+    +-- .clawhub/\\
+    |   +-- lock.json              \# <- 新增/更新：记录已安装 Skill 版本\\
+    +-- skills/\\
+    +-- <skill-name>/          \# <- 新增：Skill 目录\\
+    +-- .clawhub/origin.json   \# 安装来源追踪\\
+    +-- \_meta.json             \# 作者、版本元数据\\
+    +-- SKILL.md               \# Skill 定义\\
+    +-- scripts/               \# 附带脚本（如有）\\
+  };
+\end{tikzpicture}
+\end{figure}
+
+\begin{quote}
+通过 ClawHub 安装的 Skills 位于 \texttt{workspace/skills/} 下（工作空间级，优先级最高），并通过 \texttt{.clawhub/lock.json} 锁定版本。
+\end{quote}
+
+\subsubsection{方式二：通过 plugins 命令安装}
+
+
+\begin{lstlisting}[language=bash]
+# 从本地路径安装（支持 .ts/.js/.zip/.tgz）
+openclaw plugins install ./my-skill.zip
+
+# 从 npm 安装
+openclaw plugins install some-openclaw-plugin
+
+# 以符号链接方式安装（开发调试用）
+openclaw plugins install ./my-skill --link
+
+# 锁定精确版本
+openclaw plugins install some-plugin --pin
+\end{lstlisting}
+
+插件管理完整命令：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|p{0.7\textwidth}|}
+\hline
+命令 & 说明 \\
+\hline
+\texttt{openclaw plugins install <path-or-spec>} & 安装插件（本地路径/npm包） \\
+\hline
+\texttt{openclaw plugins uninstall} & 卸载插件 \\
+\hline
+\texttt{openclaw plugins update} & 更新已安装的 npm 插件 \\
+\hline
+\texttt{openclaw plugins list} & 列出已安装插件 \\
+\hline
+\texttt{openclaw plugins info} & 查看插件详情 \\
+\hline
+\texttt{openclaw plugins enable} / \texttt{disable} & 启用/禁用插件 \\
+\hline
+\texttt{openclaw plugins doctor} & 排查插件加载问题 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{方式三：手动放置 Skill 目录}
+
+
+直接创建目录并放入 \texttt{SKILL.md}：
+
+\begin{lstlisting}[language=bash]
+# 全局共享（所有 Agent 可用）
+mkdir -p ~/.openclaw/skills/my-skill
+# 编写 SKILL.md ...
+
+# 工作空间专属（仅当前工作空间 Agent 可用，优先级最高）
+mkdir -p ~/.openclaw/workspace/skills/my-skill
+# 编写 SKILL.md ...
+\end{lstlisting}
+
+\subsection{内置 Skills 一览（51个）}
+
+
+当前服务器上的内置 Skills 及其依赖状态：
+
+\textbf{已就绪（5个）}：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|p{0.7\textwidth}|}
+\hline
+Skill & 功能 \\
+\hline
+\texttt{healthcheck} & 主机安全检查与加固 \\
+\hline
+\texttt{skill-creator} & 创建或更新 Skills \\
+\hline
+\texttt{tmux} & 远程控制 tmux 会话 \\
+\hline
+\texttt{video-frames} & 从视频提取帧或片段 \\
+\hline
+\texttt{weather} & 天气查询与预报 \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{未就绪（46个，按类别）}：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+类别 & Skills & 典型缺失依赖 \\
+\hline
+AI/模型 & \texttt{gemini}, \texttt{openai-image-gen}, \texttt{openai-whisper}, \texttt{openai-whisper-api}, \texttt{oracle} & env: API Key \\
+\hline
+笔记/文档 & \texttt{apple-notes}, \texttt{bear-notes}, \texttt{notion}, \texttt{obsidian}, \texttt{nano-pdf}, \texttt{summarize} & bins / os: darwin \\
+\hline
+通讯/社交 & \texttt{discord}, \texttt{slack}, \texttt{imsg}, \texttt{bluebubbles}, \texttt{wacli}, \texttt{voice-call} & config / os: darwin \\
+\hline
+开发工具 & \texttt{coding-agent}, \texttt{github}, \texttt{gh-issues}, \texttt{trello}, \texttt{clawhub}, \texttt{mcporter} & bins: gh, clawhub 等 \\
+\hline
+多媒体 & \texttt{canvas}, \texttt{camsnap}, \texttt{peekaboo}, \texttt{songsee}, \texttt{spotify-player}, \texttt{gifgrep} & bins / os: darwin \\
+\hline
+智能家居 & \texttt{openhue}, \texttt{sonoscli}, \texttt{blucli} & bins \\
+\hline
+系统/运维 & \texttt{session-logs}, \texttt{model-usage} & bins: rg / os: darwin \\
+\hline
+信息获取 & \texttt{xurl}, \texttt{blogwatcher}, \texttt{gog}, \texttt{goplaces}, \texttt{sag} & bins / env \\
+\hline
+其他 & \texttt{1password}, \texttt{apple-reminders}, \texttt{things-mac}, \texttt{himalaya}, 等 & bins / env / os \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+\textbf{提示}：运行 \texttt{openclaw skills check} 可以实时查看每个 Skill 具体缺什么。\texttt{os: darwin} 标记的 Skill 仅限 macOS，在 Linux 服务器上无法激活。
+\end{quote}
+
+\hrulefill
+
+\section{Agent 与会话层级关系}
+
+
+\subsection{层级结构}
+
+
+% [Auto-converted from ASCII art to TikZ]
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+  \node[dirtree] {
+    OpenClaw 实例\\
+    +-- Agent（智能体）\\
+    +-- Session 1（会话1）\\
+    +-- Session 2（会话2）\\
+    +-- Session N（会话N）\\
+  };
+\end{tikzpicture}
+\end{figure}
+
+\textbf{核心概念}：
+
+\begin{itemize}
+  \item \textbf{Agent} 是执行单元，每个 Agent 有独立的配置、人设和能力
+  \item \textbf{Session} 是对话上下文，每个 Agent 下可以有多个 Session
+  \item 层级关系：\texttt{Agent} $\rightarrow$ \texttt{Session}，一对多
+\end{itemize}
+
+\subsection{Agent 管理}
+
+
+\begin{lstlisting}[language=bash]
+# 使用默认 Agent（main）
+openclaw agent --agent main --message "你好"
+
+# 不指定 --agent 时，默认使用 main Agent
+\end{lstlisting}
+
+\subsection{Session（会话）管理}
+
+
+\subsubsection{开启新会话}
+
+
+\textbf{方式一：通过 TUI 交互模式（推荐）}
+
+\begin{lstlisting}[language=bash]
+# 进入默认会话（main）的 TUI 交互模式
+openclaw tui
+
+# 开启一个新的命名会话（指定新名称即自动创建）
+openclaw tui --session my-new-session
+
+# 带初始消息开启新会话
+openclaw tui --session work --message "帮我整理一下今天的任务"
+\end{lstlisting}
+
+\begin{quote}
+\texttt{--session <key>} 是创建新会话的关键参数。不指定时默认使用 \texttt{main} 会话，指定一个\textbf{新名称}就会自动创建新会话，彼此上下文完全隔离。
+\end{quote}
+
+\textbf{方式二：通过 \texttt{agent} 命令（单次对话，非交互）}
+
+\begin{lstlisting}[language=bash]
+# 在默认会话中发一条消息（复用已有 main 会话上下文）
+openclaw agent --agent main --message "你好"
+
+# 使用指定 session-id 复用某个会话
+openclaw agent --agent main --session-id <uuid> --message "继续上次的话题"
+\end{lstlisting}
+
+\begin{quote}
+\textbf{注意}：\texttt{agent --session-id} 是用来\textbf{复用已有会话 UUID} 的，不是创建新命名会话。要创建全新会话，推荐使用 \texttt{openclaw tui --session <新名称>}。
+\end{quote}
+
+\subsubsection{查看会话列表}
+
+
+\begin{lstlisting}[language=bash]
+# 列出所有会话
+openclaw sessions
+
+# 仅查看最近 N 分钟活跃的会话
+openclaw sessions --active 120
+
+# JSON 格式输出
+openclaw sessions --json
+
+# 查看指定 Agent 的会话
+openclaw sessions --agent work
+
+# 查看所有 Agent 的会话
+openclaw sessions --all-agents
+\end{lstlisting}
+
+\subsubsection{清理会话}
+
+
+\begin{lstlisting}[language=bash]
+# 预览要清理的会话（不实际执行）
+openclaw sessions cleanup --dry-run
+
+# 真正清理过期会话
+openclaw sessions cleanup --enforce
+
+# 手动清空所有会话（完全重置）
+echo '{}' > ~/.openclaw/agents/main/sessions/sessions.json
+\end{lstlisting}
+
+\subsubsection{TUI 完整参数}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|p{0.7\textwidth}|}
+\hline
+参数 & 说明 \\
+\hline
+\texttt{--session <key>} & 会话名称，指定新名称自动创建（默认 \texttt{main}） \\
+\hline
+\texttt{--message <text>} & 连接后自动发送的初始消息 \\
+\hline
+\texttt{--thinking <level>} & 思考等级覆盖 \\
+\hline
+\texttt{--deliver} & 将回复投递到渠道（默认 false） \\
+\hline
+\texttt{--history-limit <n>} & 加载的历史条目数（默认 200） \\
+\hline
+\texttt{--url <url>} & Gateway WebSocket URL \\
+\hline
+\texttt{--token <token>} & Gateway token \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Agent 独立人设配置}
+
+
+每个 Agent \textbf{可以}拥有独立的人设，通过 \texttt{--workspace} 参数指定独立工作空间：
+
+\begin{lstlisting}[language=bash]
+# 为不同 Agent 指定不同的工作空间
+openclaw agent --agent work --workspace ~/openclaw-work --message "处理工作邮件"
+openclaw agent --agent life --workspace ~/openclaw-life --message "今天天气怎么样"
+\end{lstlisting}
+
+不同工作空间下可以有各自独立的 \texttt{SOUL.md}，从而实现不同 Agent 拥有不同的人设定义。
+
+\begin{quote}
+\textbf{说明}：默认情况下 \texttt{\textasciitilde{}/.openclaw/workspace/} 是共享的，所有 Agent 使用同一套人设。如果需要独立人设，需通过 \texttt{--workspace} 参数为不同 Agent 指定不同的工作空间目录。
+\end{quote}
+
+\hrulefill
+
+\section{模型切换实战}
+
+
+\subsection{切换步骤}
+
+
+以从 <Provider>/Kimi-K2.5 切换到 DeepSeek-V3.2 为例：
+
+\textbf{第一步：备份当前配置}
+
+\begin{lstlisting}[language=bash]
+cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.bak.old-provider
+\end{lstlisting}
+
+\textbf{第二步：修改配置文件}
+
+可通过 Python 脚本修改（避免手动编辑 JSON 出错）：
+
+\begin{lstlisting}[language=python]
+import json, os
+
+config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+c = json.load(open(config_path))
+
+# 替换 models.providers
+c['models'] = {
+    'providers': {
+        'deepseek': {
+            'baseUrl': 'https://api.deepseek.com/v1/',
+            'apiKey': 'sk-xxxxxxxxxxxxxxxx',
+            'models': [{
+                'id': 'deepseek-chat',          # <- API 实际模型 ID
+                'name': 'DeepSeek-V3.2',        # <- 显示名称（自定义）
+                'api': 'openai-completions'
+            }]
+        }
+    }
+}
+
+# 更新默认模型引用
+c['agents']['defaults']['model'] = {'primary': 'deepseek/deepseek-chat'}
+c['agents']['defaults']['models'] = {'deepseek/deepseek-chat': {}}
+
+json.dump(c, open(config_path, 'w'), indent=2)
+\end{lstlisting}
+
+\textbf{第三步：清理运行时缓存和旧会话}
+
+\begin{quote}
+这一步至关重要！不清理会导致旧模型信息残留。
+\end{quote}
+
+\begin{lstlisting}[language=bash]
+# 清理运行时模型快照（Gateway 重启后会重新生成）
+rm ~/.openclaw/agents/main/agent/models.json
+
+# 清空旧会话（旧会话上下文中包含旧模型信息，会导致新模型"自以为是"旧模型）
+echo '{}' > ~/.openclaw/agents/main/sessions/sessions.json
+\end{lstlisting}
+
+\textbf{第四步：重启 Gateway}
+
+\begin{lstlisting}[language=bash]
+# 杀掉旧进程
+pkill -f openclaw-gateway
+
+# 重新启动
+nohup openclaw gateway run --force > /dev/null 2>&1 &
+
+# 验证
+openclaw gateway health
+openclaw status
+\end{lstlisting}
+
+\textbf{第五步：测试新模型}
+
+\begin{lstlisting}[language=bash]
+openclaw agent --agent main --message "你是什么模型?" --json
+\end{lstlisting}
+
+\subsection{关键注意事项}
+
+
+\subsubsection{模型 ID 必须用 API 实际支持的名称}
+
+
+不同 API 提供商的模型 ID 可能与官方宣传名称不同：
+
+\begin{lstlisting}[language=bash]
+# 查询 API 实际支持的模型列表
+curl -s https://api.deepseek.com/v1/models \
+  -H "Authorization: Bearer sk-xxx" | python3 -c \
+  "import sys,json; [print(m['id']) for m in json.load(sys.stdin).get('data',[])]"
+\end{lstlisting}
+
+\textbf{DeepSeek 实际模型 ID}：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+官方名称 & API 模型 ID & 说明 \\
+\hline
+DeepSeek-V3.2 & \texttt{deepseek-chat} & 通用对话模型 \\
+\hline
+DeepSeek-R1 & \texttt{deepseek-reasoner} & 推理模型 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+填错模型 ID 会得到 \texttt{400 Model Not Exist} 错误。
+\end{quote}
+
+\subsubsection{配置文件中的 id 与 name 的区别}
+
+
+\begin{lstlisting}[language=json]
+{
+  "id": "deepseek-chat",      // <- 实际发送给 API 的模型 ID（必须准确）
+  "name": "DeepSeek-V3.2",    // <- 仅用于显示的友好名称（可自定义）
+  "api": "openai-completions"
+}
+\end{lstlisting}
+
+\subsubsection{切换模型后必须清理的三个地方}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+清理项 & 路径 & 原因 \\
+\hline
+运行时模型快照 & \texttt{agents/main/agent/models.json} & Gateway 重启后会合并新旧配置，导致旧 provider 残留 \\
+\hline
+旧会话 & \texttt{agents/main/sessions/sessions.json} & 旧会话上下文中包含"我是XX模型"的历史消息 \\
+\hline
+Gateway 进程 & \texttt{pkill -f openclaw-gateway} & 内存中的配置需要重启才能刷新 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+不清理这三处，即使配置改了，Agent 还是会根据旧的上下文信息回答说自己是旧模型。
+\end{quote}
+
+\subsection{快速回退}
+
+
+\begin{lstlisting}[language=bash]
+# 切回之前的模型配置
+cp ~/.openclaw/openclaw.json.bak.old-provider ~/.openclaw/openclaw.json
+rm ~/.openclaw/agents/main/agent/models.json
+echo '{}' > ~/.openclaw/agents/main/sessions/sessions.json
+pkill -f openclaw-gateway
+nohup openclaw gateway run --force > /dev/null 2>&1 &
+\end{lstlisting}
+
+\hrulefill
+
+\section{实战踩坑总结}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+问题 & 现象 & 解决 \\
+\hline
+SSH 私钥权限 & \texttt{Permissions too open} 拒绝连接 & \texttt{chmod 600 \textasciitilde{}/.ssh/your-key.pem} \\
+\hline
+JSON 配置格式 & 手动编辑容易出错 & 用 \texttt{openclaw config set} 命令配置 \\
+\hline
+API 类型错误 & \texttt{openai-chat} 不被支持 & 改为 \texttt{openai-completions} \\
+\hline
+模型缺少 api 字段 & \texttt{No API provider for api: undefined} & 配置中添加 \texttt{api} 字段 \\
+\hline
+网关未启动 & Agent 无法调用 & \texttt{nohup openclaw gateway \&} \\
+\hline
+模型 ID 写错 & \texttt{400 Model Not Exist} & 用 \texttt{/v1/models} 接口查询实际 ID \\
+\hline
+切换模型后 Agent 仍自称旧模型 & 配置已改但回复说"我是 Kimi" & 清理三处：\texttt{models.json} + \texttt{sessions.json} + 重启 Gateway \\
+\hline
+\texttt{--session-id} 未创建新会话 & 期望新建会话但复用了旧的 & 用 \texttt{openclaw tui --session <新名称>} \\
+\hline
+Gateway SIGHUP 导致崩溃 & 发 HUP 信号后 Gateway 挂掉 & 不要用 \texttt{kill -HUP}，直接 \texttt{pkill} 后重启 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+\clearpage
