@@ -1,0 +1,114 @@
+\chapter{Channel（渠道）}
+
+\section{概述}
+
+Channel（渠道）是 OpenClaw 与聊天平台之间的适配器。每个渠道负责：
+
+\begin{itemize}
+  \item 接收平台入站消息并转换为统一格式
+  \item 将智能体回复发送回对应平台
+  \item 处理平台特有功能（附件、回应、线程等）
+\end{itemize}
+
+配置路径：\texttt{channels.<name>.*}
+
+\section{内置渠道}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{渠道 ID} & \textbf{平台} & \textbf{登录方式} \\
+\midrule
+\texttt{whatsapp} & WhatsApp & QR 码配对 \\
+\texttt{telegram} & Telegram & Bot Token \\
+\texttt{discord} & Discord & Bot Token \\
+\texttt{slack} & Slack & OAuth/Token \\
+\texttt{signal} & Signal & 配对 \\
+\texttt{imessage} & iMessage（旧版） & macOS \\
+\texttt{bluebubbles} & iMessage（推荐） & BlueBubbles 服务器 \\
+\texttt{webchat} & Web 聊天 & 内置 \\
+\texttt{googlechat} & Google Chat & Service Account \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+插件可添加更多渠道（如 Mattermost、Zalo、WeChat 等）。
+
+\section{渠道登录}
+
+\begin{lstlisting}[language=bash]
+# Interactive login (all channels)
+openclaw channels login
+
+# Channel-specific
+openclaw channels login --channel telegram
+openclaw channels login --channel discord
+
+# Check status
+openclaw channels status --probe
+\end{lstlisting}
+
+\section{访问控制}
+
+每个渠道支持 \textbf{私信策略}和\textbf{群组策略}：
+
+\subsection{私信策略（dmPolicy）}
+
+\begin{itemize}
+  \item \texttt{pairing}（默认）：未知发送者收到配对码，审批后方可通信
+  \item \texttt{allowlist}：仅允许名单内的用户
+  \item \texttt{open}：任何人都可以私信
+  \item \texttt{disabled}：禁用私信
+\end{itemize}
+
+\subsection{群组策略（groupPolicy）}
+
+\begin{itemize}
+  \item \texttt{allowlist}（默认）：仅允许名单内的群组
+  \item \texttt{open}：所有群组
+  \item \texttt{disabled}：禁用群组
+\end{itemize}
+
+\subsection{配置示例}
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    whatsapp: {
+      dmPolicy: "pairing",
+      allowFrom: ["+15555550123"],
+      groups: {
+        "*": { requireMention: true }
+      }
+    },
+    telegram: {
+      enabled: true,
+      dmPolicy: "allowlist",
+      allowFrom: ["123456789"]
+    }
+  }
+}
+\end{lstlisting}
+
+\section{路由机制}
+
+OpenClaw 将回复\textbf{路由回消息来源的渠道}，路由是确定性的：
+
+\begin{itemize}
+  \item 模型\textbf{不会}选择渠道
+  \item 回复始终返回到入站消息的来源
+  \item 多渠道场景通过 Binding 规则路由到不同 Agent
+\end{itemize}
+
+\subsection{会话键格式}
+
+\begin{itemize}
+  \item 私信：\texttt{agent:<agentId>:<mainKey>}
+  \item 群组：\texttt{agent:<agentId>:<channel>:group:<groupId>}
+  \item 线程：在基础键后追加 \texttt{:thread:<threadId>}
+\end{itemize}
+
+\section{多账户}
+
+支持多账户的渠道（如 WhatsApp）使用 \texttt{accountId} 标识每个登录实例。
+不同 \texttt{accountId} 可路由到不同 Agent，实现一台服务器托管多个号码。

@@ -12,8 +12,10 @@
 *.snm
 *.vrb
 
-# Python script
-convert_md_to_latex.py
+# Python scripts
+*.py
+__pycache__/
+
 
 # Markdown files
 TODO.md

@@ -1,0 +1,4041 @@
+\chapter{Model Providers}
+
+% === Source file: providers/anthropic.md ===
+\section{Anthropic (Claude)}
+
+
+Anthropic builds the \textbf{Claude} model family and provides access via an API.
+In OpenClaw you can authenticate with an API key or a \textbf{setup-token}.
+
+\subsection{Option A: Anthropic API key}
+
+
+\textbf{Best for:} standard API access and usage-based billing.
+Create your API key in the Anthropic Console.
+
+\subsubsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard
+# choose: Anthropic API key
+
+# or non-interactive
+openclaw onboard --anthropic-api-key "$ANTHROPIC_API_KEY"
+\end{lstlisting}
+
+
+\subsubsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { ANTHROPIC_API_KEY: "sk-ant-..." },
+  agents: { defaults: { model: { primary: "anthropic/claude-opus-4-6" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Thinking defaults (Claude 4.6)}
+
+
+\begin{itemize}
+  \item Anthropic Claude 4.6 models default to \texttt{adaptive} thinking in OpenClaw when no explicit thinking level is set.
+  \item You can override per-message (\texttt{/think:}) or in model params:
+\end{itemize}
+
+\texttt{agents.defaults.models["anthropic/"].params.thinking}.
+\begin{itemize}
+  \item Related Anthropic docs:
+  \item \href{https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking}{Adaptive thinking}
+  \item \href{https://platform.claude.com/docs/en/build-with-claude/extended-thinking}{Extended thinking}
+\end{itemize}
+
+
+\subsection{Prompt caching (Anthropic API)}
+
+
+OpenClaw supports Anthropic's prompt caching feature. This is \textbf{API-only}; subscription auth does not honor cache settings.
+
+\subsubsection{Configuration}
+
+
+Use the \texttt{cacheRetention} parameter in your model config:
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Value & Cache Duration & Description \\
+\hline
+\texttt{none} & No caching & Disable prompt caching \\
+\hline
+\texttt{short} & 5 minutes & Default for API Key auth \\
+\hline
+\texttt{long} & 1 hour & Extended cache (requires beta flag) \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "anthropic/claude-opus-4-6": {
+          params: { cacheRetention: "long" },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Defaults}
+
+
+When using Anthropic API Key authentication, OpenClaw automatically applies \texttt{cacheRetention: "short"} (5-minute cache) for all Anthropic models. You can override this by explicitly setting \texttt{cacheRetention} in your config.
+
+\subsubsection{Per-agent cacheRetention overrides}
+
+
+Use model-level params as your baseline, then override specific agents via \texttt{agents.list[].params}.
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "anthropic/claude-opus-4-6" },
+      models: {
+        "anthropic/claude-opus-4-6": {
+          params: { cacheRetention: "long" }, // baseline for most agents
+        },
+      },
+    },
+    list: [
+      { id: "research", default: true },
+      { id: "alerts", params: { cacheRetention: "none" } }, // override for this agent only
+    ],
+  },
+}
+\end{lstlisting}
+
+
+Config merge order for cache-related params:
+
+\begin{enumerate}
+  \item \texttt{agents.defaults.models["provider/model"].params}
+  \item \texttt{agents.list[].params} (matching \texttt{id}, overrides by key)
+\end{enumerate}
+
+
+This lets one agent keep a long-lived cache while another agent on the same model disables caching to avoid write costs on bursty/low-reuse traffic.
+
+\subsubsection{Bedrock Claude notes}
+
+
+\begin{itemize}
+  \item Anthropic Claude models on Bedrock (\texttt{amazon-bedrock/\textit{anthropic.claude}}) accept \texttt{cacheRetention} pass-through when configured.
+  \item Non-Anthropic Bedrock models are forced to \texttt{cacheRetention: "none"} at runtime.
+  \item Anthropic API-key smart defaults also seed \texttt{cacheRetention: "short"} for Claude-on-Bedrock model refs when no explicit value is set.
+\end{itemize}
+
+
+\subsubsection{Legacy parameter}
+
+
+The older \texttt{cacheControlTtl} parameter is still supported for backwards compatibility:
+
+\begin{itemize}
+  \item \texttt{"5m"} maps to \texttt{short}
+  \item \texttt{"1h"} maps to \texttt{long}
+\end{itemize}
+
+
+We recommend migrating to the new \texttt{cacheRetention} parameter.
+
+OpenClaw includes the \texttt{extended-cache-ttl-2025-04-11} beta flag for Anthropic API
+requests; keep it if you override provider headers (see \href{/gateway/configuration}{/gateway/configuration}).
+
+\subsection{1M context window (Anthropic beta)}
+
+
+Anthropic's 1M context window is beta-gated. In OpenClaw, enable it per model
+with \texttt{params.context1m: true} for supported Opus/Sonnet models.
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "anthropic/claude-opus-4-6": {
+          params: { context1m: true },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+OpenClaw maps this to \texttt{anthropic-beta: context-1m-2025-08-07} on Anthropic
+requests.
+
+This only activates when \texttt{params.context1m} is explicitly set to \texttt{true} for
+that model.
+
+Requirement: Anthropic must allow long-context usage on that credential
+(typically API key billing, or a subscription account with Extra Usage
+enabled). Otherwise Anthropic returns:
+\texttt{HTTP 429: rate\_limit\_error: Extra usage is required for long context requests}.
+
+Note: Anthropic currently rejects \texttt{context-1m-*} beta requests when using
+OAuth/subscription tokens (\texttt{sk-ant-oat-*}). OpenClaw automatically skips the
+context1m beta header for OAuth auth and keeps the required OAuth betas.
+
+\subsection{Option B: Claude setup-token}
+
+
+\textbf{Best for:} using your Claude subscription.
+
+\subsubsection{Where to get a setup-token}
+
+
+Setup-tokens are created by the \textbf{Claude Code CLI}, not the Anthropic Console. You can run this on \textbf{any machine}:
+
+\begin{lstlisting}[language=bash]
+claude setup-token
+\end{lstlisting}
+
+
+Paste the token into OpenClaw (wizard: \textbf{Anthropic token (paste setup-token)}), or run it on the gateway host:
+
+\begin{lstlisting}[language=bash]
+openclaw models auth setup-token --provider anthropic
+\end{lstlisting}
+
+
+If you generated the token on a different machine, paste it:
+
+\begin{lstlisting}[language=bash]
+openclaw models auth paste-token --provider anthropic
+\end{lstlisting}
+
+
+\subsubsection{CLI setup (setup-token)}
+
+
+\begin{lstlisting}[language=bash]
+# Paste a setup-token during onboarding
+openclaw onboard --auth-choice setup-token
+\end{lstlisting}
+
+
+\subsubsection{Config snippet (setup-token)}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "anthropic/claude-opus-4-6" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Generate the setup-token with \texttt{claude setup-token} and paste it, or run \texttt{openclaw models auth setup-token} on the gateway host.
+  \item If you see “OAuth token refresh failed …” on a Claude subscription, re-auth with a setup-token. See \href{/gateway/troubleshooting\#oauth-token-refresh-failed-anthropic-claude-subscription}{/gateway/troubleshooting\#oauth-token-refresh-failed-anthropic-claude-subscription}.
+  \item Auth details + reuse rules are in \href{/concepts/oauth}{/concepts/oauth}.
+\end{itemize}
+
+
+\subsection{Troubleshooting}
+
+
+\textbf{401 errors / token suddenly invalid}
+
+\begin{itemize}
+  \item Claude subscription auth can expire or be revoked. Re-run \texttt{claude setup-token}
+\end{itemize}
+
+and paste it into the \textbf{gateway host}.
+\begin{itemize}
+  \item If the Claude CLI login lives on a different machine, use
+\end{itemize}
+
+\texttt{openclaw models auth paste-token --provider anthropic} on the gateway host.
+
+\textbf{No API key found for provider "anthropic"}
+
+\begin{itemize}
+  \item Auth is \textbf{per agent}. New agents don’t inherit the main agent’s keys.
+  \item Re-run onboarding for that agent, or paste a setup-token / API key on the
+\end{itemize}
+
+gateway host, then verify with \texttt{openclaw models status}.
+
+\textbf{No credentials found for profile \texttt{anthropic:default}}
+
+\begin{itemize}
+  \item Run \texttt{openclaw models status} to see which auth profile is active.
+  \item Re-run onboarding, or paste a setup-token / API key for that profile.
+\end{itemize}
+
+
+\textbf{No available auth profile (all in cooldown/unavailable)}
+
+\begin{itemize}
+  \item Check \texttt{openclaw models status --json} for \texttt{auth.unusableProfiles}.
+  \item Add another Anthropic profile or wait for cooldown.
+\end{itemize}
+
+
+More: \href{/gateway/troubleshooting}{/gateway/troubleshooting} and \href{/help/faq}{/help/faq}.
+
+
+\clearpage
+
+% === Source file: providers/bedrock.md ===
+\section{Amazon Bedrock}
+
+
+OpenClaw can use \textbf{Amazon Bedrock} models via pi‑ai’s \textbf{Bedrock Converse}
+streaming provider. Bedrock auth uses the \textbf{AWS SDK default credential chain},
+not an API key.
+
+\subsection{What pi‑ai supports}
+
+
+\begin{itemize}
+  \item Provider: \texttt{amazon-bedrock}
+  \item API: \texttt{bedrock-converse-stream}
+  \item Auth: AWS credentials (env vars, shared config, or instance role)
+  \item Region: \texttt{AWS\_REGION} or \texttt{AWS\_DEFAULT\_REGION} (default: \texttt{us-east-1})
+\end{itemize}
+
+
+\subsection{Automatic model discovery}
+
+
+If AWS credentials are detected, OpenClaw can automatically discover Bedrock
+models that support \textbf{streaming} and \textbf{text output}. Discovery uses
+\texttt{bedrock:ListFoundationModels} and is cached (default: 1 hour).
+
+Config options live under \texttt{models.bedrockDiscovery}:
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    bedrockDiscovery: {
+      enabled: true,
+      region: "us-east-1",
+      providerFilter: ["anthropic", "amazon"],
+      refreshInterval: 3600,
+      defaultContextWindow: 32000,
+      defaultMaxTokens: 4096,
+    },
+  },
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{enabled} defaults to \texttt{true} when AWS credentials are present.
+  \item \texttt{region} defaults to \texttt{AWS\_REGION} or \texttt{AWS\_DEFAULT\_REGION}, then \texttt{us-east-1}.
+  \item \texttt{providerFilter} matches Bedrock provider names (for example \texttt{anthropic}).
+  \item \texttt{refreshInterval} is seconds; set to \texttt{0} to disable caching.
+  \item \texttt{defaultContextWindow} (default: \texttt{32000}) and \texttt{defaultMaxTokens} (default: \texttt{4096})
+\end{itemize}
+
+are used for discovered models (override if you know your model limits).
+
+\subsection{Onboarding}
+
+
+\begin{enumerate}
+  \item Ensure AWS credentials are available on the \textbf{gateway host}:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+export AWS_ACCESS_KEY_ID="AKIA..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_REGION="us-east-1"
+# Optional:
+export AWS_SESSION_TOKEN="..."
+export AWS_PROFILE="your-profile"
+# Optional (Bedrock API key/bearer token):
+export AWS_BEARER_TOKEN_BEDROCK="..."
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Add a Bedrock provider and model to your config (no \texttt{apiKey} required):
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      "amazon-bedrock": {
+        baseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com",
+        api: "bedrock-converse-stream",
+        auth: "aws-sdk",
+        models: [
+          {
+            id: "us.anthropic.claude-opus-4-6-v1:0",
+            name: "Claude Opus 4.6 (Bedrock)",
+            reasoning: true,
+            input: ["text", "image"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 200000,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+  agents: {
+    defaults: {
+      model: { primary: "amazon-bedrock/us.anthropic.claude-opus-4-6-v1:0" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{EC2 Instance Roles}
+
+
+When running OpenClaw on an EC2 instance with an IAM role attached, the AWS SDK
+will automatically use the instance metadata service (IMDS) for authentication.
+However, OpenClaw's credential detection currently only checks for environment
+variables, not IMDS credentials.
+
+\textbf{Workaround:} Set \texttt{AWS\_PROFILE=default} to signal that AWS credentials are
+available. The actual authentication still uses the instance role via IMDS.
+
+\begin{lstlisting}[language=bash]
+# Add to ~/.bashrc or your shell profile
+export AWS_PROFILE=default
+export AWS_REGION=us-east-1
+\end{lstlisting}
+
+
+\textbf{Required IAM permissions} for the EC2 instance role:
+
+\begin{itemize}
+  \item \texttt{bedrock:InvokeModel}
+  \item \texttt{bedrock:InvokeModelWithResponseStream}
+  \item \texttt{bedrock:ListFoundationModels} (for automatic discovery)
+\end{itemize}
+
+
+Or attach the managed policy \texttt{AmazonBedrockFullAccess}.
+
+\subsection{Quick setup (AWS path)}
+
+
+\begin{lstlisting}[language=bash]
+# 1. Create IAM role and instance profile
+aws iam create-role --role-name EC2-Bedrock-Access \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "ec2.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }]
+  }'
+
+aws iam attach-role-policy --role-name EC2-Bedrock-Access \
+  --policy-arn arn:aws:iam::aws:policy/AmazonBedrockFullAccess
+
+aws iam create-instance-profile --instance-profile-name EC2-Bedrock-Access
+aws iam add-role-to-instance-profile \
+  --instance-profile-name EC2-Bedrock-Access \
+  --role-name EC2-Bedrock-Access
+
+# 2. Attach to your EC2 instance
+aws ec2 associate-iam-instance-profile \
+  --instance-id i-xxxxx \
+  --iam-instance-profile Name=EC2-Bedrock-Access
+
+# 3. On the EC2 instance, enable discovery
+openclaw config set models.bedrockDiscovery.enabled true
+openclaw config set models.bedrockDiscovery.region us-east-1
+
+# 4. Set the workaround env vars
+echo 'export AWS_PROFILE=default' >> ~/.bashrc
+echo 'export AWS_REGION=us-east-1' >> ~/.bashrc
+source ~/.bashrc
+
+# 5. Verify models are discovered
+openclaw models list
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Bedrock requires \textbf{model access} enabled in your AWS account/region.
+  \item Automatic discovery needs the \texttt{bedrock:ListFoundationModels} permission.
+  \item If you use profiles, set \texttt{AWS\_PROFILE} on the gateway host.
+  \item OpenClaw surfaces the credential source in this order: \texttt{AWS\_BEARER\_TOKEN\_BEDROCK},
+\end{itemize}
+
+then \texttt{AWS\_ACCESS\_KEY\_ID} + \texttt{AWS\_SECRET\_ACCESS\_KEY}, then \texttt{AWS\_PROFILE}, then the
+default AWS SDK chain.
+\begin{itemize}
+  \item Reasoning support depends on the model; check the Bedrock model card for
+\end{itemize}
+
+current capabilities.
+\begin{itemize}
+  \item If you prefer a managed key flow, you can also place an OpenAI‑compatible
+\end{itemize}
+
+proxy in front of Bedrock and configure it as an OpenAI provider instead.
+
+
+\clearpage
+
+% === Source file: providers/claude-max-api-proxy.md ===
+\section{Claude Max API Proxy}
+
+
+\textbf{claude-max-api-proxy} is a community tool that exposes your Claude Max/Pro subscription as an OpenAI-compatible API endpoint. This allows you to use your subscription with any tool that supports the OpenAI API format.
+
+This path is technical compatibility only. Anthropic has blocked some subscription
+usage outside Claude Code in the past. You must decide for yourself whether to use
+it and verify Anthropic's current terms before relying on it.
+
+\subsection{Why Use This?}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Approach & Cost & Best For \\
+\hline
+Anthropic API & Pay per token (\textasciitilde{}\$15/M input, \$75/M output for Opus) & Production apps, high volume \\
+\hline
+Claude Max subscription & \$200/month flat & Personal use, development, unlimited usage \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+If you have a Claude Max subscription and want to use it with OpenAI-compatible tools, this proxy may reduce cost for some workflows. API keys remain the clearer policy path for production use.
+
+\subsection{How It Works}
+
+
+\begin{lstlisting}
+Your App → claude-max-api-proxy → Claude Code CLI → Anthropic (via subscription)
+     (OpenAI format)              (converts format)      (uses your login)
+\end{lstlisting}
+
+
+The proxy:
+
+\begin{enumerate}
+  \item Accepts OpenAI-format requests at \texttt{http://localhost:3456/v1/chat/completions}
+  \item Converts them to Claude Code CLI commands
+  \item Returns responses in OpenAI format (streaming supported)
+\end{enumerate}
+
+
+\subsection{Installation}
+
+
+\begin{lstlisting}[language=bash]
+# Requires Node.js 20+ and Claude Code CLI
+npm install -g claude-max-api-proxy
+
+# Verify Claude CLI is authenticated
+claude --version
+\end{lstlisting}
+
+
+\subsection{Usage}
+
+
+\subsubsection{Start the server}
+
+
+\begin{lstlisting}[language=bash]
+claude-max-api
+# Server runs at http://localhost:3456
+\end{lstlisting}
+
+
+\subsubsection{Test it}
+
+
+\begin{lstlisting}[language=bash]
+# Health check
+curl http://localhost:3456/health
+
+# List models
+curl http://localhost:3456/v1/models
+
+# Chat completion
+curl http://localhost:3456/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+\end{lstlisting}
+
+
+\subsubsection{With OpenClaw}
+
+
+You can point OpenClaw at the proxy as a custom OpenAI-compatible endpoint:
+
+\begin{lstlisting}[language=json]
+{
+  env: {
+    OPENAI_API_KEY: "not-needed",
+    OPENAI_BASE_URL: "http://localhost:3456/v1",
+  },
+  agents: {
+    defaults: {
+      model: { primary: "openai/claude-opus-4" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Available Models}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Model ID & Maps To \\
+\hline
+\texttt{claude-opus-4} & Claude Opus 4 \\
+\hline
+\texttt{claude-sonnet-4} & Claude Sonnet 4 \\
+\hline
+\texttt{claude-haiku-4} & Claude Haiku 4 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Auto-Start on macOS}
+
+
+Create a LaunchAgent to run the proxy automatically:
+
+\begin{lstlisting}[language=bash]
+cat > ~/Library/LaunchAgents/com.claude-max-api.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claude-max-api</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/usr/local/lib/node_modules/claude-max-api-proxy/dist/server/standalone.js</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:~/.local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
+EOF
+
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-max-api.plist
+\end{lstlisting}
+
+
+\subsection{Links}
+
+
+\begin{itemize}
+  \item \textbf{npm:} \href{https://www.npmjs.com/package/claude-max-api-proxy}{https://www.npmjs.com/package/claude-max-api-proxy}
+  \item \textbf{GitHub:} \href{https://github.com/atalovesyou/claude-max-api-proxy}{https://github.com/atalovesyou/claude-max-api-proxy}
+  \item \textbf{Issues:} \href{https://github.com/atalovesyou/claude-max-api-proxy/issues}{https://github.com/atalovesyou/claude-max-api-proxy/issues}
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item This is a \textbf{community tool}, not officially supported by Anthropic or OpenClaw
+  \item Requires an active Claude Max/Pro subscription with Claude Code CLI authenticated
+  \item The proxy runs locally and does not send data to any third-party servers
+  \item Streaming responses are fully supported
+\end{itemize}
+
+
+\subsection{See Also}
+
+
+\begin{itemize}
+  \item \href{/providers/anthropic}{Anthropic provider} - Native OpenClaw integration with Claude setup-token or API keys
+  \item \href{/providers/openai}{OpenAI provider} - For OpenAI/Codex subscriptions
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/cloudflare-ai-gateway.md ===
+\section{Cloudflare AI Gateway}
+
+
+Cloudflare AI Gateway sits in front of provider APIs and lets you add analytics, caching, and controls. For Anthropic, OpenClaw uses the Anthropic Messages API through your Gateway endpoint.
+
+\begin{itemize}
+  \item Provider: \texttt{cloudflare-ai-gateway}
+  \item Base URL: \texttt{https://gateway.ai.cloudflare.com/v1///anthropic}
+  \item Default model: \texttt{cloudflare-ai-gateway/claude-sonnet-4-5}
+  \item API key: \texttt{CLOUDFLARE\_AI\_GATEWAY\_API\_KEY} (your provider API key for requests through the Gateway)
+\end{itemize}
+
+
+For Anthropic models, use your Anthropic API key.
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Set the provider API key and Gateway details:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice cloudflare-ai-gateway-api-key
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Set a default model:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "cloudflare-ai-gateway/claude-sonnet-4-5" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Non-interactive example}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --mode local \
+  --auth-choice cloudflare-ai-gateway-api-key \
+  --cloudflare-ai-gateway-account-id "your-account-id" \
+  --cloudflare-ai-gateway-gateway-id "your-gateway-id" \
+  --cloudflare-ai-gateway-api-key "$CLOUDFLARE_AI_GATEWAY_API_KEY"
+\end{lstlisting}
+
+
+\subsection{Authenticated gateways}
+
+
+If you enabled Gateway authentication in Cloudflare, add the \texttt{cf-aig-authorization} header (this is in addition to your provider API key).
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      "cloudflare-ai-gateway": {
+        headers: {
+          "cf-aig-authorization": "Bearer <cloudflare-ai-gateway-token>",
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Environment note}
+
+
+If the Gateway runs as a daemon (launchd/systemd), make sure \texttt{CLOUDFLARE\_AI\_GATEWAY\_API\_KEY} is available to that process (for example, in \texttt{\textasciitilde{}/.openclaw/.env} or via \texttt{env.shellEnv}).
+
+
+\clearpage
+
+% === Source file: providers/deepgram.md ===
+\section{Deepgram (Audio Transcription)}
+
+
+Deepgram is a speech-to-text API. In OpenClaw it is used for **inbound audio/voice note
+transcription** via \texttt{tools.media.audio}.
+
+When enabled, OpenClaw uploads the audio file to Deepgram and injects the transcript
+into the reply pipeline (\texttt{\{\{Transcript\}\}} + \texttt{[Audio]} block). This is \textbf{not streaming};
+it uses the pre-recorded transcription endpoint.
+
+Website: \href{https://deepgram.com}{https://deepgram.com}
+Docs: \href{https://developers.deepgram.com}{https://developers.deepgram.com}
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Set your API key:
+\end{enumerate}
+
+
+\begin{lstlisting}
+DEEPGRAM_API_KEY=dg_...
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Enable the provider:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [{ provider: "deepgram", model: "nova-3" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Options}
+
+
+\begin{itemize}
+  \item \texttt{model}: Deepgram model id (default: \texttt{nova-3})
+  \item \texttt{language}: language hint (optional)
+  \item \texttt{tools.media.audio.providerOptions.deepgram.detect\_language}: enable language detection (optional)
+  \item \texttt{tools.media.audio.providerOptions.deepgram.punctuate}: enable punctuation (optional)
+  \item \texttt{tools.media.audio.providerOptions.deepgram.smart\_format}: enable smart formatting (optional)
+\end{itemize}
+
+
+Example with language:
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [{ provider: "deepgram", model: "nova-3", language: "en" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Example with Deepgram options:
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        providerOptions: {
+          deepgram: {
+            detect_language: true,
+            punctuate: true,
+            smart_format: true,
+          },
+        },
+        models: [{ provider: "deepgram", model: "nova-3" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Authentication follows the standard provider auth order; \texttt{DEEPGRAM\_API\_KEY} is the simplest path.
+  \item Override endpoints or headers with \texttt{tools.media.audio.baseUrl} and \texttt{tools.media.audio.headers} when using a proxy.
+  \item Output follows the same audio rules as other providers (size caps, timeouts, transcript injection).
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/github-copilot.md ===
+\section{GitHub Copilot}
+
+
+\subsection{What is GitHub Copilot?}
+
+
+GitHub Copilot is GitHub's AI coding assistant. It provides access to Copilot
+models for your GitHub account and plan. OpenClaw can use Copilot as a model
+provider in two different ways.
+
+\subsection{Two ways to use Copilot in OpenClaw}
+
+
+\subsubsection{1) Built-in GitHub Copilot provider (github-copilot)}
+
+
+Use the native device-login flow to obtain a GitHub token, then exchange it for
+Copilot API tokens when OpenClaw runs. This is the \textbf{default} and simplest path
+because it does not require VS Code.
+
+\subsubsection{2) Copilot Proxy plugin (copilot-proxy)}
+
+
+Use the \textbf{Copilot Proxy} VS Code extension as a local bridge. OpenClaw talks to
+the proxy’s \texttt{/v1} endpoint and uses the model list you configure there. Choose
+this when you already run Copilot Proxy in VS Code or need to route through it.
+You must enable the plugin and keep the VS Code extension running.
+
+Use GitHub Copilot as a model provider (\texttt{github-copilot}). The login command runs
+the GitHub device flow, saves an auth profile, and updates your config to use that
+profile.
+
+\subsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models auth login-github-copilot
+\end{lstlisting}
+
+
+You'll be prompted to visit a URL and enter a one-time code. Keep the terminal
+open until it completes.
+
+\subsubsection{Optional flags}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models auth login-github-copilot --profile-id github-copilot:work
+openclaw models auth login-github-copilot --yes
+\end{lstlisting}
+
+
+\subsection{Set a default model}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models set github-copilot/gpt-4o
+\end{lstlisting}
+
+
+\subsubsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "github-copilot/gpt-4o" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Requires an interactive TTY; run it directly in a terminal.
+  \item Copilot model availability depends on your plan; if a model is rejected, try
+\end{itemize}
+
+another ID (for example \texttt{github-copilot/gpt-4.1}).
+\begin{itemize}
+  \item The login stores a GitHub token in the auth profile store and exchanges it for a
+\end{itemize}
+
+Copilot API token when OpenClaw runs.
+
+
+\clearpage
+
+% === Source file: providers/glm.md ===
+\section{GLM models}
+
+
+GLM is a \textbf{model family} (not a company) available through the Z.AI platform. In OpenClaw, GLM
+models are accessed via the \texttt{zai} provider and model IDs like \texttt{zai/glm-5}.
+
+\subsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice zai-api-key
+\end{lstlisting}
+
+
+\subsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { ZAI_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "zai/glm-5" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item GLM versions and availability can change; check Z.AI's docs for the latest.
+  \item Example model IDs include \texttt{glm-5}, \texttt{glm-4.7}, and \texttt{glm-4.6}.
+  \item For provider details, see \href{/providers/zai}{/providers/zai}.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/huggingface.md ===
+\section{Hugging Face (Inference)}
+
+
+\href{https://huggingface.co/docs/inference-providers}{Hugging Face Inference Providers} offer OpenAI-compatible chat completions through a single router API. You get access to many models (DeepSeek, Llama, and more) with one token. OpenClaw uses the \textbf{OpenAI-compatible endpoint} (chat completions only); for text-to-image, embeddings, or speech use the \href{https://huggingface.co/docs/api-inference/quicktour}{HF inference clients} directly.
+
+\begin{itemize}
+  \item Provider: \texttt{huggingface}
+  \item Auth: \texttt{HUGGINGFACE\_HUB\_TOKEN} or \texttt{HF\_TOKEN} (fine-grained token with \textbf{Make calls to Inference Providers})
+  \item API: OpenAI-compatible (\texttt{https://router.huggingface.co/v1})
+  \item Billing: Single HF token; \href{https://huggingface.co/docs/inference-providers/pricing}{pricing} follows provider rates with a free tier.
+\end{itemize}
+
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Create a fine-grained token at \href{https://huggingface.co/settings/tokens/new?ownUserPermissions=inference.serverless.write\&tokenType=fineGrained}{Hugging Face → Settings → Tokens} with the \textbf{Make calls to Inference Providers} permission.
+  \item Run onboarding and choose \textbf{Hugging Face} in the provider dropdown, then enter your API key when prompted:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice huggingface-api-key
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item In the \textbf{Default Hugging Face model} dropdown, pick the model you want (the list is loaded from the Inference API when you have a valid token; otherwise a built-in list is shown). Your choice is saved as the default model.
+  \item You can also set or change the default model later in config:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "huggingface/deepseek-ai/DeepSeek-R1" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Non-interactive example}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --mode local \
+  --auth-choice huggingface-api-key \
+  --huggingface-api-key "$HF_TOKEN"
+\end{lstlisting}
+
+
+This will set \texttt{huggingface/deepseek-ai/DeepSeek-R1} as the default model.
+
+\subsection{Environment note}
+
+
+If the Gateway runs as a daemon (launchd/systemd), make sure \texttt{HUGGINGFACE\_HUB\_TOKEN} or \texttt{HF\_TOKEN}
+is available to that process (for example, in \texttt{\textasciitilde{}/.openclaw/.env} or via
+\texttt{env.shellEnv}).
+
+\subsection{Model discovery and onboarding dropdown}
+
+
+OpenClaw discovers models by calling the \textbf{Inference endpoint directly}:
+
+\begin{lstlisting}[language=bash]
+GET https://router.huggingface.co/v1/models
+\end{lstlisting}
+
+
+(Optional: send \texttt{Authorization: Bearer \$HUGGINGFACE\_HUB\_TOKEN} or \texttt{\$HF\_TOKEN} for the full list; some endpoints return a subset without auth.) The response is OpenAI-style \texttt{\{ "object": "list", "data": [ \{ "id": "Qwen/Qwen3-8B", "owned\_by": "Qwen", ... \}, ... ] \}}.
+
+When you configure a Hugging Face API key (via onboarding, \texttt{HUGGINGFACE\_HUB\_TOKEN}, or \texttt{HF\_TOKEN}), OpenClaw uses this GET to discover available chat-completion models. During \textbf{interactive onboarding}, after you enter your token you see a \textbf{Default Hugging Face model} dropdown populated from that list (or the built-in catalog if the request fails). At runtime (e.g. Gateway startup), when a key is present, OpenClaw again calls \textbf{GET} \texttt{https://router.huggingface.co/v1/models} to refresh the catalog. The list is merged with a built-in catalog (for metadata like context window and cost). If the request fails or no key is set, only the built-in catalog is used.
+
+\subsection{Model names and editable options}
+
+
+\begin{itemize}
+  \item \textbf{Name from API:} The model display name is \textbf{hydrated from GET /v1/models} when the API returns \texttt{name}, \texttt{title}, or \texttt{display\_name}; otherwise it is derived from the model id (e.g. \texttt{deepseek-ai/DeepSeek-R1} → “DeepSeek R1”).
+  \item \textbf{Override display name:} You can set a custom label per model in config so it appears the way you want in the CLI and UI:
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "huggingface/deepseek-ai/DeepSeek-R1": { alias: "DeepSeek R1 (fast)" },
+        "huggingface/deepseek-ai/DeepSeek-R1:cheapest": { alias: "DeepSeek R1 (cheap)" },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item \textbf{Provider / policy selection:} Append a suffix to the \textbf{model id} to choose how the router picks the backend:
+  \item \textbf{\texttt{:fastest}} — highest throughput (router picks; provider choice is \textbf{locked} — no interactive backend picker).
+  \item \textbf{\texttt{:cheapest}} — lowest cost per output token (router picks; provider choice is \textbf{locked}).
+  \item \textbf{\texttt{:provider}} — force a specific backend (e.g. \texttt{:sambanova}, \texttt{:together}).
+\end{itemize}
+
+
+When you select \textbf{:cheapest} or \textbf{:fastest} (e.g. in the onboarding model dropdown), the provider is locked: the router decides by cost or speed and no optional “prefer specific backend” step is shown. You can add these as separate entries in \texttt{models.providers.huggingface.models} or set \texttt{model.primary} with the suffix. You can also set your default order in \href{https://hf.co/settings/inference-providers}{Inference Provider settings} (no suffix = use that order).
+
+\begin{itemize}
+  \item \textbf{Config merge:} Existing entries in \texttt{models.providers.huggingface.models} (e.g. in \texttt{models.json}) are kept when config is merged. So any custom \texttt{name}, \texttt{alias}, or model options you set there are preserved.
+\end{itemize}
+
+
+\subsection{Model IDs and configuration examples}
+
+
+Model refs use the form \texttt{huggingface//} (Hub-style IDs). The list below is from \textbf{GET} \texttt{https://router.huggingface.co/v1/models}; your catalog may include more.
+
+\textbf{Example IDs (from the inference endpoint):}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Model & Ref (prefix with \texttt{huggingface/}) \\
+\hline
+DeepSeek R1 & \texttt{deepseek-ai/DeepSeek-R1} \\
+\hline
+DeepSeek V3.2 & \texttt{deepseek-ai/DeepSeek-V3.2} \\
+\hline
+Qwen3 8B & \texttt{Qwen/Qwen3-8B} \\
+\hline
+Qwen2.5 7B Instruct & \texttt{Qwen/Qwen2.5-7B-Instruct} \\
+\hline
+Qwen3 32B & \texttt{Qwen/Qwen3-32B} \\
+\hline
+Llama 3.3 70B Instruct & \texttt{meta-llama/Llama-3.3-70B-Instruct} \\
+\hline
+Llama 3.1 8B Instruct & \texttt{meta-llama/Llama-3.1-8B-Instruct} \\
+\hline
+GPT-OSS 120B & \texttt{openai/gpt-oss-120b} \\
+\hline
+GLM 4.7 & \texttt{zai-org/GLM-4.7} \\
+\hline
+Kimi K2.5 & \texttt{moonshotai/Kimi-K2.5} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+You can append \texttt{:fastest}, \texttt{:cheapest}, or \texttt{:provider} (e.g. \texttt{:together}, \texttt{:sambanova}) to the model id. Set your default order in \href{https://hf.co/settings/inference-providers}{Inference Provider settings}; see \href{https://huggingface.co/docs/inference-providers}{Inference Providers} and \textbf{GET} \texttt{https://router.huggingface.co/v1/models} for the full list.
+
+\subsubsection{Complete configuration examples}
+
+
+\textbf{Primary DeepSeek R1 with Qwen fallback:}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: {
+        primary: "huggingface/deepseek-ai/DeepSeek-R1",
+        fallbacks: ["huggingface/Qwen/Qwen3-8B"],
+      },
+      models: {
+        "huggingface/deepseek-ai/DeepSeek-R1": { alias: "DeepSeek R1" },
+        "huggingface/Qwen/Qwen3-8B": { alias: "Qwen3 8B" },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\textbf{Qwen as default, with :cheapest and :fastest variants:}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "huggingface/Qwen/Qwen3-8B" },
+      models: {
+        "huggingface/Qwen/Qwen3-8B": { alias: "Qwen3 8B" },
+        "huggingface/Qwen/Qwen3-8B:cheapest": { alias: "Qwen3 8B (cheapest)" },
+        "huggingface/Qwen/Qwen3-8B:fastest": { alias: "Qwen3 8B (fastest)" },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\textbf{DeepSeek + Llama + GPT-OSS with aliases:}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: {
+        primary: "huggingface/deepseek-ai/DeepSeek-V3.2",
+        fallbacks: [
+          "huggingface/meta-llama/Llama-3.3-70B-Instruct",
+          "huggingface/openai/gpt-oss-120b",
+        ],
+      },
+      models: {
+        "huggingface/deepseek-ai/DeepSeek-V3.2": { alias: "DeepSeek V3.2" },
+        "huggingface/meta-llama/Llama-3.3-70B-Instruct": { alias: "Llama 3.3 70B" },
+        "huggingface/openai/gpt-oss-120b": { alias: "GPT-OSS 120B" },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\textbf{Force a specific backend with :provider:}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "huggingface/deepseek-ai/DeepSeek-R1:together" },
+      models: {
+        "huggingface/deepseek-ai/DeepSeek-R1:together": { alias: "DeepSeek R1 (Together)" },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\textbf{Multiple Qwen and DeepSeek models with policy suffixes:}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "huggingface/Qwen/Qwen2.5-7B-Instruct:cheapest" },
+      models: {
+        "huggingface/Qwen/Qwen2.5-7B-Instruct": { alias: "Qwen2.5 7B" },
+        "huggingface/Qwen/Qwen2.5-7B-Instruct:cheapest": { alias: "Qwen2.5 7B (cheap)" },
+        "huggingface/deepseek-ai/DeepSeek-R1:fastest": { alias: "DeepSeek R1 (fast)" },
+        "huggingface/meta-llama/Llama-3.1-8B-Instruct": { alias: "Llama 3.1 8B" },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: providers/index.md ===
+\section{Model Providers}
+
+
+OpenClaw can use many LLM providers. Pick a provider, authenticate, then set the
+default model as \texttt{provider/model}.
+
+Looking for chat channel docs (WhatsApp/Telegram/Discord/Slack/Mattermost (plugin)/etc.)? See \href{/channels}{Channels}.
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Authenticate with the provider (usually via \texttt{openclaw onboard}).
+  \item Set the default model:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "anthropic/claude-opus-4-6" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Provider docs}
+
+
+\begin{itemize}
+  \item \href{/providers/bedrock}{Amazon Bedrock}
+  \item \href{/providers/anthropic}{Anthropic (API + Claude Code CLI)}
+  \item \href{/providers/cloudflare-ai-gateway}{Cloudflare AI Gateway}
+  \item \href{/providers/glm}{GLM models}
+  \item \href{/providers/huggingface}{Hugging Face (Inference)}
+  \item \href{/providers/kilocode}{Kilocode}
+  \item \href{/providers/litellm}{LiteLLM (unified gateway)}
+  \item \href{/providers/minimax}{MiniMax}
+  \item \href{/providers/mistral}{Mistral}
+  \item \href{/providers/moonshot}{Moonshot AI (Kimi + Kimi Coding)}
+  \item \href{/providers/nvidia}{NVIDIA}
+  \item \href{/providers/ollama}{Ollama (local models)}
+  \item \href{/providers/openai}{OpenAI (API + Codex)}
+  \item \href{/providers/opencode}{OpenCode Zen}
+  \item \href{/providers/openrouter}{OpenRouter}
+  \item \href{/providers/qianfan}{Qianfan}
+  \item \href{/providers/qwen}{Qwen (OAuth)}
+  \item \href{/providers/together}{Together AI}
+  \item \href{/providers/vercel-ai-gateway}{Vercel AI Gateway}
+  \item \href{/providers/venice}{Venice (Venice AI, privacy-focused)}
+  \item \href{/providers/vllm}{vLLM (local models)}
+  \item \href{/providers/xiaomi}{Xiaomi}
+  \item \href{/providers/zai}{Z.AI}
+\end{itemize}
+
+
+\subsection{Transcription providers}
+
+
+\begin{itemize}
+  \item \href{/providers/deepgram}{Deepgram (audio transcription)}
+\end{itemize}
+
+
+\subsection{Community tools}
+
+
+\begin{itemize}
+  \item \href{/providers/claude-max-api-proxy}{Claude Max API Proxy} - Community proxy for Claude subscription credentials (verify Anthropic policy/terms before use)
+\end{itemize}
+
+
+For the full provider catalog (xAI, Groq, Mistral, etc.) and advanced configuration,
+see \href{/concepts/model-providers}{Model providers}.
+
+
+\clearpage
+
+% === Source file: providers/kilocode.md ===
+\section{Kilo Gateway}
+
+
+Kilo Gateway provides a \textbf{unified API} that routes requests to many models behind a single
+endpoint and API key. It is OpenAI-compatible, so most OpenAI SDKs work by switching the base URL.
+
+\subsection{Getting an API key}
+
+
+\begin{enumerate}
+  \item Go to \href{https://app.kilo.ai}{app.kilo.ai}
+  \item Sign in or create an account
+  \item Navigate to API Keys and generate a new key
+\end{enumerate}
+
+
+\subsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --kilocode-api-key <key>
+\end{lstlisting}
+
+
+Or set the environment variable:
+
+\begin{lstlisting}[language=bash]
+export KILOCODE_API_KEY="your-api-key"
+\end{lstlisting}
+
+
+\subsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { KILOCODE_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      model: { primary: "kilocode/anthropic/claude-opus-4.6" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Surfaced model refs}
+
+
+The built-in Kilo Gateway catalog currently surfaces these model refs:
+
+\begin{itemize}
+  \item \texttt{kilocode/anthropic/claude-opus-4.6} (default)
+  \item \texttt{kilocode/z-ai/glm-5:free}
+  \item \texttt{kilocode/minimax/minimax-m2.5:free}
+  \item \texttt{kilocode/anthropic/claude-sonnet-4.5}
+  \item \texttt{kilocode/openai/gpt-5.2}
+  \item \texttt{kilocode/google/gemini-3-pro-preview}
+  \item \texttt{kilocode/google/gemini-3-flash-preview}
+  \item \texttt{kilocode/x-ai/grok-code-fast-1}
+  \item \texttt{kilocode/moonshotai/kimi-k2.5}
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Model refs are \texttt{kilocode//} (e.g., \texttt{kilocode/anthropic/claude-opus-4.6}).
+  \item Default model: \texttt{kilocode/anthropic/claude-opus-4.6}
+  \item Base URL: \texttt{https://api.kilo.ai/api/gateway/}
+  \item For more model/provider options, see \href{/concepts/model-providers}{/concepts/model-providers}.
+  \item Kilo Gateway uses a Bearer token with your API key under the hood.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/litellm.md ===
+\section{LiteLLM}
+
+
+\href{https://litellm.ai}{LiteLLM} is an open-source LLM gateway that provides a unified API to 100+ model providers. Route OpenClaw through LiteLLM to get centralized cost tracking, logging, and the flexibility to switch backends without changing your OpenClaw config.
+
+\subsection{Why use LiteLLM with OpenClaw?}
+
+
+\begin{itemize}
+  \item \textbf{Cost tracking} — See exactly what OpenClaw spends across all models
+  \item \textbf{Model routing} — Switch between Claude, GPT-4, Gemini, Bedrock without config changes
+  \item \textbf{Virtual keys} — Create keys with spend limits for OpenClaw
+  \item \textbf{Logging} — Full request/response logs for debugging
+  \item \textbf{Fallbacks} — Automatic failover if your primary provider is down
+\end{itemize}
+
+
+\subsection{Quick start}
+
+
+\subsubsection{Via onboarding}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice litellm-api-key
+\end{lstlisting}
+
+
+\subsubsection{Manual setup}
+
+
+\begin{enumerate}
+  \item Start LiteLLM Proxy:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+pip install 'litellm[proxy]'
+litellm --model claude-opus-4-6
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Point OpenClaw to LiteLLM:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+export LITELLM_API_KEY="your-litellm-key"
+
+openclaw
+\end{lstlisting}
+
+
+That's it. OpenClaw now routes through LiteLLM.
+
+\subsection{Configuration}
+
+
+\subsubsection{Environment variables}
+
+
+\begin{lstlisting}[language=bash]
+export LITELLM_API_KEY="sk-litellm-key"
+\end{lstlisting}
+
+
+\subsubsection{Config file}
+
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      litellm: {
+        baseUrl: "http://localhost:4000",
+        apiKey: "${LITELLM_API_KEY}",
+        api: "openai-completions",
+        models: [
+          {
+            id: "claude-opus-4-6",
+            name: "Claude Opus 4.6",
+            reasoning: true,
+            input: ["text", "image"],
+            contextWindow: 200000,
+            maxTokens: 64000,
+          },
+          {
+            id: "gpt-4o",
+            name: "GPT-4o",
+            reasoning: false,
+            input: ["text", "image"],
+            contextWindow: 128000,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+  agents: {
+    defaults: {
+      model: { primary: "litellm/claude-opus-4-6" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Virtual keys}
+
+
+Create a dedicated key for OpenClaw with spend limits:
+
+\begin{lstlisting}[language=bash]
+curl -X POST "http://localhost:4000/key/generate" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key_alias": "openclaw",
+    "max_budget": 50.00,
+    "budget_duration": "monthly"
+  }'
+\end{lstlisting}
+
+
+Use the generated key as \texttt{LITELLM\_API\_KEY}.
+
+\subsection{Model routing}
+
+
+LiteLLM can route model requests to different backends. Configure in your LiteLLM \texttt{config.yaml}:
+
+\begin{lstlisting}[language=yaml]
+model_list:
+  - model_name: claude-opus-4-6
+    litellm_params:
+      model: claude-opus-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: gpt-4o
+    litellm_params:
+      model: gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+\end{lstlisting}
+
+
+OpenClaw keeps requesting \texttt{claude-opus-4-6} — LiteLLM handles the routing.
+
+\subsection{Viewing usage}
+
+
+Check LiteLLM's dashboard or API:
+
+\begin{lstlisting}[language=bash]
+# Key info
+curl "http://localhost:4000/key/info" \
+  -H "Authorization: Bearer sk-litellm-key"
+
+# Spend logs
+curl "http://localhost:4000/spend/logs" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item LiteLLM runs on \texttt{http://localhost:4000} by default
+  \item OpenClaw connects via the OpenAI-compatible \texttt{/v1/chat/completions} endpoint
+  \item All OpenClaw features work through LiteLLM — no limitations
+\end{itemize}
+
+
+\subsection{See also}
+
+
+\begin{itemize}
+  \item \href{https://docs.litellm.ai}{LiteLLM Docs}
+  \item \href{/concepts/model-providers}{Model Providers}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/minimax.md ===
+\section{MiniMax}
+
+
+MiniMax is an AI company that builds the \textbf{M2/M2.5} model family. The current
+coding-focused release is \textbf{MiniMax M2.5} (December 23, 2025), built for
+real-world complex tasks.
+
+Source: \href{https://www.minimax.io/news/minimax-m25}{MiniMax M2.5 release note}
+
+\subsection{Model overview (M2.5)}
+
+
+MiniMax highlights these improvements in M2.5:
+
+\begin{itemize}
+  \item Stronger \textbf{multi-language coding} (Rust, Java, Go, C++, Kotlin, Objective-C, TS/JS).
+  \item Better \textbf{web/app development} and aesthetic output quality (including native mobile).
+  \item Improved \textbf{composite instruction} handling for office-style workflows, building on
+\end{itemize}
+
+interleaved thinking and integrated constraint execution.
+\begin{itemize}
+  \item \textbf{More concise responses} with lower token usage and faster iteration loops.
+  \item Stronger \textbf{tool/agent framework} compatibility and context management (Claude Code,
+\end{itemize}
+
+Droid/Factory AI, Cline, Kilo Code, Roo Code, BlackBox).
+\begin{itemize}
+  \item Higher-quality \textbf{dialogue and technical writing} outputs.
+\end{itemize}
+
+
+\subsection{MiniMax M2.5 vs MiniMax M2.5 Highspeed}
+
+
+\begin{itemize}
+  \item \textbf{Speed:} \texttt{MiniMax-M2.5-highspeed} is the official fast tier in MiniMax docs.
+  \item \textbf{Cost:} MiniMax pricing lists the same input cost and a higher output cost for highspeed.
+  \item \textbf{Compatibility:} OpenClaw still accepts legacy \texttt{MiniMax-M2.5-Lightning} configs, but prefer
+\end{itemize}
+
+\texttt{MiniMax-M2.5-highspeed} for new setup.
+
+\subsection{Choose a setup}
+
+
+\subsubsection{MiniMax OAuth (Coding Plan) — recommended}
+
+
+\textbf{Best for:} quick setup with MiniMax Coding Plan via OAuth, no API key required.
+
+Enable the bundled OAuth plugin and authenticate:
+
+\begin{lstlisting}[language=bash]
+openclaw plugins enable minimax-portal-auth  # skip if already loaded.
+openclaw gateway restart  # restart if gateway is already running
+openclaw onboard --auth-choice minimax-portal
+\end{lstlisting}
+
+
+You will be prompted to select an endpoint:
+
+\begin{itemize}
+  \item \textbf{Global} - International users (\texttt{api.minimax.io})
+  \item \textbf{CN} - Users in China (\texttt{api.minimaxi.com})
+\end{itemize}
+
+
+See \href{https://github.com/openclaw/openclaw/tree/main/extensions/minimax-portal-auth}{MiniMax OAuth plugin README} for details.
+
+\subsubsection{MiniMax M2.5 (API key)}
+
+
+\textbf{Best for:} hosted MiniMax with Anthropic-compatible API.
+
+Configure via CLI:
+
+\begin{itemize}
+  \item Run \texttt{openclaw configure}
+  \item Select \textbf{Model/auth}
+  \item Choose \textbf{MiniMax M2.5}
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { MINIMAX_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "minimax/MiniMax-M2.5" } } },
+  models: {
+    mode: "merge",
+    providers: {
+      minimax: {
+        baseUrl: "https://api.minimax.io/anthropic",
+        apiKey: "${MINIMAX_API_KEY}",
+        api: "anthropic-messages",
+        models: [
+          {
+            id: "MiniMax-M2.5",
+            name: "MiniMax M2.5",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0.3, output: 1.2, cacheRead: 0.03, cacheWrite: 0.12 },
+            contextWindow: 200000,
+            maxTokens: 8192,
+          },
+          {
+            id: "MiniMax-M2.5-highspeed",
+            name: "MiniMax M2.5 Highspeed",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0.3, output: 1.2, cacheRead: 0.03, cacheWrite: 0.12 },
+            contextWindow: 200000,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{MiniMax M2.5 as fallback (example)}
+
+
+\textbf{Best for:} keep your strongest latest-generation model as primary, fail over to MiniMax M2.5.
+Example below uses Opus as a concrete primary; swap to your preferred latest-gen primary model.
+
+\begin{lstlisting}[language=json]
+{
+  env: { MINIMAX_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      models: {
+        "anthropic/claude-opus-4-6": { alias: "primary" },
+        "minimax/MiniMax-M2.5": { alias: "minimax" },
+      },
+      model: {
+        primary: "anthropic/claude-opus-4-6",
+        fallbacks: ["minimax/MiniMax-M2.5"],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Optional: Local via LM Studio (manual)}
+
+
+\textbf{Best for:} local inference with LM Studio.
+We have seen strong results with MiniMax M2.5 on powerful hardware (e.g. a
+desktop/server) using LM Studio's local server.
+
+Configure manually via \texttt{openclaw.json}:
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "lmstudio/minimax-m2.5-gs32" },
+      models: { "lmstudio/minimax-m2.5-gs32": { alias: "Minimax" } },
+    },
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      lmstudio: {
+        baseUrl: "http://127.0.0.1:1234/v1",
+        apiKey: "lmstudio",
+        api: "openai-responses",
+        models: [
+          {
+            id: "minimax-m2.5-gs32",
+            name: "MiniMax M2.5 GS32",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 196608,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Configure via openclaw configure}
+
+
+Use the interactive config wizard to set MiniMax without editing JSON:
+
+\begin{enumerate}
+  \item Run \texttt{openclaw configure}.
+  \item Select \textbf{Model/auth}.
+  \item Choose \textbf{MiniMax M2.5}.
+  \item Pick your default model when prompted.
+\end{enumerate}
+
+
+\subsection{Configuration options}
+
+
+\begin{itemize}
+  \item \texttt{models.providers.minimax.baseUrl}: prefer \texttt{https://api.minimax.io/anthropic} (Anthropic-compatible); \texttt{https://api.minimax.io/v1} is optional for OpenAI-compatible payloads.
+  \item \texttt{models.providers.minimax.api}: prefer \texttt{anthropic-messages}; \texttt{openai-completions} is optional for OpenAI-compatible payloads.
+  \item \texttt{models.providers.minimax.apiKey}: MiniMax API key (\texttt{MINIMAX\_API\_KEY}).
+  \item \texttt{models.providers.minimax.models}: define \texttt{id}, \texttt{name}, \texttt{reasoning}, \texttt{contextWindow}, \texttt{maxTokens}, \texttt{cost}.
+  \item \texttt{agents.defaults.models}: alias models you want in the allowlist.
+  \item \texttt{models.mode}: keep \texttt{merge} if you want to add MiniMax alongside built-ins.
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Model refs are \texttt{minimax/}.
+  \item Recommended model IDs: \texttt{MiniMax-M2.5} and \texttt{MiniMax-M2.5-highspeed}.
+  \item Coding Plan usage API: \texttt{https://api.minimaxi.com/v1/api/openplatform/coding\_plan/remains} (requires a coding plan key).
+  \item Update pricing values in \texttt{models.json} if you need exact cost tracking.
+  \item Referral link for MiniMax Coding Plan (10\% off): \href{https://platform.minimax.io/subscribe/coding-plan?code=DbXJTRClnb\&source=link}{https://platform.minimax.io/subscribe/coding-plan?code=DbXJTRClnb\&source=link}
+  \item See \href{/concepts/model-providers}{/concepts/model-providers} for provider rules.
+  \item Use \texttt{openclaw models list} and \texttt{openclaw models set minimax/MiniMax-M2.5} to switch.
+\end{itemize}
+
+
+\subsection{Troubleshooting}
+
+
+\subsubsection{“Unknown model: minimax/MiniMax-M2.5”}
+
+
+This usually means the \textbf{MiniMax provider isn’t configured} (no provider entry
+and no MiniMax auth profile/env key found). A fix for this detection is in
+\textbf{2026.1.12} (unreleased at the time of writing). Fix by:
+
+\begin{itemize}
+  \item Upgrading to \textbf{2026.1.12} (or run from source \texttt{main}), then restarting the gateway.
+  \item Running \texttt{openclaw configure} and selecting \textbf{MiniMax M2.5}, or
+  \item Adding the \texttt{models.providers.minimax} block manually, or
+  \item Setting \texttt{MINIMAX\_API\_KEY} (or a MiniMax auth profile) so the provider can be injected.
+\end{itemize}
+
+
+Make sure the model id is \textbf{case‑sensitive}:
+
+\begin{itemize}
+  \item \texttt{minimax/MiniMax-M2.5}
+  \item \texttt{minimax/MiniMax-M2.5-highspeed}
+  \item \texttt{minimax/MiniMax-M2.5-Lightning} (legacy)
+\end{itemize}
+
+
+Then recheck with:
+
+\begin{lstlisting}[language=bash]
+openclaw models list
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: providers/mistral.md ===
+\section{Mistral}
+
+
+OpenClaw supports Mistral for both text/image model routing (\texttt{mistral/...}) and
+audio transcription via Voxtral in media understanding.
+Mistral can also be used for memory embeddings (\texttt{memorySearch.provider = "mistral"}).
+
+\subsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice mistral-api-key
+# or non-interactive
+openclaw onboard --mistral-api-key "$MISTRAL_API_KEY"
+\end{lstlisting}
+
+
+\subsection{Config snippet (LLM provider)}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { MISTRAL_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "mistral/mistral-large-latest" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Config snippet (audio transcription with Voxtral)}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [{ provider: "mistral", model: "voxtral-mini-latest" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Mistral auth uses \texttt{MISTRAL\_API\_KEY}.
+  \item Provider base URL defaults to \texttt{https://api.mistral.ai/v1}.
+  \item Onboarding default model is \texttt{mistral/mistral-large-latest}.
+  \item Media-understanding default audio model for Mistral is \texttt{voxtral-mini-latest}.
+  \item Media transcription path uses \texttt{/v1/audio/transcriptions}.
+  \item Memory embeddings path uses \texttt{/v1/embeddings} (default model: \texttt{mistral-embed}).
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/models.md ===
+\section{Model Providers}
+
+
+OpenClaw can use many LLM providers. Pick one, authenticate, then set the default
+model as \texttt{provider/model}.
+
+\subsection{Quick start (two steps)}
+
+
+\begin{enumerate}
+  \item Authenticate with the provider (usually via \texttt{openclaw onboard}).
+  \item Set the default model:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "anthropic/claude-opus-4-6" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Supported providers (starter set)}
+
+
+\begin{itemize}
+  \item \href{/providers/openai}{OpenAI (API + Codex)}
+  \item \href{/providers/anthropic}{Anthropic (API + Claude Code CLI)}
+  \item \href{/providers/openrouter}{OpenRouter}
+  \item \href{/providers/vercel-ai-gateway}{Vercel AI Gateway}
+  \item \href{/providers/cloudflare-ai-gateway}{Cloudflare AI Gateway}
+  \item \href{/providers/moonshot}{Moonshot AI (Kimi + Kimi Coding)}
+  \item \href{/providers/mistral}{Mistral}
+  \item \href{/providers/synthetic}{Synthetic}
+  \item \href{/providers/opencode}{OpenCode Zen}
+  \item \href{/providers/zai}{Z.AI}
+  \item \href{/providers/glm}{GLM models}
+  \item \href{/providers/minimax}{MiniMax}
+  \item \href{/providers/venice}{Venice (Venice AI)}
+  \item \href{/providers/bedrock}{Amazon Bedrock}
+  \item \href{/providers/qianfan}{Qianfan}
+\end{itemize}
+
+
+For the full provider catalog (xAI, Groq, Mistral, etc.) and advanced configuration,
+see \href{/concepts/model-providers}{Model providers}.
+
+
+\clearpage
+
+% === Source file: providers/moonshot.md ===
+\section{Moonshot AI (Kimi)}
+
+
+Moonshot provides the Kimi API with OpenAI-compatible endpoints. Configure the
+provider and set the default model to \texttt{moonshot/kimi-k2.5}, or use
+Kimi Coding with \texttt{kimi-coding/k2p5}.
+
+Current Kimi K2 model IDs:
+
+
+\{/\_ moonshot-kimi-k2-ids:start \_/ \&\& null\}
+
+
+\begin{itemize}
+  \item \texttt{kimi-k2.5}
+  \item \texttt{kimi-k2-0905-preview}
+  \item \texttt{kimi-k2-turbo-preview}
+  \item \texttt{kimi-k2-thinking}
+  \item \texttt{kimi-k2-thinking-turbo}
+\end{itemize}
+
+\{/\_ moonshot-kimi-k2-ids:end \_/ \&\& null\}
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice moonshot-api-key
+\end{lstlisting}
+
+
+Kimi Coding:
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice kimi-code-api-key
+\end{lstlisting}
+
+
+Note: Moonshot and Kimi Coding are separate providers. Keys are not interchangeable, endpoints differ, and model refs differ (Moonshot uses \texttt{moonshot/...}, Kimi Coding uses \texttt{kimi-coding/...}).
+
+\subsection{Config snippet (Moonshot API)}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { MOONSHOT_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      model: { primary: "moonshot/kimi-k2.5" },
+      models: {
+        // moonshot-kimi-k2-aliases:start
+        "moonshot/kimi-k2.5": { alias: "Kimi K2.5" },
+        "moonshot/kimi-k2-0905-preview": { alias: "Kimi K2" },
+        "moonshot/kimi-k2-turbo-preview": { alias: "Kimi K2 Turbo" },
+        "moonshot/kimi-k2-thinking": { alias: "Kimi K2 Thinking" },
+        "moonshot/kimi-k2-thinking-turbo": { alias: "Kimi K2 Thinking Turbo" },
+        // moonshot-kimi-k2-aliases:end
+      },
+    },
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      moonshot: {
+        baseUrl: "https://api.moonshot.ai/v1",
+        apiKey: "${MOONSHOT_API_KEY}",
+        api: "openai-completions",
+        models: [
+          // moonshot-kimi-k2-models:start
+          {
+            id: "kimi-k2.5",
+            name: "Kimi K2.5",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          {
+            id: "kimi-k2-0905-preview",
+            name: "Kimi K2 0905 Preview",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          {
+            id: "kimi-k2-turbo-preview",
+            name: "Kimi K2 Turbo",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          {
+            id: "kimi-k2-thinking",
+            name: "Kimi K2 Thinking",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          {
+            id: "kimi-k2-thinking-turbo",
+            name: "Kimi K2 Thinking Turbo",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 256000,
+            maxTokens: 8192,
+          },
+          // moonshot-kimi-k2-models:end
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Kimi Coding}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { KIMI_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      model: { primary: "kimi-coding/k2p5" },
+      models: {
+        "kimi-coding/k2p5": { alias: "Kimi K2.5" },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Moonshot model refs use \texttt{moonshot/}. Kimi Coding model refs use \texttt{kimi-coding/}.
+  \item Override pricing and context metadata in \texttt{models.providers} if needed.
+  \item If Moonshot publishes different context limits for a model, adjust
+\end{itemize}
+
+\texttt{contextWindow} accordingly.
+\begin{itemize}
+  \item Use \texttt{https://api.moonshot.ai/v1} for the international endpoint, and \texttt{https://api.moonshot.cn/v1} for the China endpoint.
+\end{itemize}
+
+
+\subsection{Native thinking mode (Moonshot)}
+
+
+Moonshot Kimi supports binary native thinking:
+
+\begin{itemize}
+  \item \texttt{thinking: \{ type: "enabled" \}}
+  \item \texttt{thinking: \{ type: "disabled" \}}
+\end{itemize}
+
+
+Configure it per model via \texttt{agents.defaults.models..params}:
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "moonshot/kimi-k2.5": {
+          params: {
+            thinking: { type: "disabled" },
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+OpenClaw also maps runtime \texttt{/think} levels for Moonshot:
+
+\begin{itemize}
+  \item \texttt{/think off} -> \texttt{thinking.type=disabled}
+  \item any non-off thinking level -> \texttt{thinking.type=enabled}
+\end{itemize}
+
+
+When Moonshot thinking is enabled, \texttt{tool\_choice} must be \texttt{auto} or \texttt{none}. OpenClaw normalizes incompatible \texttt{tool\_choice} values to \texttt{auto} for compatibility.
+
+
+\clearpage
+
+% === Source file: providers/nvidia.md ===
+\section{NVIDIA}
+
+
+NVIDIA provides an OpenAI-compatible API at \texttt{https://integrate.api.nvidia.com/v1} for Nemotron and NeMo models. Authenticate with an API key from \href{https://catalog.ngc.nvidia.com/}{NVIDIA NGC}.
+
+\subsection{CLI setup}
+
+
+Export the key once, then run onboarding and set an NVIDIA model:
+
+\begin{lstlisting}[language=bash]
+export NVIDIA_API_KEY="nvapi-..."
+openclaw onboard --auth-choice skip
+openclaw models set nvidia/nvidia/llama-3.1-nemotron-70b-instruct
+\end{lstlisting}
+
+
+If you still pass \texttt{--token}, remember it lands in shell history and \texttt{ps} output; prefer the env var when possible.
+
+\subsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { NVIDIA_API_KEY: "nvapi-..." },
+  models: {
+    providers: {
+      nvidia: {
+        baseUrl: "https://integrate.api.nvidia.com/v1",
+        api: "openai-completions",
+      },
+    },
+  },
+  agents: {
+    defaults: {
+      model: { primary: "nvidia/nvidia/llama-3.1-nemotron-70b-instruct" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Model IDs}
+
+
+\begin{itemize}
+  \item \texttt{nvidia/llama-3.1-nemotron-70b-instruct} (default)
+  \item \texttt{meta/llama-3.3-70b-instruct}
+  \item \texttt{nvidia/mistral-nemo-minitron-8b-8k-instruct}
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item OpenAI-compatible \texttt{/v1} endpoint; use an API key from NVIDIA NGC.
+  \item Provider auto-enables when \texttt{NVIDIA\_API\_KEY} is set; uses static defaults (131,072-token context window, 4,096 max tokens).
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/ollama.md ===
+\section{Ollama}
+
+
+Ollama is a local LLM runtime that makes it easy to run open-source models on your machine. OpenClaw integrates with Ollama's native API (\texttt{/api/chat}), supporting streaming and tool calling, and can \textbf{auto-discover tool-capable models} when you opt in with \texttt{OLLAMA\_API\_KEY} (or an auth profile) and do not define an explicit \texttt{models.providers.ollama} entry.
+
+\textbf{Remote Ollama users}: Do not use the \texttt{/v1} OpenAI-compatible URL (\texttt{http://host:11434/v1}) with OpenClaw. This breaks tool calling and models may output raw tool JSON as plain text. Use the native Ollama API URL instead: \texttt{baseUrl: "http://host:11434"} (no \texttt{/v1}).
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Install Ollama: \href{https://ollama.ai}{https://ollama.ai}
+\end{enumerate}
+
+
+\begin{enumerate}
+  \item Pull a model:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+ollama pull gpt-oss:20b
+# or
+ollama pull llama3.3
+# or
+ollama pull qwen2.5-coder:32b
+# or
+ollama pull deepseek-r1:32b
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Enable Ollama for OpenClaw (any value works; Ollama doesn't require a real key):
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+# Set environment variable
+export OLLAMA_API_KEY="ollama-local"
+
+# Or configure in your config file
+openclaw config set models.providers.ollama.apiKey "ollama-local"
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Use Ollama models:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "ollama/gpt-oss:20b" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Model discovery (implicit provider)}
+
+
+When you set \texttt{OLLAMA\_API\_KEY} (or an auth profile) and \textbf{do not} define \texttt{models.providers.ollama}, OpenClaw discovers models from the local Ollama instance at \texttt{http://127.0.0.1:11434}:
+
+\begin{itemize}
+  \item Queries \texttt{/api/tags} and \texttt{/api/show}
+  \item Keeps only models that report \texttt{tools} capability
+  \item Marks \texttt{reasoning} when the model reports \texttt{thinking}
+  \item Reads \texttt{contextWindow} from \texttt{model\_info[".context\_length"]} when available
+  \item Sets \texttt{maxTokens} to 10× the context window
+  \item Sets all costs to \texttt{0}
+\end{itemize}
+
+
+This avoids manual model entries while keeping the catalog aligned with Ollama's capabilities.
+
+To see what models are available:
+
+\begin{lstlisting}[language=bash]
+ollama list
+openclaw models list
+\end{lstlisting}
+
+
+To add a new model, simply pull it with Ollama:
+
+\begin{lstlisting}[language=bash]
+ollama pull mistral
+\end{lstlisting}
+
+
+The new model will be automatically discovered and available to use.
+
+If you set \texttt{models.providers.ollama} explicitly, auto-discovery is skipped and you must define models manually (see below).
+
+\subsection{Configuration}
+
+
+\subsubsection{Basic setup (implicit discovery)}
+
+
+The simplest way to enable Ollama is via environment variable:
+
+\begin{lstlisting}[language=bash]
+export OLLAMA_API_KEY="ollama-local"
+\end{lstlisting}
+
+
+\subsubsection{Explicit setup (manual models)}
+
+
+Use explicit config when:
+
+\begin{itemize}
+  \item Ollama runs on another host/port.
+  \item You want to force specific context windows or model lists.
+  \item You want to include models that do not report tool support.
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      ollama: {
+        baseUrl: "http://ollama-host:11434",
+        apiKey: "ollama-local",
+        api: "ollama",
+        models: [
+          {
+            id: "gpt-oss:20b",
+            name: "GPT-OSS 20B",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 8192,
+            maxTokens: 8192 * 10
+          }
+        ]
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+If \texttt{OLLAMA\_API\_KEY} is set, you can omit \texttt{apiKey} in the provider entry and OpenClaw will fill it for availability checks.
+
+\subsubsection{Custom base URL (explicit config)}
+
+
+If Ollama is running on a different host or port (explicit config disables auto-discovery, so define models manually):
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      ollama: {
+        apiKey: "ollama-local",
+        baseUrl: "http://ollama-host:11434", // No /v1 - use native Ollama API URL
+        api: "ollama", // Set explicitly to guarantee native tool-calling behavior
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Do not add \texttt{/v1} to the URL. The \texttt{/v1} path uses OpenAI-compatible mode, where tool calling is not reliable. Use the base Ollama URL without a path suffix.
+
+\subsubsection{Model selection}
+
+
+Once configured, all your Ollama models are available:
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: {
+        primary: "ollama/gpt-oss:20b",
+        fallbacks: ["ollama/llama3.3", "ollama/qwen2.5-coder:32b"],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Advanced}
+
+
+\subsubsection{Reasoning models}
+
+
+OpenClaw marks models as reasoning-capable when Ollama reports \texttt{thinking} in \texttt{/api/show}:
+
+\begin{lstlisting}[language=bash]
+ollama pull deepseek-r1:32b
+\end{lstlisting}
+
+
+\subsubsection{Model Costs}
+
+
+Ollama is free and runs locally, so all model costs are set to \$0.
+
+\subsubsection{Streaming Configuration}
+
+
+OpenClaw's Ollama integration uses the \textbf{native Ollama API} (\texttt{/api/chat}) by default, which fully supports streaming and tool calling simultaneously. No special configuration is needed.
+
+\paragraph{Legacy OpenAI-Compatible Mode}
+
+
+\textbf{Tool calling is not reliable in OpenAI-compatible mode.} Use this mode only if you need OpenAI format for a proxy and do not depend on native tool calling behavior.
+
+If you need to use the OpenAI-compatible endpoint instead (e.g., behind a proxy that only supports OpenAI format), set \texttt{api: "openai-completions"} explicitly:
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      ollama: {
+        baseUrl: "http://ollama-host:11434/v1",
+        api: "openai-completions",
+        injectNumCtxForOpenAICompat: true, // default: true
+        apiKey: "ollama-local",
+        models: [...]
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+This mode may not support streaming + tool calling simultaneously. You may need to disable streaming with \texttt{params: \{ streaming: false \}} in model config.
+
+When \texttt{api: "openai-completions"} is used with Ollama, OpenClaw injects \texttt{options.num\_ctx} by default so Ollama does not silently fall back to a 4096 context window. If your proxy/upstream rejects unknown \texttt{options} fields, disable this behavior:
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      ollama: {
+        baseUrl: "http://ollama-host:11434/v1",
+        api: "openai-completions",
+        injectNumCtxForOpenAICompat: false,
+        apiKey: "ollama-local",
+        models: [...]
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\subsubsection{Context windows}
+
+
+For auto-discovered models, OpenClaw uses the context window reported by Ollama when available, otherwise it defaults to \texttt{8192}. You can override \texttt{contextWindow} and \texttt{maxTokens} in explicit provider config.
+
+\subsection{Troubleshooting}
+
+
+\subsubsection{Ollama not detected}
+
+
+Make sure Ollama is running and that you set \texttt{OLLAMA\_API\_KEY} (or an auth profile), and that you did \textbf{not} define an explicit \texttt{models.providers.ollama} entry:
+
+\begin{lstlisting}[language=bash]
+ollama serve
+\end{lstlisting}
+
+
+And that the API is accessible:
+
+\begin{lstlisting}[language=bash]
+curl http://localhost:11434/api/tags
+\end{lstlisting}
+
+
+\subsubsection{No models available}
+
+
+OpenClaw only auto-discovers models that report tool support. If your model isn't listed, either:
+
+\begin{itemize}
+  \item Pull a tool-capable model, or
+  \item Define the model explicitly in \texttt{models.providers.ollama}.
+\end{itemize}
+
+
+To add models:
+
+\begin{lstlisting}[language=bash]
+ollama list  # See what's installed
+ollama pull gpt-oss:20b  # Pull a tool-capable model
+ollama pull llama3.3     # Or another model
+\end{lstlisting}
+
+
+\subsubsection{Connection refused}
+
+
+Check that Ollama is running on the correct port:
+
+\begin{lstlisting}[language=bash]
+# Check if Ollama is running
+ps aux | grep ollama
+
+# Or restart Ollama
+ollama serve
+\end{lstlisting}
+
+
+\subsection{See Also}
+
+
+\begin{itemize}
+  \item \href{/concepts/model-providers}{Model Providers} - Overview of all providers
+  \item \href{/concepts/models}{Model Selection} - How to choose models
+  \item \href{/gateway/configuration}{Configuration} - Full config reference
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/openai.md ===
+\section{OpenAI}
+
+
+OpenAI provides developer APIs for GPT models. Codex supports \textbf{ChatGPT sign-in} for subscription
+access or \textbf{API key} sign-in for usage-based access. Codex cloud requires ChatGPT sign-in.
+OpenAI explicitly supports subscription OAuth usage in external tools/workflows like OpenClaw.
+
+\subsection{Option A: OpenAI API key (OpenAI Platform)}
+
+
+\textbf{Best for:} direct API access and usage-based billing.
+Get your API key from the OpenAI dashboard.
+
+\subsubsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice openai-api-key
+# or non-interactive
+openclaw onboard --openai-api-key "$OPENAI_API_KEY"
+\end{lstlisting}
+
+
+\subsubsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { OPENAI_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "openai/gpt-5.2" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Option B: OpenAI Code (Codex) subscription}
+
+
+\textbf{Best for:} using ChatGPT/Codex subscription access instead of an API key.
+Codex cloud requires ChatGPT sign-in, while the Codex CLI supports ChatGPT or API key sign-in.
+
+\subsubsection{CLI setup (Codex OAuth)}
+
+
+\begin{lstlisting}[language=bash]
+# Run Codex OAuth in the wizard
+openclaw onboard --auth-choice openai-codex
+
+# Or run OAuth directly
+openclaw models auth login --provider openai-codex
+\end{lstlisting}
+
+
+\subsubsection{Config snippet (Codex subscription)}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: { defaults: { model: { primary: "openai-codex/gpt-5.3-codex" } } },
+}
+\end{lstlisting}
+
+
+\subsubsection{Transport default}
+
+
+OpenClaw uses \texttt{pi-ai} for model streaming. For both \texttt{openai/*} and
+\texttt{openai-codex/*}, default transport is \texttt{"auto"} (WebSocket-first, then SSE
+fallback).
+
+You can set \texttt{agents.defaults.models..params.transport}:
+
+\begin{itemize}
+  \item \texttt{"sse"}: force SSE
+  \item \texttt{"websocket"}: force WebSocket
+  \item \texttt{"auto"}: try WebSocket, then fall back to SSE
+\end{itemize}
+
+
+For \texttt{openai/*} (Responses API), OpenClaw also enables WebSocket warm-up by
+default (\texttt{openaiWsWarmup: true}) when WebSocket transport is used.
+
+Related OpenAI docs:
+
+\begin{itemize}
+  \item \href{https://platform.openai.com/docs/guides/realtime-websocket}{Realtime API with WebSocket}
+  \item \href{https://platform.openai.com/docs/guides/streaming-responses}{Streaming API responses (SSE)}
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "openai-codex/gpt-5.3-codex" },
+      models: {
+        "openai-codex/gpt-5.3-codex": {
+          params: {
+            transport: "auto",
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{OpenAI WebSocket warm-up}
+
+
+OpenAI docs describe warm-up as optional. OpenClaw enables it by default for
+\texttt{openai/*} to reduce first-turn latency when using WebSocket transport.
+
+\subsubsection{Disable warm-up}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "openai/gpt-5.2": {
+          params: {
+            openaiWsWarmup: false,
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Enable warm-up explicitly}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "openai/gpt-5.2": {
+          params: {
+            openaiWsWarmup: true,
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{OpenAI Responses server-side compaction}
+
+
+For direct OpenAI Responses models (\texttt{openai/*} using \texttt{api: "openai-responses"} with
+\texttt{baseUrl} on \texttt{api.openai.com}), OpenClaw now auto-enables OpenAI server-side
+compaction payload hints:
+
+\begin{itemize}
+  \item Forces \texttt{store: true} (unless model compat sets \texttt{supportsStore: false})
+  \item Injects \texttt{context\_management: [\{ type: "compaction", compact\_threshold: ... \}]}
+\end{itemize}
+
+
+By default, \texttt{compact\_threshold} is \texttt{70\%} of model \texttt{contextWindow} (or \texttt{80000}
+when unavailable).
+
+\subsubsection{Enable server-side compaction explicitly}
+
+
+Use this when you want to force \texttt{context\_management} injection on compatible
+Responses models (for example Azure OpenAI Responses):
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "azure-openai-responses/gpt-5.2": {
+          params: {
+            responsesServerCompaction: true,
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Enable with a custom threshold}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "openai/gpt-5.2": {
+          params: {
+            responsesServerCompaction: true,
+            responsesCompactThreshold: 120000,
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Disable server-side compaction}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      models: {
+        "openai/gpt-5.2": {
+          params: {
+            responsesServerCompaction: false,
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\texttt{responsesServerCompaction} only controls \texttt{context\_management} injection.
+Direct OpenAI Responses models still force \texttt{store: true} unless compat sets
+\texttt{supportsStore: false}.
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Model refs always use \texttt{provider/model} (see \href{/concepts/models}{/concepts/models}).
+  \item Auth details + reuse rules are in \href{/concepts/oauth}{/concepts/oauth}.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/opencode.md ===
+\section{OpenCode Zen}
+
+
+OpenCode Zen is a \textbf{curated list of models} recommended by the OpenCode team for coding agents.
+It is an optional, hosted model access path that uses an API key and the \texttt{opencode} provider.
+Zen is currently in beta.
+
+\subsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice opencode-zen
+# or non-interactive
+openclaw onboard --opencode-zen-api-key "$OPENCODE_API_KEY"
+\end{lstlisting}
+
+
+\subsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { OPENCODE_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "opencode/claude-opus-4-6" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item \texttt{OPENCODE\_ZEN\_API\_KEY} is also supported.
+  \item You sign in to Zen, add billing details, and copy your API key.
+  \item OpenCode Zen bills per request; check the OpenCode dashboard for details.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/openrouter.md ===
+\section{OpenRouter}
+
+
+OpenRouter provides a \textbf{unified API} that routes requests to many models behind a single
+endpoint and API key. It is OpenAI-compatible, so most OpenAI SDKs work by switching the base URL.
+
+\subsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice apiKey --token-provider openrouter --token "$OPENROUTER_API_KEY"
+\end{lstlisting}
+
+
+\subsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { OPENROUTER_API_KEY: "sk-or-..." },
+  agents: {
+    defaults: {
+      model: { primary: "openrouter/anthropic/claude-sonnet-4-5" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Model refs are \texttt{openrouter//}.
+  \item For more model/provider options, see \href{/concepts/model-providers}{/concepts/model-providers}.
+  \item OpenRouter uses a Bearer token with your API key under the hood.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/qianfan.md ===
+\section{Qianfan Provider Guide}
+
+
+Qianfan is Baidu's MaaS platform, provides a \textbf{unified API} that routes requests to many models behind a single
+endpoint and API key. It is OpenAI-compatible, so most OpenAI SDKs work by switching the base URL.
+
+\subsection{Prerequisites}
+
+
+\begin{enumerate}
+  \item A Baidu Cloud account with Qianfan API access
+  \item An API key from the Qianfan console
+  \item OpenClaw installed on your system
+\end{enumerate}
+
+
+\subsection{Getting Your API Key}
+
+
+\begin{enumerate}
+  \item Visit the \href{https://console.bce.baidu.com/qianfan/ais/console/apiKey}{Qianfan Console}
+  \item Create a new application or select an existing one
+  \item Generate an API key (format: \texttt{bce-v3/ALTAK-...})
+  \item Copy the API key for use with OpenClaw
+\end{enumerate}
+
+
+\subsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice qianfan-api-key
+\end{lstlisting}
+
+
+\subsection{Related Documentation}
+
+
+\begin{itemize}
+  \item \href{/gateway/configuration}{OpenClaw Configuration}
+  \item \href{/concepts/model-providers}{Model Providers}
+  \item \href{/concepts/agent}{Agent Setup}
+  \item \href{https://cloud.baidu.com/doc/qianfan-api/s/3m7of64lb}{Qianfan API Documentation}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/qwen.md ===
+\section{Qwen}
+
+
+Qwen provides a free-tier OAuth flow for Qwen Coder and Qwen Vision models
+(2,000 requests/day, subject to Qwen rate limits).
+
+\subsection{Enable the plugin}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins enable qwen-portal-auth
+\end{lstlisting}
+
+
+Restart the Gateway after enabling.
+
+\subsection{Authenticate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models auth login --provider qwen-portal --set-default
+\end{lstlisting}
+
+
+This runs the Qwen device-code OAuth flow and writes a provider entry to your
+\texttt{models.json} (plus a \texttt{qwen} alias for quick switching).
+
+\subsection{Model IDs}
+
+
+\begin{itemize}
+  \item \texttt{qwen-portal/coder-model}
+  \item \texttt{qwen-portal/vision-model}
+\end{itemize}
+
+
+Switch models with:
+
+\begin{lstlisting}[language=bash]
+openclaw models set qwen-portal/coder-model
+\end{lstlisting}
+
+
+\subsection{Reuse Qwen Code CLI login}
+
+
+If you already logged in with the Qwen Code CLI, OpenClaw will sync credentials
+from \texttt{\textasciitilde{}/.qwen/oauth\_creds.json} when it loads the auth store. You still need a
+\texttt{models.providers.qwen-portal} entry (use the login command above to create one).
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Tokens auto-refresh; re-run the login command if refresh fails or access is revoked.
+  \item Default base URL: \texttt{https://portal.qwen.ai/v1} (override with
+\end{itemize}
+
+\texttt{models.providers.qwen-portal.baseUrl} if Qwen provides a different endpoint).
+\begin{itemize}
+  \item See \href{/concepts/model-providers}{Model providers} for provider-wide rules.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/synthetic.md ===
+\section{Synthetic}
+
+
+Synthetic exposes Anthropic-compatible endpoints. OpenClaw registers it as the
+\texttt{synthetic} provider and uses the Anthropic Messages API.
+
+\subsection{Quick setup}
+
+
+\begin{enumerate}
+  \item Set \texttt{SYNTHETIC\_API\_KEY} (or run the wizard below).
+  \item Run onboarding:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice synthetic-api-key
+\end{lstlisting}
+
+
+The default model is set to:
+
+\begin{lstlisting}
+synthetic/hf:MiniMaxAI/MiniMax-M2.5
+\end{lstlisting}
+
+
+\subsection{Config example}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { SYNTHETIC_API_KEY: "sk-..." },
+  agents: {
+    defaults: {
+      model: { primary: "synthetic/hf:MiniMaxAI/MiniMax-M2.5" },
+      models: { "synthetic/hf:MiniMaxAI/MiniMax-M2.5": { alias: "MiniMax M2.5" } },
+    },
+  },
+  models: {
+    mode: "merge",
+    providers: {
+      synthetic: {
+        baseUrl: "https://api.synthetic.new/anthropic",
+        apiKey: "${SYNTHETIC_API_KEY}",
+        api: "anthropic-messages",
+        models: [
+          {
+            id: "hf:MiniMaxAI/MiniMax-M2.5",
+            name: "MiniMax M2.5",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 192000,
+            maxTokens: 65536,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Note: OpenClaw's Anthropic client appends \texttt{/v1} to the base URL, so use
+\texttt{https://api.synthetic.new/anthropic} (not \texttt{/anthropic/v1}). If Synthetic changes
+its base URL, override \texttt{models.providers.synthetic.baseUrl}.
+
+\subsection{Model catalog}
+
+
+All models below use cost \texttt{0} (input/output/cache).
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+Model ID & Context window & Max tokens & Reasoning & Input \\
+\hline
+\texttt{hf:MiniMaxAI/MiniMax-M2.5} & 192000 & 65536 & false & text \\
+\hline
+\texttt{hf:moonshotai/Kimi-K2-Thinking} & 256000 & 8192 & true & text \\
+\hline
+\texttt{hf:zai-org/GLM-4.7} & 198000 & 128000 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-R1-0528} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3-0324} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3.1} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3.1-Terminus} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3.2} & 159000 & 8192 & false & text \\
+\hline
+\texttt{hf:meta-llama/Llama-3.3-70B-Instruct} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8} & 524000 & 8192 & false & text \\
+\hline
+\texttt{hf:moonshotai/Kimi-K2-Instruct-0905} & 256000 & 8192 & false & text \\
+\hline
+\texttt{hf:openai/gpt-oss-120b} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:Qwen/Qwen3-235B-A22B-Instruct-2507} & 256000 & 8192 & false & text \\
+\hline
+\texttt{hf:Qwen/Qwen3-Coder-480B-A35B-Instruct} & 256000 & 8192 & false & text \\
+\hline
+\texttt{hf:Qwen/Qwen3-VL-235B-A22B-Instruct} & 250000 & 8192 & false & text + image \\
+\hline
+\texttt{hf:zai-org/GLM-4.5} & 128000 & 128000 & false & text \\
+\hline
+\texttt{hf:zai-org/GLM-4.6} & 198000 & 128000 & false & text \\
+\hline
+\texttt{hf:deepseek-ai/DeepSeek-V3} & 128000 & 8192 & false & text \\
+\hline
+\texttt{hf:Qwen/Qwen3-235B-A22B-Thinking-2507} & 256000 & 8192 & true & text \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Model refs use \texttt{synthetic/}.
+  \item If you enable a model allowlist (\texttt{agents.defaults.models}), add every model you
+\end{itemize}
+
+plan to use.
+\begin{itemize}
+  \item See \href{/concepts/model-providers}{Model providers} for provider rules.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/together.md ===
+\section{Together AI}
+
+
+The \href{https://together.ai}{Together AI} provides access to leading open-source models including Llama, DeepSeek, Kimi, and more through a unified API.
+
+\begin{itemize}
+  \item Provider: \texttt{together}
+  \item Auth: \texttt{TOGETHER\_API\_KEY}
+  \item API: OpenAI-compatible
+\end{itemize}
+
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Set the API key (recommended: store it for the Gateway):
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice together-api-key
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Set a default model:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "together/moonshotai/Kimi-K2.5" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Non-interactive example}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --mode local \
+  --auth-choice together-api-key \
+  --together-api-key "$TOGETHER_API_KEY"
+\end{lstlisting}
+
+
+This will set \texttt{together/moonshotai/Kimi-K2.5} as the default model.
+
+\subsection{Environment note}
+
+
+If the Gateway runs as a daemon (launchd/systemd), make sure \texttt{TOGETHER\_API\_KEY}
+is available to that process (for example, in \texttt{\textasciitilde{}/.openclaw/.env} or via
+\texttt{env.shellEnv}).
+
+\subsection{Available models}
+
+
+Together AI provides access to many popular open-source models:
+
+\begin{itemize}
+  \item \textbf{GLM 4.7 Fp8} - Default model with 200K context window
+  \item \textbf{Llama 3.3 70B Instruct Turbo} - Fast, efficient instruction following
+  \item \textbf{Llama 4 Scout} - Vision model with image understanding
+  \item \textbf{Llama 4 Maverick} - Advanced vision and reasoning
+  \item \textbf{DeepSeek V3.1} - Powerful coding and reasoning model
+  \item \textbf{DeepSeek R1} - Advanced reasoning model
+  \item \textbf{Kimi K2 Instruct} - High-performance model with 262K context window
+\end{itemize}
+
+
+All models support standard chat completions and are OpenAI API compatible.
+
+
+\clearpage
+
+% === Source file: providers/venice.md ===
+\section{Venice AI (Venice highlight)}
+
+
+\textbf{Venice} is our highlight Venice setup for privacy-first inference with optional anonymized access to proprietary models.
+
+Venice AI provides privacy-focused AI inference with support for uncensored models and access to major proprietary models through their anonymized proxy. All inference is private by default—no training on your data, no logging.
+
+\subsection{Why Venice in OpenClaw}
+
+
+\begin{itemize}
+  \item \textbf{Private inference} for open-source models (no logging).
+  \item \textbf{Uncensored models} when you need them.
+  \item \textbf{Anonymized access} to proprietary models (Opus/GPT/Gemini) when quality matters.
+  \item OpenAI-compatible \texttt{/v1} endpoints.
+\end{itemize}
+
+
+\subsection{Privacy Modes}
+
+
+Venice offers two privacy levels — understanding this is key to choosing your model:
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Mode & Description & Models \\
+\hline
+\textbf{Private} & Fully private. Prompts/responses are \textbf{never stored or logged}. Ephemeral. & Llama, Qwen, DeepSeek, Venice Uncensored, etc. \\
+\hline
+\textbf{Anonymized} & Proxied through Venice with metadata stripped. The underlying provider (OpenAI, Anthropic) sees anonymized requests. & Claude, GPT, Gemini, Grok, Kimi, MiniMax \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Features}
+
+
+\begin{itemize}
+  \item \textbf{Privacy-focused}: Choose between "private" (fully private) and "anonymized" (proxied) modes
+  \item \textbf{Uncensored models}: Access to models without content restrictions
+  \item \textbf{Major model access}: Use Claude, GPT-5.2, Gemini, Grok via Venice's anonymized proxy
+  \item \textbf{OpenAI-compatible API}: Standard \texttt{/v1} endpoints for easy integration
+  \item \textbf{Streaming}: ✅ Supported on all models
+  \item \textbf{Function calling}: ✅ Supported on select models (check model capabilities)
+  \item \textbf{Vision}: ✅ Supported on models with vision capability
+  \item \textbf{No hard rate limits}: Fair-use throttling may apply for extreme usage
+\end{itemize}
+
+
+\subsection{Setup}
+
+
+\subsubsection{1. Get API Key}
+
+
+\begin{enumerate}
+  \item Sign up at \href{https://venice.ai}{venice.ai}
+  \item Go to \textbf{Settings → API Keys → Create new key}
+  \item Copy your API key (format: \texttt{vapi\_xxxxxxxxxxxx})
+\end{enumerate}
+
+
+\subsubsection{2. Configure OpenClaw}
+
+
+\textbf{Option A: Environment Variable}
+
+\begin{lstlisting}[language=bash]
+export VENICE_API_KEY="vapi_xxxxxxxxxxxx"
+\end{lstlisting}
+
+
+\textbf{Option B: Interactive Setup (Recommended)}
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice venice-api-key
+\end{lstlisting}
+
+
+This will:
+
+\begin{enumerate}
+  \item Prompt for your API key (or use existing \texttt{VENICE\_API\_KEY})
+  \item Show all available Venice models
+  \item Let you pick your default model
+  \item Configure the provider automatically
+\end{enumerate}
+
+
+\textbf{Option C: Non-interactive}
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --auth-choice venice-api-key \
+  --venice-api-key "vapi_xxxxxxxxxxxx"
+\end{lstlisting}
+
+
+\subsubsection{3. Verify Setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw agent --model venice/llama-3.3-70b --message "Hello, are you working?"
+\end{lstlisting}
+
+
+\subsection{Model Selection}
+
+
+After setup, OpenClaw shows all available Venice models. Pick based on your needs:
+
+\begin{itemize}
+  \item \textbf{Default model}: \texttt{venice/llama-3.3-70b} for private, balanced performance.
+  \item \textbf{High-capability option}: \texttt{venice/claude-opus-45} for hard jobs.
+  \item \textbf{Privacy}: Choose "private" models for fully private inference.
+  \item \textbf{Capability}: Choose "anonymized" models to access Claude, GPT, Gemini via Venice's proxy.
+\end{itemize}
+
+
+Change your default model anytime:
+
+\begin{lstlisting}[language=bash]
+openclaw models set venice/claude-opus-45
+openclaw models set venice/llama-3.3-70b
+\end{lstlisting}
+
+
+List all available models:
+
+\begin{lstlisting}[language=bash]
+openclaw models list | grep venice
+\end{lstlisting}
+
+
+\subsection{Configure via openclaw configure}
+
+
+\begin{enumerate}
+  \item Run \texttt{openclaw configure}
+  \item Select \textbf{Model/auth}
+  \item Choose \textbf{Venice AI}
+\end{enumerate}
+
+
+\subsection{Which Model Should I Use?}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Use Case & Recommended Model & Why \\
+\hline
+\textbf{General chat} & \texttt{llama-3.3-70b} & Good all-around, fully private \\
+\hline
+\textbf{High-capability option} & \texttt{claude-opus-45} & Higher quality for hard tasks \\
+\hline
+\textbf{Privacy + Claude quality} & \texttt{claude-opus-45} & Best reasoning via anonymized proxy \\
+\hline
+\textbf{Coding} & \texttt{qwen3-coder-480b-a35b-instruct} & Code-optimized, 262k context \\
+\hline
+\textbf{Vision tasks} & \texttt{qwen3-vl-235b-a22b} & Best private vision model \\
+\hline
+\textbf{Uncensored} & \texttt{venice-uncensored} & No content restrictions \\
+\hline
+\textbf{Fast + cheap} & \texttt{qwen3-4b} & Lightweight, still capable \\
+\hline
+\textbf{Complex reasoning} & \texttt{deepseek-v3.2} & Strong reasoning, private \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Available Models (25 Total)}
+
+
+\subsubsection{Private Models (15) — Fully Private, No Logging}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+Model ID & Name & Context (tokens) & Features \\
+\hline
+\texttt{llama-3.3-70b} & Llama 3.3 70B & 131k & General \\
+\hline
+\texttt{llama-3.2-3b} & Llama 3.2 3B & 131k & Fast, lightweight \\
+\hline
+\texttt{hermes-3-llama-3.1-405b} & Hermes 3 Llama 3.1 405B & 131k & Complex tasks \\
+\hline
+\texttt{qwen3-235b-a22b-thinking-2507} & Qwen3 235B Thinking & 131k & Reasoning \\
+\hline
+\texttt{qwen3-235b-a22b-instruct-2507} & Qwen3 235B Instruct & 131k & General \\
+\hline
+\texttt{qwen3-coder-480b-a35b-instruct} & Qwen3 Coder 480B & 262k & Code \\
+\hline
+\texttt{qwen3-next-80b} & Qwen3 Next 80B & 262k & General \\
+\hline
+\texttt{qwen3-vl-235b-a22b} & Qwen3 VL 235B & 262k & Vision \\
+\hline
+\texttt{qwen3-4b} & Venice Small (Qwen3 4B) & 32k & Fast, reasoning \\
+\hline
+\texttt{deepseek-v3.2} & DeepSeek V3.2 & 163k & Reasoning \\
+\hline
+\texttt{venice-uncensored} & Venice Uncensored & 32k & Uncensored \\
+\hline
+\texttt{mistral-31-24b} & Venice Medium (Mistral) & 131k & Vision \\
+\hline
+\texttt{google-gemma-3-27b-it} & Gemma 3 27B Instruct & 202k & Vision \\
+\hline
+\texttt{openai-gpt-oss-120b} & OpenAI GPT OSS 120B & 131k & General \\
+\hline
+\texttt{zai-org-glm-4.7} & GLM 4.7 & 202k & Reasoning, multilingual \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{Anonymized Models (10) — Via Venice Proxy}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+Model ID & Original & Context (tokens) & Features \\
+\hline
+\texttt{claude-opus-45} & Claude Opus 4.5 & 202k & Reasoning, vision \\
+\hline
+\texttt{claude-sonnet-45} & Claude Sonnet 4.5 & 202k & Reasoning, vision \\
+\hline
+\texttt{openai-gpt-52} & GPT-5.2 & 262k & Reasoning \\
+\hline
+\texttt{openai-gpt-52-codex} & GPT-5.2 Codex & 262k & Reasoning, vision \\
+\hline
+\texttt{gemini-3-pro-preview} & Gemini 3 Pro & 202k & Reasoning, vision \\
+\hline
+\texttt{gemini-3-flash-preview} & Gemini 3 Flash & 262k & Reasoning, vision \\
+\hline
+\texttt{grok-41-fast} & Grok 4.1 Fast & 262k & Reasoning, vision \\
+\hline
+\texttt{grok-code-fast-1} & Grok Code Fast 1 & 262k & Reasoning, code \\
+\hline
+\texttt{kimi-k2-thinking} & Kimi K2 Thinking & 262k & Reasoning \\
+\hline
+\texttt{minimax-m21} & MiniMax M2.5 & 202k & Reasoning \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Model Discovery}
+
+
+OpenClaw automatically discovers models from the Venice API when \texttt{VENICE\_API\_KEY} is set. If the API is unreachable, it falls back to a static catalog.
+
+The \texttt{/models} endpoint is public (no auth needed for listing), but inference requires a valid API key.
+
+\subsection{Streaming \& Tool Support}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Feature & Support \\
+\hline
+\textbf{Streaming} & ✅ All models \\
+\hline
+\textbf{Function calling} & ✅ Most models (check \texttt{supportsFunctionCalling} in API) \\
+\hline
+\textbf{Vision/Images} & ✅ Models marked with "Vision" feature \\
+\hline
+\textbf{JSON mode} & ✅ Supported via \texttt{response\_format} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Pricing}
+
+
+Venice uses a credit-based system. Check \href{https://venice.ai/pricing}{venice.ai/pricing} for current rates:
+
+\begin{itemize}
+  \item \textbf{Private models}: Generally lower cost
+  \item \textbf{Anonymized models}: Similar to direct API pricing + small Venice fee
+\end{itemize}
+
+
+\subsection{Comparison: Venice vs Direct API}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Aspect & Venice (Anonymized) & Direct API \\
+\hline
+\textbf{Privacy} & Metadata stripped, anonymized & Your account linked \\
+\hline
+\textbf{Latency} & +10-50ms (proxy) & Direct \\
+\hline
+\textbf{Features} & Most features supported & Full features \\
+\hline
+\textbf{Billing} & Venice credits & Provider billing \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Usage Examples}
+
+
+\begin{lstlisting}[language=bash]
+# Use default private model
+openclaw agent --model venice/llama-3.3-70b --message "Quick health check"
+
+# Use Claude via Venice (anonymized)
+openclaw agent --model venice/claude-opus-45 --message "Summarize this task"
+
+# Use uncensored model
+openclaw agent --model venice/venice-uncensored --message "Draft options"
+
+# Use vision model with image
+openclaw agent --model venice/qwen3-vl-235b-a22b --message "Review attached image"
+
+# Use coding model
+openclaw agent --model venice/qwen3-coder-480b-a35b-instruct --message "Refactor this function"
+\end{lstlisting}
+
+
+\subsection{Troubleshooting}
+
+
+\subsubsection{API key not recognized}
+
+
+\begin{lstlisting}[language=bash]
+echo $VENICE_API_KEY
+openclaw models list | grep venice
+\end{lstlisting}
+
+
+Ensure the key starts with \texttt{vapi\_}.
+
+\subsubsection{Model not available}
+
+
+The Venice model catalog updates dynamically. Run \texttt{openclaw models list} to see currently available models. Some models may be temporarily offline.
+
+\subsubsection{Connection issues}
+
+
+Venice API is at \texttt{https://api.venice.ai/api/v1}. Ensure your network allows HTTPS connections.
+
+\subsection{Config file example}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { VENICE_API_KEY: "vapi_..." },
+  agents: { defaults: { model: { primary: "venice/llama-3.3-70b" } } },
+  models: {
+    mode: "merge",
+    providers: {
+      venice: {
+        baseUrl: "https://api.venice.ai/api/v1",
+        apiKey: "${VENICE_API_KEY}",
+        api: "openai-completions",
+        models: [
+          {
+            id: "llama-3.3-70b",
+            name: "Llama 3.3 70B",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 131072,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Links}
+
+
+\begin{itemize}
+  \item \href{https://venice.ai}{Venice AI}
+  \item \href{https://docs.venice.ai}{API Documentation}
+  \item \href{https://venice.ai/pricing}{Pricing}
+  \item \href{https://status.venice.ai}{Status}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/vercel-ai-gateway.md ===
+\section{Vercel AI Gateway}
+
+
+The \href{https://vercel.com/ai-gateway}{Vercel AI Gateway} provides a unified API to access hundreds of models through a single endpoint.
+
+\begin{itemize}
+  \item Provider: \texttt{vercel-ai-gateway}
+  \item Auth: \texttt{AI\_GATEWAY\_API\_KEY}
+  \item API: Anthropic Messages compatible
+\end{itemize}
+
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Set the API key (recommended: store it for the Gateway):
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice ai-gateway-api-key
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Set a default model:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "vercel-ai-gateway/anthropic/claude-opus-4.6" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Non-interactive example}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --mode local \
+  --auth-choice ai-gateway-api-key \
+  --ai-gateway-api-key "$AI_GATEWAY_API_KEY"
+\end{lstlisting}
+
+
+\subsection{Environment note}
+
+
+If the Gateway runs as a daemon (launchd/systemd), make sure \texttt{AI\_GATEWAY\_API\_KEY}
+is available to that process (for example, in \texttt{\textasciitilde{}/.openclaw/.env} or via
+\texttt{env.shellEnv}).
+
+\subsection{Model ID shorthand}
+
+
+OpenClaw accepts Vercel Claude shorthand model refs and normalizes them at
+runtime:
+
+\begin{itemize}
+  \item \texttt{vercel-ai-gateway/claude-opus-4.6} -> \texttt{vercel-ai-gateway/anthropic/claude-opus-4.6}
+  \item \texttt{vercel-ai-gateway/opus-4.6} -> \texttt{vercel-ai-gateway/anthropic/claude-opus-4-6}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/vllm.md ===
+\section{vLLM}
+
+
+vLLM can serve open-source (and some custom) models via an \textbf{OpenAI-compatible} HTTP API. OpenClaw can connect to vLLM using the \texttt{openai-completions} API.
+
+OpenClaw can also \textbf{auto-discover} available models from vLLM when you opt in with \texttt{VLLM\_API\_KEY} (any value works if your server doesn’t enforce auth) and you do not define an explicit \texttt{models.providers.vllm} entry.
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Start vLLM with an OpenAI-compatible server.
+\end{enumerate}
+
+
+Your base URL should expose \texttt{/v1} endpoints (e.g. \texttt{/v1/models}, \texttt{/v1/chat/completions}). vLLM commonly runs on:
+
+\begin{itemize}
+  \item \texttt{http://127.0.0.1:8000/v1}
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Opt in (any value works if no auth is configured):
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+export VLLM_API_KEY="vllm-local"
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Select a model (replace with one of your vLLM model IDs):
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      model: { primary: "vllm/your-model-id" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Model discovery (implicit provider)}
+
+
+When \texttt{VLLM\_API\_KEY} is set (or an auth profile exists) and you \textbf{do not} define \texttt{models.providers.vllm}, OpenClaw will query:
+
+\begin{itemize}
+  \item \texttt{GET http://127.0.0.1:8000/v1/models}
+\end{itemize}
+
+
+…and convert the returned IDs into model entries.
+
+If you set \texttt{models.providers.vllm} explicitly, auto-discovery is skipped and you must define models manually.
+
+\subsection{Explicit configuration (manual models)}
+
+
+Use explicit config when:
+
+\begin{itemize}
+  \item vLLM runs on a different host/port.
+  \item You want to pin \texttt{contextWindow}/\texttt{maxTokens} values.
+  \item Your server requires a real API key (or you want to control headers).
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  models: {
+    providers: {
+      vllm: {
+        baseUrl: "http://127.0.0.1:8000/v1",
+        apiKey: "${VLLM_API_KEY}",
+        api: "openai-completions",
+        models: [
+          {
+            id: "your-model-id",
+            name: "Local vLLM Model",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 128000,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Troubleshooting}
+
+
+\begin{itemize}
+  \item Check the server is reachable:
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+curl http://127.0.0.1:8000/v1/models
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item If requests fail with auth errors, set a real \texttt{VLLM\_API\_KEY} that matches your server configuration, or configure the provider explicitly under \texttt{models.providers.vllm}.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/xiaomi.md ===
+\section{Xiaomi MiMo}
+
+
+Xiaomi MiMo is the API platform for \textbf{MiMo} models. It provides REST APIs compatible with
+OpenAI and Anthropic formats and uses API keys for authentication. Create your API key in
+the \href{https://platform.xiaomimimo.com/\#/console/api-keys}{Xiaomi MiMo console}. OpenClaw uses
+the \texttt{xiaomi} provider with a Xiaomi MiMo API key.
+
+\subsection{Model overview}
+
+
+\begin{itemize}
+  \item \textbf{mimo-v2-flash}: 262144-token context window, Anthropic Messages API compatible.
+  \item Base URL: \texttt{https://api.xiaomimimo.com/anthropic}
+  \item Authorization: \texttt{Bearer \$XIAOMI\_API\_KEY}
+\end{itemize}
+
+
+\subsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice xiaomi-api-key
+# or non-interactive
+openclaw onboard --auth-choice xiaomi-api-key --xiaomi-api-key "$XIAOMI_API_KEY"
+\end{lstlisting}
+
+
+\subsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { XIAOMI_API_KEY: "your-key" },
+  agents: { defaults: { model: { primary: "xiaomi/mimo-v2-flash" } } },
+  models: {
+    mode: "merge",
+    providers: {
+      xiaomi: {
+        baseUrl: "https://api.xiaomimimo.com/anthropic",
+        api: "anthropic-messages",
+        apiKey: "XIAOMI_API_KEY",
+        models: [
+          {
+            id: "mimo-v2-flash",
+            name: "Xiaomi MiMo V2 Flash",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 262144,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Model ref: \texttt{xiaomi/mimo-v2-flash}.
+  \item The provider is injected automatically when \texttt{XIAOMI\_API\_KEY} is set (or an auth profile exists).
+  \item See \href{/concepts/model-providers}{/concepts/model-providers} for provider rules.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: providers/zai.md ===
+\section{Z.AI}
+
+
+Z.AI is the API platform for \textbf{GLM} models. It provides REST APIs for GLM and uses API keys
+for authentication. Create your API key in the Z.AI console. OpenClaw uses the \texttt{zai} provider
+with a Z.AI API key.
+
+\subsection{CLI setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --auth-choice zai-api-key
+# or non-interactive
+openclaw onboard --zai-api-key "$ZAI_API_KEY"
+\end{lstlisting}
+
+
+\subsection{Config snippet}
+
+
+\begin{lstlisting}[language=json]
+{
+  env: { ZAI_API_KEY: "sk-..." },
+  agents: { defaults: { model: { primary: "zai/glm-5" } } },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item GLM models are available as \texttt{zai/} (example: \texttt{zai/glm-5}).
+  \item \texttt{tool\_stream} is enabled by default for Z.AI tool-call streaming. Set
+\end{itemize}
+
+\texttt{agents.defaults.models["zai/"].params.tool\_stream} to \texttt{false} to disable it.
+\begin{itemize}
+  \item See \href{/providers/glm}{/providers/glm} for the model family overview.
+  \item Z.AI uses Bearer auth with your API key.
+\end{itemize}
+
+
+
+\clearpage

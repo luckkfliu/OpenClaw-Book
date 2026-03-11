@@ -1,0 +1,162 @@
+\chapter{Sandbox（沙箱隔离）}
+
+\section{概述}
+
+OpenClaw 可以\textbf{在 Docker 容器内运行工具}以减少影响范围。沙箱隔离是\textbf{可选的}，由配置控制。Gateway 网关本身保留在主机上，仅工具执行在容器中隔离运行。
+
+配置路径：\texttt{agents.defaults.sandbox.*}
+
+\section{什么会被沙箱隔离}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{隔离} & \textbf{不隔离} \\
+\midrule
+工具执行（exec, read, write, edit 等） & Gateway 网关进程本身 \\
+沙箱浏览器（可选） & 提权工具（\texttt{tools.elevated}） \\
+ & 明确允许在主机运行的工具 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{沙箱模式}
+
+\texttt{agents.defaults.sandbox.mode}：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{模式} & \textbf{行为} \\
+\midrule
+\texttt{off} & 不使用沙箱 \\
+\texttt{non-main} & 仅非主会话使用沙箱（默认） \\
+\texttt{all} & 所有会话都在沙箱中运行 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{作用域}
+
+\texttt{agents.defaults.sandbox.scope}：
+
+\begin{itemize}
+  \item \texttt{session}（默认）：每个会话一个容器
+  \item \texttt{agent}：每个智能体一个容器
+  \item \texttt{shared}：所有沙箱会话共享一个容器
+\end{itemize}
+
+\section{工作区访问}
+
+\texttt{agents.defaults.sandbox.workspaceAccess}：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{值} & \textbf{行为} \\
+\midrule
+\texttt{none}（默认） & 使用沙箱工作区（\texttt{\textasciitilde{}/.openclaw/sandboxes}） \\
+\texttt{ro} & 只读挂载智能体工作区 \\
+\texttt{rw} & 读写挂载智能体工作区 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{最小启用示例}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      sandbox: {
+        mode: "all",
+        scope: "session",
+        workspaceAccess: "none",
+        docker: {
+          image: "openclaw-sandbox:bookworm-slim"
+        }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+\section{镜像构建}
+
+\begin{lstlisting}[language=bash]
+# Build sandbox image
+scripts/sandbox-setup.sh
+
+# Build sandbox browser image (optional)
+scripts/sandbox-browser-setup.sh
+\end{lstlisting}
+
+默认沙箱容器\textbf{没有网络}，通过 \texttt{docker.network} 可覆盖。
+
+\section{自定义绑定挂载}
+
+将额外主机目录挂载到容器：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      sandbox: {
+        docker: {
+          binds: [
+            "/home/user/source:/source:ro",
+            "/var/run/docker.sock:/var/run/docker.sock"
+          ]
+        }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+\section{setupCommand}
+
+\texttt{setupCommand} 在容器创建后\textbf{运行一次}（非每次运行），用于安装额外依赖：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      sandbox: {
+        docker: {
+          network: "bridge",
+          setupCommand: "apt-get update && apt-get install -y python3"
+        }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+\textbf{注意}：包安装需要网络出口（\texttt{network: "bridge"}）和可写根文件系统。
+
+\section{多智能体覆盖}
+
+每个智能体可独立覆盖沙箱配置：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [{
+      id: "build",
+      sandbox: {
+        mode: "all",
+        docker: {
+          binds: ["/mnt/cache:/cache:rw"]
+        }
+      }
+    }]
+  }
+}
+\end{lstlisting}
+
+\section{调试}
+
+\begin{lstlisting}[language=bash]
+openclaw sandbox explain  # Check effective sandbox config
+\end{lstlisting}

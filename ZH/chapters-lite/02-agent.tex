@@ -1,0 +1,98 @@
+\chapter{Agent（智能体）}
+
+\section{概述}
+
+Agent（智能体）是 OpenClaw 中一个完全独立作用域的"大脑"，拥有自己的：
+
+\begin{itemize}
+  \item \textbf{工作区}（文件、AGENTS.md/SOUL.md/USER.md、本地笔记、人设规则）
+  \item \textbf{状态目录}（\texttt{agentDir}）：认证配置文件、模型注册表
+  \item \textbf{会话存储}（聊天历史 + 路由状态）：\texttt{\textasciitilde{}/.openclaw/agents/<id>/sessions}
+\end{itemize}
+
+配置路径：\texttt{agents.list[]}
+
+\section{单智能体模式（默认）}
+
+不做任何配置时，OpenClaw 运行单个智能体：
+
+\begin{itemize}
+  \item \texttt{agentId} 默认为 \texttt{main}
+  \item 工作区默认为 \texttt{\textasciitilde{}/.openclaw/workspace}
+  \item 状态默认为 \texttt{\textasciitilde{}/.openclaw/agents/main/agent}
+\end{itemize}
+
+\section{多智能体模式}
+
+Gateway 网关可托管多个智能体并行运行，每个智能体拥有：
+
+\begin{itemize}
+  \item 不同的工作区和人格（AGENTS.md、SOUL.md）
+  \item 独立的认证和会话
+  \item 独立的 Skills
+\end{itemize}
+
+\subsection{添加智能体}
+
+\begin{lstlisting}[language=bash]
+openclaw agents add work
+openclaw agents list --bindings
+\end{lstlisting}
+
+\subsection{配置示例}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [
+      {
+        id: "home",
+        default: true,
+        name: "Home",
+        workspace: "~/.openclaw/workspace-home"
+      },
+      {
+        id: "work",
+        name: "Work",
+        workspace: "~/.openclaw/workspace-work"
+      }
+    ]
+  }
+}
+\end{lstlisting}
+
+\section{工作区文件}
+
+工作区是智能体的家目录，包含以下标准文件：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{文件} & \textbf{用途} \\
+\midrule
+\texttt{AGENTS.md} & 操作指南（每个会话开始时加载） \\
+\texttt{SOUL.md} & 人设、语气和边界 \\
+\texttt{USER.md} & 用户偏好 \\
+\texttt{memory/} & 记忆文件目录 \\
+\texttt{skills/} & 每智能体 Skills \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{智能体超时}
+
+\begin{itemize}
+  \item 默认超时：\texttt{agents.defaults.timeoutSeconds}（默认 600 秒）
+  \item \texttt{agent.wait} 超时：默认 30 秒（仅等待，不停止智能体）
+\end{itemize}
+
+\section{常用命令}
+
+\begin{lstlisting}[language=bash]
+# Run agent directly (no inbound chat)
+openclaw agent --to +15555550123 --message "status update"
+openclaw agent --agent ops --message "Summarize logs"
+
+# List agents
+openclaw agents list --bindings
+\end{lstlisting}

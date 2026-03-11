@@ -1,0 +1,122 @@
+\chapter{Debugging}
+
+% === Source file: debug/node-issue.md ===
+\section{Node + tsx "\textbackslash\{\}\_\textbackslash\{\}\_name is not a function" crash}
+
+
+\subsection{Summary}
+
+
+Running OpenClaw via Node with \texttt{tsx} fails at startup with:
+
+\begin{lstlisting}
+[openclaw] Failed to start CLI: TypeError: __name is not a function
+    at createSubsystemLogger (.../src/logging/subsystem.ts:203:25)
+    at .../src/agents/auth-profiles/constants.ts:25:20
+\end{lstlisting}
+
+
+This began after switching dev scripts from Bun to \texttt{tsx} (commit \texttt{2871657e}, 2026-01-06). The same runtime path worked with Bun.
+
+\subsection{Environment}
+
+
+\begin{itemize}
+  \item Node: v25.x (observed on v25.3.0)
+  \item tsx: 4.21.0
+  \item OS: macOS (repro also likely on other platforms that run Node 25)
+\end{itemize}
+
+
+\subsection{Repro (Node-only)}
+
+
+\begin{lstlisting}[language=bash]
+# in repo root
+node --version
+pnpm install
+node --import tsx src/entry.ts status
+\end{lstlisting}
+
+
+\subsection{Minimal repro in repo}
+
+
+\begin{lstlisting}[language=bash]
+node --import tsx scripts/repro/tsx-name-repro.ts
+\end{lstlisting}
+
+
+\subsection{Node version check}
+
+
+\begin{itemize}
+  \item Node 25.3.0: fails
+  \item Node 22.22.0 (Homebrew \texttt{node@22}): fails
+  \item Node 24: not installed here yet; needs verification
+\end{itemize}
+
+
+\subsection{Notes / hypothesis}
+
+
+\begin{itemize}
+  \item \texttt{tsx} uses esbuild to transform TS/ESM. esbuild’s \texttt{keepNames} emits a \texttt{\_\_name} helper and wraps function definitions with \texttt{\_\_name(...)}.
+  \item The crash indicates \texttt{\_\_name} exists but is not a function at runtime, which implies the helper is missing or overwritten for this module in the Node 25 loader path.
+  \item Similar \texttt{\_\_name} helper issues have been reported in other esbuild consumers when the helper is missing or rewritten.
+\end{itemize}
+
+
+\subsection{Regression history}
+
+
+\begin{itemize}
+  \item \texttt{2871657e} (2026-01-06): scripts changed from Bun to tsx to make Bun optional.
+  \item Before that (Bun path), \texttt{openclaw status} and \texttt{gateway:watch} worked.
+\end{itemize}
+
+
+\subsection{Workarounds}
+
+
+\begin{itemize}
+  \item Use Bun for dev scripts (current temporary revert).
+  \item Use Node + tsc watch, then run compiled output:
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+  pnpm exec tsc --watch --preserveWatchOutput
+  node --watch openclaw.mjs status
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item Confirmed locally: \texttt{pnpm exec tsc -p tsconfig.json} + \texttt{node openclaw.mjs status} works on Node 25.
+  \item Disable esbuild keepNames in the TS loader if possible (prevents \texttt{\_\_name} helper insertion); tsx does not currently expose this.
+  \item Test Node LTS (22/24) with \texttt{tsx} to see if the issue is Node 25–specific.
+\end{itemize}
+
+
+\subsection{References}
+
+
+\begin{itemize}
+  \item \href{https://opennext.js.org/cloudflare/howtos/keep\_names}{https://opennext.js.org/cloudflare/howtos/keep\_names}
+  \item \href{https://esbuild.github.io/api/\#keep-names}{https://esbuild.github.io/api/\#keep-names}
+  \item \href{https://github.com/evanw/esbuild/issues/1031}{https://github.com/evanw/esbuild/issues/1031}
+\end{itemize}
+
+
+\subsection{Next steps}
+
+
+\begin{itemize}
+  \item Repro on Node 22/24 to confirm Node 25 regression.
+  \item Test \texttt{tsx} nightly or pin to earlier version if a known regression exists.
+  \item If reproduces on Node LTS, file a minimal repro upstream with the \texttt{\_\_name} stack trace.
+\end{itemize}
+
+
+
+\clearpage

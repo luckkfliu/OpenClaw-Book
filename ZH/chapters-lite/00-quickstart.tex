@@ -1,0 +1,150 @@
+\chapter{快速上手}
+
+\section{OpenClaw 简介}
+
+\begin{quote}
+\textit{"去壳！去壳！"} — 大概是一只太空龙虾说的
+\end{quote}
+
+OpenClaw 是一个 AI 智能体 Gateway 网关，支持 WhatsApp、Telegram、Discord、iMessage 等多种聊天平台。
+通过单个 Gateway 网关进程将聊天应用连接到 AI 编程智能体，支持本地或远程部署。
+
+\subsection{工作原理}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.5cm,
+    every node/.style={font=\small},
+    box/.style={draw=blue!50, fill=blue!5, rounded corners=4pt, minimum width=2.8cm, minimum height=0.7cm, align=center},
+    gw/.style={draw=orange!60, fill=orange!10, rounded corners=6pt, minimum width=3.5cm, minimum height=1cm, align=center, font=\bfseries},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=gray!60}
+]
+    % Left: Chat apps
+    \node[box] (wa) {WhatsApp};
+    \node[box, below=of wa] (tg) {Telegram};
+    \node[box, below=of tg] (dc) {Discord};
+    \node[box, below=of dc] (im) {iMessage};
+
+    % Center: Gateway
+    \node[gw, right=2cm of $(tg)!0.5!(dc)$] (gw) {Gateway\\网关};
+
+    % Right: Outputs
+    \node[box, right=2cm of gw, yshift=0.8cm] (agent) {AI Agent};
+    \node[box, right=2cm of gw, yshift=-0.8cm] (web) {Web UI};
+
+    % Arrows
+    \foreach \src in {wa, tg, dc, im} {
+        \draw[arr] (\src) -- (gw);
+    }
+    \draw[arr] (gw) -- (agent);
+    \draw[arr] (gw) -- (web);
+\end{tikzpicture}
+\end{center}
+
+Gateway 网关是会话、路由和渠道连接的\textbf{唯一事实来源}。
+
+\section{三步安装}
+
+\subsection{第一步：安装 OpenClaw}
+
+\begin{lstlisting}[language=bash]
+npm install -g openclaw@latest
+\end{lstlisting}
+
+\subsection{第二步：运行新手引导}
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+新手引导向导会自动配置：
+\begin{itemize}
+  \item 模型/认证（推荐 OAuth 或 API 密钥）
+  \item 渠道登录（WhatsApp、Telegram 等）
+  \item 守护进程（systemd/launchd 开机自启）
+\end{itemize}
+
+\subsection{第三步：启动 Gateway}
+
+\begin{lstlisting}[language=bash]
+openclaw channels login
+openclaw gateway --port 18789
+\end{lstlisting}
+
+打开浏览器访问 \texttt{http://127.0.0.1:18789/} 即可开始聊天。
+
+\section{最快体验：Control UI}
+
+无需任何渠道配置，直接用浏览器聊天：
+
+\begin{lstlisting}[language=bash]
+openclaw dashboard
+\end{lstlisting}
+
+在浏览器中打开 \texttt{http://127.0.0.1:18789/}，即可与智能体对话。
+
+\section{认证配置}
+
+\subsection{Anthropic API 密钥（推荐）}
+
+\begin{lstlisting}[language=bash]
+export ANTHROPIC_API_KEY="..."
+openclaw models status
+\end{lstlisting}
+
+或将密钥写入守护进程配置：
+
+\begin{lstlisting}[language=bash]
+cat >> ~/.openclaw/.env <<'EOF'
+ANTHROPIC_API_KEY=...
+EOF
+\end{lstlisting}
+
+\subsection{验证安装}
+
+\begin{lstlisting}[language=bash]
+openclaw models status
+openclaw doctor
+\end{lstlisting}
+
+\section{核心概念速览}
+
+OpenClaw 由以下核心组件构成，后续章节将逐一详解：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{概念} & \textbf{说明} & \textbf{配置路径} \\
+\midrule
+Gateway & AI 网关核心，WS/HTTP 服务器 & \texttt{gateway.*} \\
+Agent & AI 助手实例，绑定模型/技能 & \texttt{agents.list[]} \\
+Channel & 聊天平台适配器 & \texttt{channels.<name>.*} \\
+Binding & 用户/群组到 Agent 的路由 & \texttt{agents.list[].bindings[]} \\
+Session & 一次会话，含上下文历史 & \texttt{session.*} \\
+Plugin & 扩展模块，注册工具/渠道/Hook & \texttt{plugins.entries.*} \\
+Skill & Agent 技能（工具+系统提示） & \texttt{skills.entries.*} \\
+Memory & 长期记忆，向量+全文搜索 & \texttt{memorySearch.*} \\
+Sandbox & Docker 沙箱隔离执行 & \texttt{agents.defaults.sandbox.*} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{配置文件}
+
+配置文件位于 \texttt{\textasciitilde{}/.openclaw/openclaw.json}（JSON5 格式）。
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    whatsapp: {
+      allowFrom: ["+15555550123"],
+      groups: { "*": { requireMention: true } }
+    }
+  },
+  messages: {
+    groupChat: { mentionPatterns: ["@openclaw"] }
+  }
+}
+\end{lstlisting}
+
+如果你\textbf{不做任何修改}，OpenClaw 将使用内置的 Pi 二进制文件以 RPC 模式运行，并按发送者创建独立会话。

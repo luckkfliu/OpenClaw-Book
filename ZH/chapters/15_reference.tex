@@ -2305,3 +2305,377 @@ agents:
 
 
 \clearpage
+% === 源文件: reference/prompt-caching.md ===
+\section{Prompt caching}
+
+
+Prompt caching means the model provider can reuse unchanged prompt prefixes (usually system/developer instructions and other stable context) across turns instead of re-processing them every time. The first matching request writes cache tokens (\texttt{cacheWrite}), and later matching requests can read them back (\texttt{cacheRead}).
+
+Why this matters: lower token cost, faster responses, and more predictable performance for long-running sessions. Without caching, repeated prompts pay the full prompt cost on every turn even when most input did not change.
+
+This page covers all cache-related knobs that affect prompt reuse and token cost.
+
+For Anthropic pricing details, see:
+\href{https://docs.anthropic.com/docs/build-with-claude/prompt-caching}{https://docs.anthropic.com/docs/build-with-claude/prompt-caching}
+
+\subsection{Primary knobs}
+
+
+\subsubsection{cacheRetention (model and per-agent)}
+
+
+Set cache retention on model params:
+
+\begin{lstlisting}[language=yaml]
+agents:
+  defaults:
+    models:
+      "anthropic/claude-opus-4-6":
+        params:
+          cacheRetention: "short" # none | short | long
+\end{lstlisting}
+
+
+Per-agent override:
+
+\begin{lstlisting}[language=yaml]
+agents:
+  list:
+    - id: "alerts"
+      params:
+        cacheRetention: "none"
+\end{lstlisting}
+
+
+Config merge order:
+
+\begin{enumerate}
+  \item \texttt{agents.defaults.models["provider/model"].params}
+  \item \texttt{agents.list[].params} (matching agent id; overrides by key)
+\end{enumerate}
+
+
+\subsubsection{Legacy cacheControlTtl}
+
+
+Legacy values are still accepted and mapped:
+
+\begin{itemize}
+  \item \texttt{5m} -> \texttt{short}
+  \item \texttt{1h} -> \texttt{long}
+\end{itemize}
+
+
+Prefer \texttt{cacheRetention} for new config.
+
+\subsubsection{contextPruning.mode: "cache-ttl"}
+
+
+Prunes old tool-result context after cache TTL windows so post-idle requests do not re-cache oversized history.
+
+\begin{lstlisting}[language=yaml]
+agents:
+  defaults:
+    contextPruning:
+      mode: "cache-ttl"
+      ttl: "1h"
+\end{lstlisting}
+
+
+See \href{/concepts/session-pruning}{Session Pruning} for full behavior.
+
+\subsubsection{Heartbeat keep-warm}
+
+
+Heartbeat can keep cache windows warm and reduce repeated cache writes after idle gaps.
+
+\begin{lstlisting}[language=yaml]
+agents:
+  defaults:
+    heartbeat:
+      every: "55m"
+\end{lstlisting}
+
+
+Per-agent heartbeat is supported at \texttt{agents.list[].heartbeat}.
+
+\subsection{Provider behavior}
+
+
+\subsubsection{Anthropic (direct API)}
+
+
+\begin{itemize}
+  \item \texttt{cacheRetention} is supported.
+  \item With Anthropic API-key auth profiles, OpenClaw seeds \texttt{cacheRetention: "short"} for Anthropic model refs when unset.
+\end{itemize}
+
+
+\subsubsection{Amazon Bedrock}
+
+
+\begin{itemize}
+  \item Anthropic Claude model refs (\texttt{amazon-bedrock/\textit{anthropic.claude}}) support explicit \texttt{cacheRetention} pass-through.
+  \item Non-Anthropic Bedrock models are forced to \texttt{cacheRetention: "none"} at runtime.
+\end{itemize}
+
+
+\subsubsection{OpenRouter Anthropic models}
+
+
+For \texttt{openrouter/anthropic/*} model refs, OpenClaw injects Anthropic \texttt{cache\_control} on system/developer prompt blocks to improve prompt-cache reuse.
+
+\subsubsection{Other providers}
+
+
+If the provider does not support this cache mode, \texttt{cacheRetention} has no effect.
+
+\subsection{Tuning patterns}
+
+
+\subsubsection{Mixed traffic (recommended default)}
+
+
+Keep a long-lived baseline on your main agent, disable caching on bursty notifier agents:
+
+\begin{lstlisting}[language=yaml]
+agents:
+  defaults:
+    model:
+      primary: "anthropic/claude-opus-4-6"
+    models:
+      "anthropic/claude-opus-4-6":
+        params:
+          cacheRetention: "long"
+  list:
+    - id: "research"
+      default: true
+      heartbeat:
+        every: "55m"
+    - id: "alerts"
+      params:
+        cacheRetention: "none"
+\end{lstlisting}
+
+
+\subsubsection{Cost-first baseline}
+
+
+\begin{itemize}
+  \item Set baseline \texttt{cacheRetention: "short"}.
+  \item Enable \texttt{contextPruning.mode: "cache-ttl"}.
+  \item Keep heartbeat below your TTL only for agents that benefit from warm caches.
+\end{itemize}
+
+
+\subsection{Cache diagnostics}
+
+
+OpenClaw exposes dedicated cache-trace diagnostics for embedded agent runs.
+
+\subsubsection{diagnostics.cacheTrace config}
+
+
+\begin{lstlisting}[language=yaml]
+diagnostics:
+  cacheTrace:
+    enabled: true
+    filePath: "~/.openclaw/logs/cache-trace.jsonl" # optional
+    includeMessages: false # default true
+    includePrompt: false # default true
+    includeSystem: false # default true
+\end{lstlisting}
+
+
+Defaults:
+
+\begin{itemize}
+  \item \texttt{filePath}: \texttt{\$OPENCLAW\_STATE\_DIR/logs/cache-trace.jsonl}
+  \item \texttt{includeMessages}: \texttt{true}
+  \item \texttt{includePrompt}: \texttt{true}
+  \item \texttt{includeSystem}: \texttt{true}
+\end{itemize}
+
+
+\subsubsection{Env toggles (one-off debugging)}
+
+
+\begin{itemize}
+  \item \texttt{OPENCLAW\_CACHE\_TRACE=1} enables cache tracing.
+  \item \texttt{OPENCLAW\_CACHE\_TRACE\_FILE=/path/to/cache-trace.jsonl} overrides output path.
+  \item \texttt{OPENCLAW\_CACHE\_TRACE\_MESSAGES=0|1} toggles full message payload capture.
+  \item \texttt{OPENCLAW\_CACHE\_TRACE\_PROMPT=0|1} toggles prompt text capture.
+  \item \texttt{OPENCLAW\_CACHE\_TRACE\_SYSTEM=0|1} toggles system prompt capture.
+\end{itemize}
+
+
+\subsubsection{What to inspect}
+
+
+\begin{itemize}
+  \item Cache trace events are JSONL and include staged snapshots like \texttt{session:loaded}, \texttt{prompt:before}, \texttt{stream:context}, and \texttt{session:after}.
+  \item Per-turn cache token impact is visible in normal usage surfaces via \texttt{cacheRead} and \texttt{cacheWrite} (for example \texttt{/usage full} and session usage summaries).
+\end{itemize}
+
+
+\subsection{Quick troubleshooting}
+
+
+\begin{itemize}
+  \item High \texttt{cacheWrite} on most turns: check for volatile system-prompt inputs and verify model/provider supports your cache settings.
+  \item No effect from \texttt{cacheRetention}: confirm model key matches \texttt{agents.defaults.models["provider/model"]}.
+  \item Bedrock Nova/Mistral requests with cache settings: expected runtime force to \texttt{none}.
+\end{itemize}
+
+
+Related docs:
+
+\begin{itemize}
+  \item \href{/providers/anthropic}{Anthropic}
+  \item \href{/reference/token-use}{Token Use and Costs}
+  \item \href{/concepts/session-pruning}{Session Pruning}
+  \item \href{/gateway/configuration-reference}{Gateway Configuration Reference}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: reference/secretref-credential-surface.md ===
+\section{SecretRef credential surface}
+
+
+This page defines the canonical SecretRef credential surface.
+
+Scope intent:
+
+\begin{itemize}
+  \item In scope: strictly user-supplied credentials that OpenClaw does not mint or rotate.
+  \item Out of scope: runtime-minted or rotating credentials, OAuth refresh material, and session-like artifacts.
+\end{itemize}
+
+
+\subsection{Supported credentials}
+
+
+\subsubsection{openclaw.json targets (secrets configure + secrets apply + secrets audit)}
+
+
+
+\begin{itemize}
+  \item \texttt{models.providers.*.apiKey}
+  \item \texttt{skills.entries.*.apiKey}
+  \item \texttt{agents.defaults.memorySearch.remote.apiKey}
+  \item \texttt{agents.list[].memorySearch.remote.apiKey}
+  \item \texttt{talk.apiKey}
+  \item \texttt{talk.providers.*.apiKey}
+  \item \texttt{messages.tts.elevenlabs.apiKey}
+  \item \texttt{messages.tts.openai.apiKey}
+  \item \texttt{tools.web.search.apiKey}
+  \item \texttt{tools.web.search.gemini.apiKey}
+  \item \texttt{tools.web.search.grok.apiKey}
+  \item \texttt{tools.web.search.kimi.apiKey}
+  \item \texttt{tools.web.search.perplexity.apiKey}
+  \item \texttt{gateway.auth.password}
+  \item \texttt{gateway.remote.token}
+  \item \texttt{gateway.remote.password}
+  \item \texttt{cron.webhookToken}
+  \item \texttt{channels.telegram.botToken}
+  \item \texttt{channels.telegram.webhookSecret}
+  \item \texttt{channels.telegram.accounts.*.botToken}
+  \item \texttt{channels.telegram.accounts.*.webhookSecret}
+  \item \texttt{channels.slack.botToken}
+  \item \texttt{channels.slack.appToken}
+  \item \texttt{channels.slack.userToken}
+  \item \texttt{channels.slack.signingSecret}
+  \item \texttt{channels.slack.accounts.*.botToken}
+  \item \texttt{channels.slack.accounts.*.appToken}
+  \item \texttt{channels.slack.accounts.*.userToken}
+  \item \texttt{channels.slack.accounts.*.signingSecret}
+  \item \texttt{channels.discord.token}
+  \item \texttt{channels.discord.pluralkit.token}
+  \item \texttt{channels.discord.voice.tts.elevenlabs.apiKey}
+  \item \texttt{channels.discord.voice.tts.openai.apiKey}
+  \item \texttt{channels.discord.accounts.*.token}
+  \item \texttt{channels.discord.accounts.*.pluralkit.token}
+  \item \texttt{channels.discord.accounts.*.voice.tts.elevenlabs.apiKey}
+  \item \texttt{channels.discord.accounts.*.voice.tts.openai.apiKey}
+  \item \texttt{channels.irc.password}
+  \item \texttt{channels.irc.nickserv.password}
+  \item \texttt{channels.irc.accounts.*.password}
+  \item \texttt{channels.irc.accounts.*.nickserv.password}
+  \item \texttt{channels.bluebubbles.password}
+  \item \texttt{channels.bluebubbles.accounts.*.password}
+  \item \texttt{channels.feishu.appSecret}
+  \item \texttt{channels.feishu.verificationToken}
+  \item \texttt{channels.feishu.accounts.*.appSecret}
+  \item \texttt{channels.feishu.accounts.*.verificationToken}
+  \item \texttt{channels.msteams.appPassword}
+  \item \texttt{channels.mattermost.botToken}
+  \item \texttt{channels.mattermost.accounts.*.botToken}
+  \item \texttt{channels.matrix.password}
+  \item \texttt{channels.matrix.accounts.*.password}
+  \item \texttt{channels.nextcloud-talk.botSecret}
+  \item \texttt{channels.nextcloud-talk.apiPassword}
+  \item \texttt{channels.nextcloud-talk.accounts.*.botSecret}
+  \item \texttt{channels.nextcloud-talk.accounts.*.apiPassword}
+  \item \texttt{channels.zalo.botToken}
+  \item \texttt{channels.zalo.webhookSecret}
+  \item \texttt{channels.zalo.accounts.*.botToken}
+  \item \texttt{channels.zalo.accounts.*.webhookSecret}
+  \item \texttt{channels.googlechat.serviceAccount} via sibling \texttt{serviceAccountRef} (compatibility exception)
+  \item \texttt{channels.googlechat.accounts.*.serviceAccount} via sibling \texttt{serviceAccountRef} (compatibility exception)
+\end{itemize}
+
+
+\subsubsection{auth-profiles.json targets (secrets configure + secrets apply + secrets audit)}
+
+
+\begin{itemize}
+  \item \texttt{profiles.*.keyRef} (\texttt{type: "api\_key"})
+  \item \texttt{profiles.*.tokenRef} (\texttt{type: "token"})
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item Auth-profile plan targets require \texttt{agentId}.
+  \item Plan entries target \texttt{profiles.\textit{.key} / \texttt{profiles.}.token} and write sibling refs (\texttt{keyRef} / \texttt{tokenRef}).
+  \item Auth-profile refs are included in runtime resolution and audit coverage.
+  \item For web search:
+  \item In explicit provider mode (\texttt{tools.web.search.provider} set), only the selected provider key is active.
+  \item In auto mode (\texttt{tools.web.search.provider} unset), \texttt{tools.web.search.apiKey} and provider-specific keys are active.
+\end{itemize}
+
+
+\subsection{Unsupported credentials}
+
+
+Out-of-scope credentials include:
+
+
+\begin{itemize}
+  \item \texttt{gateway.auth.token}
+  \item \texttt{commands.ownerDisplaySecret}
+  \item \texttt{channels.matrix.accessToken}
+  \item \texttt{channels.matrix.accounts.*.accessToken}
+  \item \texttt{hooks.token}
+  \item \texttt{hooks.gmail.pushToken}
+  \item \texttt{hooks.mappings[].sessionKey}
+  \item \texttt{auth-profiles.oauth.*}
+  \item \texttt{discord.threadBindings.*.webhookToken}
+  \item \texttt{whatsapp.creds.json}
+\end{itemize}
+
+
+Rationale:
+
+\begin{itemize}
+  \item These credentials are minted, rotated, session-bearing, or OAuth-durable classes that do not fit read-only external SecretRef resolution.
+\end{itemize}
+
+
+
+\clearpage
+

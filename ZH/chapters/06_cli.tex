@@ -4444,3 +4444,390 @@ openclaw webhooks gmail run
 
 
 \clearpage
+% === 源文件: cli/clawbot.md ===
+\section{openclaw clawbot}
+
+
+Legacy alias namespace kept for backwards compatibility.
+
+Current supported alias:
+
+\begin{itemize}
+  \item \texttt{openclaw clawbot qr} (same behavior as \href{/cli/qr}{\texttt{openclaw qr}})
+\end{itemize}
+
+
+\subsection{Migration}
+
+
+Prefer modern top-level commands directly:
+
+\begin{itemize}
+  \item \texttt{openclaw clawbot qr} -> \texttt{openclaw qr}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: cli/completion.md ===
+\section{openclaw completion}
+
+
+Generate shell completion scripts and optionally install them into your shell profile.
+
+\subsection{Usage}
+
+
+\begin{lstlisting}[language=bash]
+openclaw completion
+openclaw completion --shell zsh
+openclaw completion --install
+openclaw completion --shell fish --install
+openclaw completion --write-state
+openclaw completion --shell bash --write-state
+\end{lstlisting}
+
+
+\subsection{Options}
+
+
+\begin{itemize}
+  \item \texttt{-s, --shell }: shell target (\texttt{zsh}, \texttt{bash}, \texttt{powershell}, \texttt{fish}; default: \texttt{zsh})
+  \item \texttt{-i, --install}: install completion by adding a source line to your shell profile
+  \item \texttt{--write-state}: write completion script(s) to \texttt{\$OPENCLAW\_STATE\_DIR/completions} without printing to stdout
+  \item \texttt{-y, --yes}: skip install confirmation prompts
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item \texttt{--install} writes a small "OpenClaw Completion" block into your shell profile and points it at the cached script.
+  \item Without \texttt{--install} or \texttt{--write-state}, the command prints the script to stdout.
+  \item Completion generation eagerly loads command trees so nested subcommands are included.
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: cli/daemon.md ===
+\section{openclaw daemon}
+
+
+Legacy alias for Gateway service management commands.
+
+\texttt{openclaw daemon ...} maps to the same service control surface as \texttt{openclaw gateway ...} service commands.
+
+\subsection{Usage}
+
+
+\begin{lstlisting}[language=bash]
+openclaw daemon status
+openclaw daemon install
+openclaw daemon start
+openclaw daemon stop
+openclaw daemon restart
+openclaw daemon uninstall
+\end{lstlisting}
+
+
+\subsection{Subcommands}
+
+
+\begin{itemize}
+  \item \texttt{status}: show service install state and probe Gateway health
+  \item \texttt{install}: install service (\texttt{launchd}/\texttt{systemd}/\texttt{schtasks})
+  \item \texttt{uninstall}: remove service
+  \item \texttt{start}: start service
+  \item \texttt{stop}: stop service
+  \item \texttt{restart}: restart service
+\end{itemize}
+
+
+\subsection{Common options}
+
+
+\begin{itemize}
+  \item \texttt{status}: \texttt{--url}, \texttt{--token}, \texttt{--password}, \texttt{--timeout}, \texttt{--no-probe}, \texttt{--deep}, \texttt{--json}
+  \item \texttt{install}: \texttt{--port}, \texttt{--runtime }, \texttt{--token}, \texttt{--force}, \texttt{--json}
+  \item lifecycle (\texttt{uninstall|start|stop|restart}): \texttt{--json}
+\end{itemize}
+
+
+\subsection{Prefer}
+
+
+Use \href{/cli/gateway}{\texttt{openclaw gateway}} for current docs and examples.
+
+
+\clearpage
+
+% === 源文件: cli/qr.md ===
+\section{openclaw qr}
+
+
+Generate an iOS pairing QR and setup code from your current Gateway configuration.
+
+\subsection{Usage}
+
+
+\begin{lstlisting}[language=bash]
+openclaw qr
+openclaw qr --setup-code-only
+openclaw qr --json
+openclaw qr --remote
+openclaw qr --url wss://gateway.example/ws --token '<token>'
+\end{lstlisting}
+
+
+\subsection{Options}
+
+
+\begin{itemize}
+  \item \texttt{--remote}: use \texttt{gateway.remote.url} plus remote token/password from config
+  \item \texttt{--url }: override gateway URL used in payload
+  \item \texttt{--public-url }: override public URL used in payload
+  \item \texttt{--token }: override gateway token for payload
+  \item \texttt{--password }: override gateway password for payload
+  \item \texttt{--setup-code-only}: print only setup code
+  \item \texttt{--no-ascii}: skip ASCII QR rendering
+  \item \texttt{--json}: emit JSON (\texttt{setupCode}, \texttt{gatewayUrl}, \texttt{auth}, \texttt{urlSource})
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item \texttt{--token} and \texttt{--password} are mutually exclusive.
+  \item With \texttt{--remote}, if effectively active remote credentials are configured as SecretRefs and you do not pass \texttt{--token} or \texttt{--password}, the command resolves them from the active gateway snapshot. If gateway is unavailable, the command fails fast.
+  \item Without \texttt{--remote}, local \texttt{gateway.auth.password} SecretRefs are resolved when password auth can win (explicit \texttt{gateway.auth.mode="password"} or inferred password mode with no winning token from auth/env), and no CLI auth override is passed.
+  \item Gateway version skew note: this command path requires a gateway that supports \texttt{secrets.resolve}; older gateways return an unknown-method error.
+  \item After scanning, approve device pairing with:
+  \item \texttt{openclaw devices list}
+  \item \texttt{openclaw devices approve }
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: cli/secrets.md ===
+\section{openclaw secrets}
+
+
+Use \texttt{openclaw secrets} to manage SecretRefs and keep the active runtime snapshot healthy.
+
+Command roles:
+
+\begin{itemize}
+  \item \texttt{reload}: gateway RPC (\texttt{secrets.reload}) that re-resolves refs and swaps runtime snapshot only on full success (no config writes).
+  \item \texttt{audit}: read-only scan of configuration/auth stores and legacy residues for plaintext, unresolved refs, and precedence drift.
+  \item \texttt{configure}: interactive planner for provider setup, target mapping, and preflight (TTY required).
+  \item \texttt{apply}: execute a saved plan (\texttt{--dry-run} for validation only), then scrub targeted plaintext residues.
+\end{itemize}
+
+
+Recommended operator loop:
+
+\begin{lstlisting}[language=bash]
+openclaw secrets audit --check
+openclaw secrets configure
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json --dry-run
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json
+openclaw secrets audit --check
+openclaw secrets reload
+\end{lstlisting}
+
+
+Exit code note for CI/gates:
+
+\begin{itemize}
+  \item \texttt{audit --check} returns \texttt{1} on findings.
+  \item unresolved refs return \texttt{2}.
+\end{itemize}
+
+
+Related:
+
+\begin{itemize}
+  \item Secrets guide: \href{/gateway/secrets}{Secrets Management}
+  \item Credential surface: \href{/reference/secretref-credential-surface}{SecretRef Credential Surface}
+  \item Security guide: \href{/gateway/security}{Security}
+\end{itemize}
+
+
+\subsection{Reload runtime snapshot}
+
+
+Re-resolve secret refs and atomically swap runtime snapshot.
+
+\begin{lstlisting}[language=bash]
+openclaw secrets reload
+openclaw secrets reload --json
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Uses gateway RPC method \texttt{secrets.reload}.
+  \item If resolution fails, gateway keeps last-known-good snapshot and returns an error (no partial activation).
+  \item JSON response includes \texttt{warningCount}.
+\end{itemize}
+
+
+\subsection{Audit}
+
+
+Scan OpenClaw state for:
+
+\begin{itemize}
+  \item plaintext secret storage
+  \item unresolved refs
+  \item precedence drift (\texttt{auth-profiles.json} credentials shadowing \texttt{openclaw.json} refs)
+  \item legacy residues (legacy auth store entries, OAuth reminders)
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+openclaw secrets audit
+openclaw secrets audit --check
+openclaw secrets audit --json
+\end{lstlisting}
+
+
+Exit behavior:
+
+\begin{itemize}
+  \item \texttt{--check} exits non-zero on findings.
+  \item unresolved refs exit with higher-priority non-zero code.
+\end{itemize}
+
+
+Report shape highlights:
+
+\begin{itemize}
+  \item \texttt{status}: \texttt{clean | findings | unresolved}
+  \item \texttt{summary}: \texttt{plaintextCount}, \texttt{unresolvedRefCount}, \texttt{shadowedRefCount}, \texttt{legacyResidueCount}
+  \item finding codes:
+  \item \texttt{PLAINTEXT\_FOUND}
+  \item \texttt{REF\_UNRESOLVED}
+  \item \texttt{REF\_SHADOWED}
+  \item \texttt{LEGACY\_RESIDUE}
+\end{itemize}
+
+
+\subsection{Configure (interactive helper)}
+
+
+Build provider and SecretRef changes interactively, run preflight, and optionally apply:
+
+\begin{lstlisting}[language=bash]
+openclaw secrets configure
+openclaw secrets configure --plan-out /tmp/openclaw-secrets-plan.json
+openclaw secrets configure --apply --yes
+openclaw secrets configure --providers-only
+openclaw secrets configure --skip-provider-setup
+openclaw secrets configure --agent ops
+openclaw secrets configure --json
+\end{lstlisting}
+
+
+Flow:
+
+\begin{itemize}
+  \item Provider setup first (\texttt{add/edit/remove} for \texttt{secrets.providers} aliases).
+  \item Credential mapping second (select fields and assign \texttt{\{source, provider, id\}} refs).
+  \item Preflight and optional apply last.
+\end{itemize}
+
+
+Flags:
+
+\begin{itemize}
+  \item \texttt{--providers-only}: configure \texttt{secrets.providers} only, skip credential mapping.
+  \item \texttt{--skip-provider-setup}: skip provider setup and map credentials to existing providers.
+  \item \texttt{--agent }: scope \texttt{auth-profiles.json} target discovery and writes to one agent store.
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item Requires an interactive TTY.
+  \item You cannot combine \texttt{--providers-only} with \texttt{--skip-provider-setup}.
+  \item \texttt{configure} targets secret-bearing fields in \texttt{openclaw.json} plus \texttt{auth-profiles.json} for the selected agent scope.
+  \item \texttt{configure} supports creating new \texttt{auth-profiles.json} mappings directly in the picker flow.
+  \item Canonical supported surface: \href{/reference/secretref-credential-surface}{SecretRef Credential Surface}.
+  \item It performs preflight resolution before apply.
+  \item Generated plans default to scrub options (\texttt{scrubEnv}, \texttt{scrubAuthProfilesForProviderTargets}, \texttt{scrubLegacyAuthJson} all enabled).
+  \item Apply path is one-way for scrubbed plaintext values.
+  \item Without \texttt{--apply}, CLI still prompts \texttt{Apply this plan now?} after preflight.
+  \item With \texttt{--apply} (and no \texttt{--yes}), CLI prompts an extra irreversible confirmation.
+\end{itemize}
+
+
+Exec provider safety note:
+
+\begin{itemize}
+  \item Homebrew installs often expose symlinked binaries under \texttt{/opt/homebrew/bin/*}.
+  \item Set \texttt{allowSymlinkCommand: true} only when needed for trusted package-manager paths, and pair it with \texttt{trustedDirs} (for example \texttt{["/opt/homebrew"]}).
+  \item On Windows, if ACL verification is unavailable for a provider path, OpenClaw fails closed. For trusted paths only, set \texttt{allowInsecurePath: true} on that provider to bypass path security checks.
+\end{itemize}
+
+
+\subsection{Apply a saved plan}
+
+
+Apply or preflight a plan generated previously:
+
+\begin{lstlisting}[language=bash]
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json --dry-run
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json --json
+\end{lstlisting}
+
+
+Plan contract details (allowed target paths, validation rules, and failure semantics):
+
+\begin{itemize}
+  \item \href{/gateway/secrets-plan-contract}{Secrets Apply Plan Contract}
+\end{itemize}
+
+
+What \texttt{apply} may update:
+
+\begin{itemize}
+  \item \texttt{openclaw.json} (SecretRef targets + provider upserts/deletes)
+  \item \texttt{auth-profiles.json} (provider-target scrubbing)
+  \item legacy \texttt{auth.json} residues
+  \item \texttt{\textasciitilde{}/.openclaw/.env} known secret keys whose values were migrated
+\end{itemize}
+
+
+\subsection{Why no rollback backups}
+
+
+\texttt{secrets apply} intentionally does not write rollback backups containing old plaintext values.
+
+Safety comes from strict preflight + atomic-ish apply with best-effort in-memory restore on failure.
+
+\subsection{Example}
+
+
+\begin{lstlisting}[language=bash]
+openclaw secrets audit --check
+openclaw secrets configure
+openclaw secrets audit --check
+\end{lstlisting}
+
+
+If \texttt{audit --check} still reports plaintext findings, update the remaining reported target paths and rerun audit.
+
+
+\clearpage
+

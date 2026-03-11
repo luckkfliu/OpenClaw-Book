@@ -1,0 +1,1385 @@
+\chapter{Hands-On: Server Deployment and Configuration Guide}
+
+\begin{quote}
+Based on real-world operations, covering remote server deployment of OpenClaw, API configuration, directory structure analysis, Agent and session management.
+\end{quote}
+
+\section{Remote Server Deployment}
+
+
+\subsection{Environment Information}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Item & Value \\
+\hline
+Server IP & \texttt{<your-server-ip>} \\
+\hline
+Username & ubuntu \\
+\hline
+OS & Ubuntu Linux 6.8.0-51-generic (x86\_64) \\
+\hline
+Private Key File & \texttt{\textasciitilde{}/.ssh/your-key.pem} \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{SSH Connection}
+
+
+\begin{lstlisting}[language=bash]
+# Private key must be 600, or SSH will refuse connection
+chmod 600 ~/.ssh/your-key.pem
+
+# Connect to server
+ssh -i ~/.ssh/your-key.pem ubuntu@<your-server-ip>
+\end{lstlisting}
+
+\begin{quote}
+\textbf{Note}:If key permission is too broad (e.g. 644), SSH will report \texttt{Permissions 0644 for key are too open}. Fix the permission first.
+\end{quote}
+
+\subsection{Installing OpenClaw}
+
+\subsubsection{System Requirements}
+
+\begin{itemize}
+  \item \textbf{Node.js 22+}(Installer script will auto-detect and install)
+  \item macOS, Linux, or Windows via WSL2
+  \item \texttt{pnpm} Only needed when building from source
+\end{itemize}
+
+\subsubsection{Option 1: Installer Script (Recommended)}
+
+The installer script auto-handles Node.js detection, installation, and onboarding in one step:
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://openclaw.ai/install.sh | bash
+\end{lstlisting}
+
+The installer performs the following steps automatically:
+\begin{enumerate}
+  \item Detect OS (macOS / Linux / WSL)
+  \item Ensure Node.js 22+ is installed (Linux via NodeSource)
+  \item Ensure Git is installed
+  \item Install OpenClaw globally via npm
+  \item Run onboarding
+\end{enumerate}
+
+To skip onboarding (for automated deployments):
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard
+\end{lstlisting}
+
+\subsubsection{Option 2: Global npm Install (Manual)}
+
+If the server already has Node.js 22+, install directly via npm:
+
+\begin{lstlisting}[language=bash]
+# Confirm Node.js version >= 22
+node -v
+
+# Install OpenClaw globally
+npm install -g openclaw@latest
+\end{lstlisting}
+
+\subsubsection{Option 3: Build from Source}
+
+For custom modifications or development:
+
+\begin{lstlisting}[language=bash]
+git clone https://github.com/openclaw/openclaw.git
+cd openclaw
+pnpm install
+pnpm build
+
+# Link openclaw command globally
+pnpm link --global
+\end{lstlisting}
+
+\subsubsection{Post-Installation Verification}
+
+\begin{lstlisting}[language=bash]
+# Check if installation succeeded
+openclaw --version
+
+# Run diagnostic check
+openclaw doctor
+
+# If onboarding was skipped, run manually
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+\begin{quote}
+\textbf{Tip}:If after installation, \texttt{openclaw} command is not found in a new terminal, it is usually a PATH issue. Add npm global bin to PATH:
+\begin{lstlisting}[language=bash]
+export PATH="$(npm prefix -g)/bin:$PATH"
+\end{lstlisting}
+Add the above to \texttt{\textasciitilde{}/.bashrc} or \texttt{\textasciitilde{}/.zshrc}  for persistence.
+\end{quote}
+
+After installation, use the \texttt{openclaw} command to get started.
+
+\hrulefill
+
+\section{API Configuration}
+
+
+\subsection{Configuration Methods}
+
+
+It is recommended to use the \texttt{openclaw config set} command for item-by-item configuration to avoid JSON format errors.
+
+\begin{lstlisting}[language=bash]
+# Set API Provider (example)
+openclaw config set secrets.providers.<provider>.apiKey "your-api-key"
+openclaw config set secrets.providers.<provider>.apiUrl "https://<api-endpoint>/v1/"
+
+# Set model
+openclaw config set models.<provider>/Kimi-K2.5.provider "<provider>"
+openclaw config set models.<provider>/Kimi-K2.5.api "openai-completions"
+
+# Set default model
+openclaw config set defaults.model "<provider>/Kimi-K2.5"
+
+# Set gateway mode to local
+openclaw config set gateway.mode "local"
+\end{lstlisting}
+
+\subsection{Configuration File Structure}
+
+
+The configuration file is located at \texttt{\textasciitilde{}/.openclaw/openclaw.json}, with the core structure as follows:
+
+\begin{lstlisting}[language=json]
+{
+  "secrets": {
+    "providers": {
+      "<provider>": {
+        "apiKey": "your-api-key",
+        "apiUrl": "https://<api-endpoint>/v1/"
+      }
+    }
+  },
+  "models": {
+    "<provider>/Kimi-K2.5": {
+      "provider": "<provider>",
+      "api": "openai-completions"
+    }
+  },
+  "defaults": {
+    "model": "<provider>/Kimi-K2.5"
+  },
+  "gateway":    "mode": "local"
+  }
+}
+\end{lstlisting}
+
+\subsection{Key Field Descriptions}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Field & Description \\
+\hline
+\texttt{secrets.providers.<name>.apiKey} & API key \\
+\hline
+\texttt{secrets.providers.<name>.apiUrl} & API endpoint URL \\
+\hline
+\texttt{models.<model>.provider} & Provider name for model \\
+\hline
+\texttt{models.<model>.api} & API protocol type (e.g. \texttt{openai-completions}) \\
+\hline
+\texttt{defaults.model} & Default model \\
+\hline
+\texttt{gateway.mode} & Gateway mode, \texttt{local} for local mode \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Common Configuration Errors}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Error & Cause & Solution \\
+\hline
+\texttt{config validate} fails & api type set to \texttt{openai-chat} & Change to \texttt{openai-completions} \\
+\hline
+\texttt{No API provider registered for api: undefined} & Model config missing \texttt{api} field & Add  \texttt{api: "openai-completions"} \\
+\hline
+Gateway not started & Not set \texttt{gateway.mode} or not started & Set to \texttt{local},run \texttt{openclaw gateway} \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Starting the Gateway}
+
+
+\begin{lstlisting}[language=bash]
+# Run in foreground (for debugging)
+openclaw gateway
+
+# Run in background
+nohup openclaw gateway &
+\end{lstlisting}
+
+\subsection{Verifying Configuration}
+
+
+\begin{lstlisting}[language=bash]
+# Verify configuration
+openclaw config validate
+
+# Test Agent invocation
+openclaw agent --agent main --session-id test "Hello"
+\end{lstlisting}
+
+\hrulefill
+
+\section{\texttt{\textasciitilde{}/.openclaw/} Directory Structure Details}
+
+
+\begin{quote}
+The following is the \texttt{\textasciitilde{}/.openclaw/} \textbf{actual complete directory tree} on the server (collected from the real environment).
+\end{quote}
+
+\begin{lstlisting}
+~/.openclaw/
++-- openclaw.json              # Main config (API keys, models, gateway, channels, etc.)
++-- openclaw.json.bak          # Auto-backup (auto-generated on each edit, up to 5 copies)
++-- openclaw.json.bak.1
++-- openclaw.json.bak.2
++-- openclaw.json.bak.3
++-- openclaw.json.bak.4
++-- update-check.json          # Version update check record (last check time)
+|
++-- agents/                    # Agent registry (one subdirectory per Agent)
+|   +-- main/                  # Default Agent "main"
+|       +-- agent/
+|       |   +-- models.json    # Runtime-resolved model info snapshot for this Agent
+|       +-- sessions/
+|           +-- sessions.json  # Session index (all session metadata, token usage, etc.)
+|           +-- <uuid>.jsonl   # Session message history (JSONL, one message per line)
+|
++-- canvas/                    # Canvas feature
+|   +-- index.html             # Canvas frontend page
+|
++-- completions/               # Shell auto-completion scripts
+|   +-- openclaw.bash          # Bash completion
+|   +-- openclaw.zsh           # Zsh completion
+|   +-- openclaw.fish          # Fish completion
+|   +-- openclaw.ps1           # PowerShell completion
+|
++-- cron/                      # Cron jobs
+|   +-- jobs.json              # Cron registry (cron expressions + job definitions)
+|
++-- devices/                   # Device management (mobile nodes, etc.)
+|   +-- paired.json            # List of paired devices
+|   +-- pending.json           # List of pending devices
+|
++-- identity/                  # Identity and authentication
+|   +-- device.json            # Current device ID (device ID, name, etc.)
+|   +-- device-auth.json       # Device auth credentials
+|
++-- logs/                      # Runtime logs
+|   +-- config-audit.jsonl     # Config change audit log (auto-recorded on each edit)
+|
++-- memory/                    # Memory storage
+|   +-- main.sqlite            # Default Agent's SQLite memory DB
+|
++-- workspace/                 # Default workspace (Agent persona and knowledge base)
+    +-- .git/                  # Git repo (workspace includes version control)
+    +-- .clawhub/              # ClawHub package mgmt (lock file like node_modules)
+    |   +-- lock.json          #   Version lock file for installed Skills
+    +-- .openclaw/
+    |   +-- workspace-state.json  # Workspace state (e.g., bootstrap time)
+    +-- SOUL.md                # Core persona (personality, tone, behavioral guidelines)
+    +-- AGENTS.md              # Agent workflow (startup, memory management spec)
+    +-- IDENTITY.md            # Agent identity (name, emoji, style, etc.)
+    +-- USER.md                # User profile (preferences, habits, notes)
+    +-- BOOTSTRAP.md           # First-time boot guide (can be deleted after init)
+    +-- HEARTBEAT.md           # Heartbeat task definition (periodic checks)
+    +-- TOOLS.md               # Local tools memo (env-specific SSH, device info)
+    |
+    +-- skills/                # Installed workspace-level Skills (highest priority)
+        +-- xiaohongshu-mcp/   #   Example: Xiaohongshu automation Skill
+            +-- .clawhub/
+            |   +-- origin.json    # Install source (registry URL, version, install time)
+            +-- _meta.json         # Skill metadata (author ID, slug, version, publish time)
+            +-- SKILL.md           # Skill definition (name, description, usage guide)
+            +-- scripts/           # Scripts included with Skill
+                +-- xhs_client.py  # Xiaohongshu MCP client Python script
+\end{lstlisting}
+
+\subsection{Root-Level File Details}
+
+
+\subsubsection{openclaw.json --- Main Configuration File}
+
+
+The core system configuration, containing the following top-level fields:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Field & Description \\
+\hline
+\texttt{secrets.providers} & API Provider keys and endpoints \\
+\hline
+\texttt{models} & Available model list with Provider mapping and API protocol type \\
+\hline
+\texttt{defaults} & Default model, default Agent, and other global defaults \\
+\hline
+\texttt{gateway} & Gateway mode (\texttt{local}/\texttt{cloud}) and port configuration \\
+\hline
+\texttt{channels} & Channel connection config (Telegram/Feishu/WhatsApp, etc.) \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{openclaw.json.bak* --- Auto Configuration Backup}
+
+
+Each time you use \texttt{openclaw config set} or other methods to modify configuration, the system auto-backs up the previous version. Up to \textbf{5} backups are retained (\texttt{.bak} \textasciitilde{} \texttt{.bak.4}), sorted reverse-chronologically, with the newest being \texttt{.bak}.
+
+\begin{quote}
+If the config is broken, you can directly  \texttt{cp openclaw.json.bak openclaw.json} to roll back.
+\end{quote}
+
+\subsubsection{update-check.json --- Version Check Record}
+
+
+\begin{lstlisting}[language=json]
+{ "lastCheckedAt": "2026-03-06T14:18:59.388Z" }
+\end{lstlisting}
+
+Records the last time OpenClaw checked for new versions, to avoid frequent update server requests.
+
+\subsection{\texttt{agents/} --- Agent Registry and Session Storage}
+
+
+Each Agent has its own subdirectory containing runtime data:
+
+\begin{lstlisting}
+agents/main/
++-- agent/
+|   +-- models.json        # Runtime model snapshot
++-- sessions/
+    +-- sessions.json      # Session index
+    +-- <uuid>.jsonl       # Session message history
+\end{lstlisting}
+
+\subsubsection{agent/models.json --- Runtime Model Information}
+
+
+Generated from the main configuration when Gateway starts, containing complete model information:
+
+\begin{lstlisting}[language=json]
+{
+  "providers": {
+    "<provider>": {
+      "baseUrl": "https://<api-endpoint>/v1/",
+      "apiKey": "***",
+      "models": [{
+        "id": "Kimi-K2.5",
+        "api": "openai-completions",
+        "reasoning": false,
+        "input": ["text"],
+        "contextWindow": 200000,
+        "maxTokens": 8192,
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+      }]
+    }
+  }
+}
+\end{lstlisting}
+
+\subsubsection{sessions/sessions.json --- Session index}
+
+
+Records metadata for all sessions under this Agent, with key format \texttt{agent:<agent-name>:<session-name>}:
+
+\begin{lstlisting}[language=json]
+{
+  "agent:main:main": {
+    "sessionId": "<session-uuid>",
+    "sessionFile": "~/.openclaw/agents/main/sessions/<session-uuid>.jsonl",
+    "model": "Kimi-K2.5",
+    "modelProvider": "<provider>",
+    "contextTokens": 200000,
+    "inputTokens": 32,
+    "outputTokens": 162,
+    "totalTokens": 13050,
+    "cacheRead": 13018,
+    "skillsSnapshot": { }
+  }
+}
+\end{lstlisting}
+
+\begin{quote}
+From here you can see each session's model, token usage, associated Skills, and other info.
+\end{quote}
+
+\subsubsection{sessions/<uuid>.jsonl --- Session message history}
+
+
+Stores complete message interaction records in JSONL format (one JSON per line), including user messages, Agent replies, tool calls, etc. Filename is the session UUID.
+
+\subsection{\texttt{canvas/} --- Canvas}
+
+
+\begin{lstlisting}
+canvas/
++-- index.html
+\end{lstlisting}
+
+Provides a local Web visualization canvas page where the Agent can render charts, code previews, and other rich content. Access via browser.
+
+\subsection{\texttt{completions/} --- Shell Auto-Completion}
+
+
+\begin{lstlisting}
+completions/
++-- openclaw.bash
++-- openclaw.zsh
++-- openclaw.fish
++-- openclaw.ps1
+\end{lstlisting}
+
+Auto-generated Shell completion scripts during installation, enabling \texttt{openclaw} command Tab auto-completion. Loading methods:
+
+\begin{lstlisting}[language=bash]
+# Bash
+source ~/.openclaw/completions/openclaw.bash
+
+# Zsh
+source ~/.openclaw/completions/openclaw.zsh
+\end{lstlisting}
+
+\subsection{\texttt{cron/} --- Cron jobs}
+
+
+\begin{lstlisting}[language=json]
+// cron/jobs.json
+{ "version": 1, "jobs": [] }
+\end{lstlisting}
+
+Registers Agent Cron jobs. Agents can use the \texttt{cron}  Skill to create periodic tasks (e.g., sending reminders, checking system status), with definitions stored in \texttt{jobs.json} .
+
+\subsection{\texttt{devices/} --- Device Management}
+
+
+\begin{lstlisting}
+devices/
++-- paired.json     # Paired devices
++-- pending.json    # Pending devices
+\end{lstlisting}
+
+Manages external devices connected to the Gateway via WebSocket (phones, tablets, and other Node endpoints). Devices can expose hardware capabilities (camera, GPS, notifications, etc.), which the Agent can remotely invoke through the Gateway.
+
+\subsection{\texttt{identity/} --- Identity and Authentication}
+
+
+\begin{lstlisting}
+identity/
++-- device.json         # Current device identity info
++-- device-auth.json    # Device auth credentials
+\end{lstlisting}
+
+Identifies the unique identity of the current installation instance, used for authentication and differentiation in multi-device scenarios.
+
+\subsection{\texttt{logs/} --- Audit Logs}
+
+
+\begin{lstlisting}
+logs/
++-- config-audit.jsonl
+\end{lstlisting}
+
+Records complete audit information for each config change in JSONL format, including:
+
+\begin{itemize}
+  \item \textbf{Timestamp}(\texttt{ts})
+  \item \textbf{Trigger command}(\texttt{argv}),e.g. \texttt{openclaw config set gateway.mode local}
+  \item \textbf{Config hash before and after change}(\texttt{previousHash} / \texttt{nextHash})
+  \item \textbf{File size change}(\texttt{previousBytes} / \texttt{nextBytes})
+  \item \textbf{Suspicious operation flag}(\texttt{suspicious})
+\end{itemize}
+
+\begin{quote}
+Useful for troubleshooting config issues and tracing change history.
+\end{quote}
+
+\subsection{\texttt{memory/} --- Memory Database}
+
+
+\begin{lstlisting}
+memory/
++-- main.sqlite
+\end{lstlisting}
+
+Uses SQLite database to persist Agent long-term memory. Filename corresponds to Agent name (\texttt{main.sqlite} corresponds to \texttt{main} Agent). Stored content includes:
+
+\begin{itemize}
+  \item Conversation summaries
+  \item User preferences
+  \item Important events
+  \item Extracted key information
+\end{itemize}
+
+\subsection{\texttt{workspace/} --- Workspace (Persona and Knowledge Base)}
+
+
+This is the "soul" of the Agent, containing persona definitions, workflows, and installed Skills:
+
+\begin{lstlisting}
+workspace/
++-- .git/                          # Built-in Git version control
++-- .clawhub/                      # ClawHub Package management
+|   +-- lock.json                  # Skills version lock file
++-- .openclaw/workspace-state.json # Workspace state
++-- SOUL.md          # Core persona
++-- AGENTS.md        # Workflow
++-- IDENTITY.md      # Identity info
++-- USER.md          # User profile
++-- BOOTSTRAP.md     # First-time boot
++-- HEARTBEAT.md     # Heartbeat task
++-- TOOLS.md         # Local tools memo
+|
++-- skills/          # Workspace-level Skills installed via ClawHub
+    +-- <skill-name>/
+        +-- .clawhub/origin.json   # Install source info
+        +-- _meta.json             # Skill metadata
+        +-- SKILL.md               # Skill definition file
+        +-- scripts/               # Skill Bundled scripts (optional)
+\end{lstlisting}
+
+\subsubsection{SOUL.md --- Core personaDefinition}
+
+
+Defines the Agent's personality and behavioral guidelines, \textbf{the most important persona file}. Key default points:
+
+\begin{itemize}
+  \item \textbf{Be genuinely helpful}: Skip pleasantries (e.g., "Great question!"), directly solve problems
+  \item \textbf{Have opinions}: Have preferences and opinions, don't be a bland search engine
+  \item \textbf{Look first}: Read files, check context, search first; only ask the user as a last resort
+  \item \textbf{Respect privacy}: Don't abuse access permissions, keep private info confidential
+  \item \textbf{Cautious externally, bold internally}: Confirm external actions (send emails, post), take initiative on internal actions (read files, organize)
+\end{itemize}
+
+\subsubsection{AGENTS.md --- Agent WorkflowDefinition}
+
+
+Defines the standard process for each Agent startup:
+
+\begin{enumerate}
+  \item Read \texttt{SOUL.md} --- Know who it is
+  \item Read \texttt{USER.md} --- Know who it's helping
+  \item Read \texttt{memory/YYYY-MM-DD.md}(today + yesterday) --- Get recent context
+  \item If it's the main session, also read \texttt{MEMORY.md} --- Long-term memory
+\end{enumerate}
+
+Also defines memory management spec: logs go to \texttt{memory/YYYY-MM-DD.md}, key insights go to \texttt{MEMORY.md}.
+
+\subsubsection{IDENTITY.md --- Agent Identity info}
+
+
+Stores the Agent's specific identity: name, species/form, communication style, representative emoji, etc. Determined jointly by the user and Agent during first-time bootstrap.
+
+\subsubsection{USER.md --- User profile}
+
+
+Records the user's basic information and preferences:
+
+\begin{lstlisting}
+- **Name:** (User name)
+- **What to call them:** (How to address them)
+- **Timezone:** (Timezone)
+- **Notes:** (Notes, preferences, projects, etc.)
+\end{lstlisting}
+
+The Agent continuously updates this file through ongoing interactions to better understand and serve the user.
+
+\subsubsection{BOOTSTRAP.md --- First-Time Boot Guide}
+
+
+Post-installation "birth guide" script that guides the Agent through:
+
+\begin{enumerate}
+  \item Learn about the user (name, how to address, timezone)
+  \item Determine own identity (name, style, emoji)
+  \item Update \texttt{IDENTITY.md}、\texttt{USER.md}、\texttt{SOUL.md}
+  \item Optionally configure messaging channels (WhatsApp/Telegram, etc.)
+  \item \textbf{Delete this file after completion} (no longer needed)
+\end{enumerate}
+
+\subsubsection{HEARTBEAT.md --- Heartbeat task}
+
+
+Defines periodic check tasks for the Agent. When the file is empty or contains only comments, heartbeat calls are skipped. After adding tasks, the Agent runs them automatically on schedule.
+
+\subsubsection{TOOLS.md --- Local tools memo}
+
+
+Records environment-specific tool and device info, such as: SSH host aliases, camera names, TTS voice preferences, smart device nicknames, etc. Skills are generic; TOOLS.md is "unique to your environment".
+
+\subsubsection{.clawhub/lock.json --- Skills Version Lock}
+
+
+Similar to \texttt{package-lock.json}, records versions and install times for all Skills installed via ClawHub:
+
+\begin{lstlisting}[language=json]
+{
+  "version": 1,
+  "skills": {
+    "xiaohongshu-mcp": {
+      "version": "1.0.0",
+      "installedAt": 1772864060491
+    }
+  }
+}
+\end{lstlisting}
+
+\subsubsection{skills/ --- Installed Workspace-Level Skills}
+
+
+Skills installed via the ClawHub marketplace are stored in this directory. Each Skill is an independent subdirectory with the structure:
+
+\begin{lstlisting}
+skills/<skill-name>/
++-- .clawhub/
+|   +-- origin.json        # Install source (registry, slug, version, install time)
++-- _meta.json             # Skill metadata (author ID, slug, version, publish time)
++-- SKILL.md               # Skill definition (name, description, usage guide)
++-- scripts/               # Skill Bundled executable scripts (optional)
+\end{lstlisting}
+
+\textbf{origin.json} --- Records where the Skill was installed from:
+
+\begin{lstlisting}[language=json]
+{
+  "version": 1,
+  "registry": "https://clawhub.ai",
+  "slug": "xiaohongshu-mcp",
+  "installedVersion": "1.0.0",
+  "installedAt": 1772864060489
+}
+\end{lstlisting}
+
+\textbf{\_meta.json} --- Skill publish metadata:
+
+\begin{lstlisting}[language=json]
+{
+  "ownerId": "<owner-id>",
+  "slug": "xiaohongshu-mcp",
+  "version": "1.0.0",
+  "publishedAt": 1769938539127
+}
+\end{lstlisting}
+
+\textbf{SKILL.md} --- The core definition file for a Skill, containing YAML frontmatter (name, description, triggers) and Markdown body (usage guide, command descriptions).
+
+\begin{quote}
+\textbf{Difference from Built-in Skills}: Built-in Skills are at \texttt{/usr/lib/node\_modules/openclaw/skills/}, without \texttt{.clawhub/} and \texttt{\_meta.json}; Skills installed via ClawHub include complete source tracking information.
+\end{quote}
+
+\subsubsection{Example: Installed xiaohongshu-mcp Skill}
+
+
+The Xiaohongshu automation Skill is installed on this server, providing:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Function & Command & Description \\
+\hline
+Check login status & \texttt{python scripts/xhs\_client.py status} & Confirm MCP server is running \\
+\hline
+Search posts & \texttt{python scripts/xhs\_client.py search "keyword"} & Search Xiaohongshu posts by keyword \\
+\hline
+Get post details & \texttt{python scripts/xhs\_client.py detail <feed\_id> <xsec\_token>} & Get full content and comments for a specified post \\
+\hline
+Get recommendation feed & \texttt{python scripts/xhs\_client.py feeds} & Get recommendation feed \\
+\hline
+Publish post & \texttt{python scripts/xhs\_client.py publish "Title" "Content" "Image URL"} & Publish image-text post \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+Before use, start the \texttt{xiaohongshu-mcp}  server locally (listening on \texttt{localhost:18060}) and complete QR code login.
+\end{quote}
+
+\subsubsection{.openclaw/workspace-state.json --- Workspace state}
+
+
+\begin{lstlisting}[language=json]
+{ "version": 1, "bootstrapSeededAt": "2026-03-06T14:21:02.015Z" }
+\end{lstlisting}
+
+Records workspace initialization time and other state info.
+
+\subsubsection{.git/ --- Version Control}
+
+
+The workspace directory includes a Git repository. Agent modifications to persona files can be tracked and rolled back via Git.
+
+\hrulefill
+
+\section{Skills System in Detail}
+
+
+\subsection{Three-Tier Skills Storage Paths}
+
+
+Skills are stored in three tiers, \textbf{from highest to lowest priority}:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Tier & Path & Description \\
+\hline
+\textbf{Workspace Skills} & \texttt{\textasciitilde{}/.openclaw/workspace/skills/} & Available only to current workspace Agent, \textbf{highest} priority \\
+\hline
+\textbf{Global Shared Skills} & \texttt{\textasciitilde{}/.openclaw/skills/} & Custom Skills shared by all Agents \\
+\hline
+\textbf{Built-in Skills} & \texttt{/usr/lib/node\_modules/openclaw/skills/} & Bundled with OpenClaw, \textbf{lowest} priority \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+When Skills share the same name, higher priority paths override lower ones.
+\end{quote}
+
+\subsection{Skill Directory Structure}
+
+
+Each Skill is a directory, with the core being the \texttt{SKILL.md} file. Structure varies by source:
+
+\textbf{Manually Created / Built-in Skill (Minimal Structure)}:
+
+\begin{lstlisting}
+weather/
++-- SKILL.md       # Skill definition file
+\end{lstlisting}
+
+\textbf{Skill Installed via ClawHub (Full Structure)}:
+
+\begin{lstlisting}
+xiaohongshu-mcp/
++-- .clawhub/
+|   +-- origin.json        # Install source (registry URL, version, install time)
++-- _meta.json             # Publish metadata (author ID, slug, version, publish time)
++-- SKILL.md               # Skill definition file
++-- scripts/               # Bundled executable scripts (optional)
+    +-- xhs_client.py
+\end{lstlisting}
+
+\texttt{SKILL.md} consists of two parts:
+
+\begin{itemize}
+  \item \textbf{Frontmatter} (YAML header): declares name, description, dependencies, and metadata
+  \item \textbf{Body} (Markdown): detailed usage guide and command descriptions
+\end{itemize}
+
+Example (\texttt{weather} Skill):
+
+\begin{lstlisting}[language=yaml]
+---
+name: weather
+description: "Get current weather and forecasts via wttr.in or Open-Meteo..."
+homepage: https://wttr.in/:help
+metadata: { "openclaw": { "emoji": "...", "requires": { "bins": ["curl"] } } }
+---
+
+# Weather Skill
+## Commands
+...
+\end{lstlisting}
+
+\subsection{Skill Dependency Detection and Activation}
+
+
+OpenClaw auto-checks each Skill's dependencies on startup. \textbf{Skills with missing dependencies will not be loaded}.
+
+There are four dependency types:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Dependency Type & Description & Example \\
+\hline
+\texttt{bins} & Requires CLI tools installed on the system & \texttt{curl}、\texttt{gh}、\texttt{rg}、\texttt{clawhub} \\
+\hline
+\texttt{env} & Requires environment variables & \texttt{OPENAI\_API\_KEY}、\texttt{GEMINI\_API\_KEY} \\
+\hline
+\texttt{os} & Requires specific OS & \texttt{darwin}(macOS only) \\
+\hline
+\texttt{config} & Requires config fields to be set & \texttt{channels.discord.token} \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{To activate, satisfy the corresponding dependencies}. For example:
+
+\begin{lstlisting}[language=bash]
+# clawhub skill missing clawhub command -> install to activate
+sudo npm install -g clawhub
+
+# github/gh-issues skill missing gh command
+sudo apt install gh
+
+# session-logs skill missing rg (ripgrep) command
+sudo apt install ripgrep
+
+# notion skill missing env var
+export NOTION_API_KEY="your-key"
+
+# apple-notes skill requires os: darwin -> Cannot activate on Linux, macOS only
+\end{lstlisting}
+
+\subsection{Skills Management Commands}
+
+
+\begin{lstlisting}[language=bash]
+# View Skills status (available/missing deps)
+openclaw skills check
+
+# List all Skills
+openclaw skills list
+
+# List ready Skills only
+openclaw skills list --eligible
+
+# View Skill details (deps and install tips)
+openclaw skills info <name>
+# Example: 
+openclaw skills info clawhub
+# Output:   clawhub  Missing requirements
+#       Requirements:
+#         Binaries:  clawhub
+#       Install options:
+#         -> Install clawhub (npm)
+\end{lstlisting}
+
+\subsection{Installing Third-Party Skills}
+
+
+\subsubsection{Option 1: Install via ClawHub Marketplace (Recommended)}
+
+
+ClawHub is the Skills marketplace for OpenClaw (https://clawhub.ai), similar to npm for Node.js:
+
+\begin{lstlisting}[language=bash]
+# Install clawhub CLI first
+sudo npm install -g clawhub
+
+# Search, install, and sync Skills
+npx clawhub
+\end{lstlisting}
+
+File changes after installation:
+
+\begin{lstlisting}
+workspace/
++-- .clawhub/
+|   +-- lock.json              # <- Added/updated: records installed Skill versions
++-- skills/
+    +-- <skill-name>/          # <- Added: Skill directory
+        +-- .clawhub/origin.json   # Install source tracking
+        +-- _meta.json             # Author and version metadata
+        +-- SKILL.md               # Skill Definition
+        +-- scripts/               # Bundled scripts (if any)
+\end{lstlisting}
+
+\begin{quote}
+Skills installed via ClawHub are at \texttt{workspace/skills/}  (workspace level, highest priority), versions locked via \texttt{.clawhub/lock.json} .
+\end{quote}
+
+\subsubsection{Option 2: Install via plugins Command}
+
+
+\begin{lstlisting}[language=bash]
+# Install from local path (.ts/.js/.zip/.tgz)
+openclaw plugins install ./my-skill.zip
+
+# Install from npm
+openclaw plugins install some-openclaw-plugin
+
+# Install as symlink (for dev/debug)
+openclaw plugins install ./my-skill --link
+
+# Lock exact version
+openclaw plugins install some-plugin --pin
+\end{lstlisting}
+
+Full plugin management commands:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Command & Description \\
+\hline
+\texttt{openclaw plugins install <path-or-spec>} & Install plugin (local path/npm pkg) \\
+\hline
+\texttt{openclaw plugins uninstall} & Uninstall plugin \\
+\hline
+\texttt{openclaw plugins update} & Update installed npm plugins \\
+\hline
+\texttt{openclaw plugins list} & List installed plugins \\
+\hline
+\texttt{openclaw plugins info} & View plugin details \\
+\hline
+\texttt{openclaw plugins enable} / \texttt{disable} & Enable/disable plugin \\
+\hline
+\texttt{openclaw plugins doctor} & Troubleshoot plugin loading \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{Option 3: Manually Place Skill Directory}
+
+
+Directly create a directory and place \texttt{SKILL.md}:
+
+\begin{lstlisting}[language=bash]
+# Global shared (all Agents)
+mkdir -p ~/.openclaw/skills/my-skill
+# Write SKILL.md ...
+
+# Workspace-specific (current Agent only, highest priority)
+mkdir -p ~/.openclaw/workspace/skills/my-skill
+# Write SKILL.md ...
+\end{lstlisting}
+
+\subsection{Built-in Skills Overview (51 Skills)}
+
+
+Built-in Skills and their dependency status on this server:
+
+\textbf{Ready (5)}:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Skill & Function \\
+\hline
+\texttt{healthcheck} & Host security check and hardening \\
+\hline
+\texttt{skill-creator} & Create or update Skills \\
+\hline
+\texttt{tmux} & Remote control tmux sessions \\
+\hline
+\texttt{video-frames} & Extract frames or clips from video \\
+\hline
+\texttt{weather} & Weather query and forecast \\
+\hline
+\end{tabular}
+\end{table}
+
+\textbf{Not Ready (46, by category)}:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Category & Skills & Typical Missing Deps \\
+\hline
+AI/Models & \texttt{gemini}, \texttt{openai-image-gen}, \texttt{openai-whisper}, \texttt{openai-whisper-api}, \texttt{oracle} & env: API Key \\
+\hline
+Notes/Docs & \texttt{apple-notes}, \texttt{bear-notes}, \texttt{notion}, \texttt{obsidian}, \texttt{nano-pdf}, \texttt{summarize} & bins / os: darwin \\
+\hline
+Communication & \texttt{discord}, \texttt{slack}, \texttt{imsg}, \texttt{bluebubbles}, \texttt{wacli}, \texttt{voice-call} & config / os: darwin \\
+\hline
+Dev Tools & \texttt{coding-agent}, \texttt{github}, \texttt{gh-issues}, \texttt{trello}, \texttt{clawhub}, \texttt{mcporter} & bins: gh, clawhub etc. \\
+\hline
+Multimedia & \texttt{canvas}, \texttt{camsnap}, \texttt{peekaboo}, \texttt{songsee}, \texttt{spotify-player}, \texttt{gifgrep} & bins / os: darwin \\
+\hline
+Smart Home & \texttt{openhue}, \texttt{sonoscli}, \texttt{blucli} & bins \\
+\hline
+System/Ops & \texttt{session-logs}, \texttt{model-usage} & bins: rg / os: darwin \\
+\hline
+Information & \texttt{xurl}, \texttt{blogwatcher}, \texttt{gog}, \texttt{goplaces}, \texttt{sag} & bins / env \\
+\hline
+Others & \texttt{1password}, \texttt{apple-reminders}, \texttt{things-mac}, \texttt{himalaya}, etc. & bins / env / os \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+\textbf{Tip}:Run \texttt{openclaw skills check} to check what each Skill is missing.\texttt{os: darwin} marked Skills are macOS-only and cannot be activated on Linux.
+\end{quote}
+
+\hrulefill
+
+\section{Agent and Session Hierarchy}
+
+
+\subsection{Hierarchy Structure}
+
+
+\begin{lstlisting}
+OpenClaw Instance
++-- Agent
+    +-- Session 1
+    +-- Session 2
+    +-- Session N
+\end{lstlisting}
+
+\textbf{Core Concepts}:
+
+\begin{itemize}
+  \item \textbf{Agent} is the execution unit, each with independent config, persona, and capabilities
+  \item \textbf{Session} is the conversation context; each Agent can have multiple Sessions
+  \item Hierarchy: \texttt{Agent} $\rightarrow$ \texttt{Session}, one-to-many
+\end{itemize}
+
+\subsection{Agent Management}
+
+
+\begin{lstlisting}[language=bash]
+# Use default Agent (main)
+openclaw agent --agent main --message "Hello"
+
+# Without --agent, defaults to main Agent
+\end{lstlisting}
+
+\subsection{Session Management}
+
+
+\subsubsection{Starting a New Session}
+
+
+\textbf{Option 1: Via TUI Interactive Mode (Recommended)}
+
+\begin{lstlisting}[language=bash]
+# Enter TUI interactive mode for default session (main)
+openclaw tui
+
+# Start a new named session (auto-created)
+openclaw tui --session my-new-session
+
+# Start new session with initial message
+openclaw tui --session work --message "Help me organize today's tasks"
+\end{lstlisting}
+
+\begin{quote}
+\texttt{--session <key>} is the key parameter for creating new sessions. Without it, the default \texttt{main} session is used. Specifying a \textbf{new name} auto-creates a new session with isolated context.
+\end{quote}
+
+\textbf{Option 2: Via \texttt{agent} Command (Single Conversation, Non-Interactive)}
+
+\begin{lstlisting}[language=bash]
+# Send a message in default session (reuses main context)
+openclaw agent --agent main --message "Hello"
+
+# Reuse a session with specified session-id
+openclaw agent --agent main --session-id <uuid> --message "Continue previous topic"
+\end{lstlisting}
+
+\begin{quote}
+\textbf{Note}:\texttt{agent --session-id} is for \textbf{reusing an existing session UUID} , not for creating new named sessions. To create a new session, use \texttt{openclaw tui --session <new-name>}.
+\end{quote}
+
+\subsubsection{Viewing Session List}
+
+
+\begin{lstlisting}[language=bash]
+# List all sessions
+openclaw sessions
+
+# View sessions active in last N minutes
+openclaw sessions --active 120
+
+# JSON format output
+openclaw sessions --json
+
+# View sessions for specific Agent
+openclaw sessions --agent work
+
+# View all Agents' sessions
+openclaw sessions --all-agents
+\end{lstlisting}
+
+\subsubsection{Cleaning Up Sessions}
+
+
+\begin{lstlisting}[language=bash]
+# Preview sessions to clean (dry run)
+openclaw sessions cleanup --dry-run
+
+# Actually clean expired sessions
+openclaw sessions cleanup --enforce
+
+# Clear all sessions (full reset)
+echo '{}' > ~/.openclaw/agents/main/sessions/sessions.json
+\end{lstlisting}
+
+\subsubsection{TUI Full Parameters}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Parameter & Description \\
+\hline
+\texttt{--session <key>} & Session name, auto-create with new name (default \texttt{main}) \\
+\hline
+\texttt{--message <text>} & Initial message to send after connecting \\
+\hline
+\texttt{--thinking <level>} & Thinking level override \\
+\hline
+\texttt{--deliver} & Deliver reply to channel (default false) \\
+\hline
+\texttt{--history-limit <n>} & History entries to load (default 200) \\
+\hline
+\texttt{--url <url>} & Gateway WebSocket URL \\
+\hline
+\texttt{--token <token>} & Gateway token \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Agent Independent Persona Configuration}
+
+
+Each Agent \textbf{can} have an independent persona via the \texttt{--workspace} parameter to specify an independent workspace:
+
+\begin{lstlisting}[language=bash]
+# Specify different workspaces for Agents
+openclaw agent --agent work --workspace ~/openclaw-work --message "Handle work emails"
+openclaw agent --agent life --workspace ~/openclaw-life --message "How is the weather today"
+\end{lstlisting}
+
+Different workspaces can have their own \texttt{SOUL.md}, enabling different Agents to have different persona definitions.
+
+\begin{quote}
+\textbf{Note}: By default, \texttt{\textasciitilde{}/.openclaw/workspace/} is shared by all Agents. For independent personas, use the \texttt{--workspace} parameter for different Agent workspace directories.
+\end{quote}
+
+\hrulefill
+
+\section{Model Switching in Practice}
+
+
+\subsection{Switching Steps}
+
+
+Using the example of switching from <Provider>/Kimi-K2.5 to DeepSeek-V3.2:
+
+\textbf{Step 1: Backup Current Configuration}
+
+\begin{lstlisting}[language=bash]
+cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.bak.old-provider
+\end{lstlisting}
+
+\textbf{Step 2: Modify Configuration File}
+
+Modify via Python script (to avoid JSON errors):
+
+\begin{lstlisting}[language=python]
+import json, os
+
+config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+c = json.load(open(config_path))
+
+# Replace models.providers
+c['models'] = {
+    'providers': {
+        'deepseek': {
+            'baseUrl': 'https://api.deepseek.com/v1/',
+            'apiKey': 'sk-xxxxxxxxxxxxxxxx',
+            'models': [{
+                'id': 'deepseek-chat',          # <- Actual API model ID
+                'name': 'DeepSeek-V3.2',        # <- Display name (customizable)
+                'api': 'openai-completions'
+            }]
+        }
+    }
+}
+
+# Update default model reference
+c['agents']['defaults']['model'] = {'primary': 'deepseek/deepseek-chat'}
+c['agents']['defaults']['models'] = {'deepseek/deepseek-chat': {}}
+
+json.dump(c, open(config_path, 'w'), indent=2)
+\end{lstlisting}
+
+\textbf{Step 3: Clean Runtime Cache and Old Sessions}
+
+\begin{quote}
+This step is critical! Old model info will persist without cleanup.
+\end{quote}
+
+\begin{lstlisting}[language=bash]
+# Clean runtime model snapshot (regenerated after Gateway restart)
+rm ~/.openclaw/agents/main/agent/models.json
+
+# Clear old sessions (old context contains old model info, causing new model to "think" it's the old one)
+echo '{}' > ~/.openclaw/agents/main/sessions/sessions.json
+\end{lstlisting}
+
+\textbf{Step 4: Restart the Gateway}
+
+\begin{lstlisting}[language=bash]
+# Kill old process
+pkill -f openclaw-gateway
+
+# Restart
+nohup openclaw gateway run --force > /dev/null 2>&1 &
+
+# Verify
+openclaw gateway health
+openclaw status
+\end{lstlisting}
+
+\textbf{Step 5: Test the New Model}
+
+\begin{lstlisting}[language=bash]
+openclaw agent --agent main --message "What model are you?" --json
+\end{lstlisting}
+
+\subsection{Key Considerations}
+
+
+\subsubsection{Model ID Must Match API-Supported Name}
+
+
+Model IDs from different API providers may differ from advertised names:
+
+\begin{lstlisting}[language=bash]
+# Query API for supported model list
+curl -s https://api.deepseek.com/v1/models \
+  -H "Authorization: Bearer sk-xxx" | python3 -c \
+  "import sys,json; [print(m['id']) for m in json.load(sys.stdin).get('data',[])]"
+\end{lstlisting}
+
+\textbf{DeepSeek Actual Model IDs}:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Official Name & API Model ID & Description \\
+\hline
+DeepSeek-V3.2 & \texttt{deepseek-chat} & General chat model \\
+\hline
+DeepSeek-R1 & \texttt{deepseek-reasoner} & Reasoning model \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+Wrong model ID results in \texttt{400 Model Not Exist} error.
+\end{quote}
+
+\subsubsection{Difference Between id and name in Config}
+
+
+\begin{lstlisting}[language=json]
+{
+  "id": "deepseek-chat",      // <- Actual model ID sent to API (must be accurate)
+  "name": "DeepSeek-V3.2",    // <- Display-only friendly name (customizable)
+  "api": "openai-completions"
+}
+\end{lstlisting}
+
+\subsubsection{Three Places to Clean After Switching Models}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Item & Path & Reason \\
+\hline
+Runtime model snapshot & \texttt{agents/main/agent/models.json} & Gateway merges old/new config on restart, old provider persists \\
+\hline
+Old sessions & \texttt{agents/main/sessions/sessions.json} & Old session context contains "I am XX model" history \\
+\hline
+Gateway process & \texttt{pkill -f openclaw-gateway} & In-memory config requires restart to refresh \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{quote}
+Without cleaning these three items, the Agent will still claim to be the old model based on old context.
+\end{quote}
+
+\subsection{Quick Rollback}
+
+
+\begin{lstlisting}[language=bash]
+# Switch back to previous model config
+cp ~/.openclaw/openclaw.json.bak.old-provider ~/.openclaw/openclaw.json
+rm ~/.openclaw/agents/main/agent/models.json
+echo '{}' > ~/.openclaw/agents/main/sessions/sessions.json
+pkill -f openclaw-gateway
+nohup openclaw gateway run --force > /dev/null 2>&1 &
+\end{lstlisting}
+
+\hrulefill
+
+\section{Practical Troubleshooting Summary}
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Problem & Symptom & Solution \\
+\hline
+SSH private key permission & \texttt{Permissions too open} Connection refused & \texttt{chmod 600 \textasciitilde{}/.ssh/your-key.pem} \\
+\hline
+JSON config format & Manual editing is error-prone & Use \texttt{openclaw config set} command for configuration \\
+\hline
+API type error & \texttt{openai-chat} is not supported & Change to \texttt{openai-completions} \\
+\hline
+Model missing api field & \texttt{No API provider for api: undefined} & Add to config \texttt{api} field \\
+\hline
+Gateway not started & Agent unable to call & \texttt{nohup openclaw gateway \&} \\
+\hline
+Wrong model ID & \texttt{400 Model Not Exist} & Use \texttt{/v1/models} endpoint to query actual ID \\
+\hline
+Agent still claims old model after switching & Config changed but replies "I am Kimi" & Clean three items: \texttt{models.json} + \texttt{sessions.json} + restart Gateway \\
+\hline
+\texttt{--session-id} Did not create new session & Expected new but reused old & Use \texttt{openclaw tui --session <new-name>} \\
+\hline
+Gateway SIGHUP causes crash & Gateway crashes after HUP signal & Don't use \texttt{kill -HUP},directly  \texttt{pkill}  then restart \\
+\hline
+\end{tabular}
+\end{table}
+
+
+\clearpage

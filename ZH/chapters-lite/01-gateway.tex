@@ -1,0 +1,94 @@
+\chapter{Gateway（网关核心）}
+
+\section{概述}
+
+Gateway 网关是 OpenClaw 的核心进程，承担以下职责：
+
+\begin{itemize}
+  \item \textbf{消息路由}：接收各渠道入站消息，路由到正确的 Agent
+  \item \textbf{会话管理}：维护所有会话状态（唯一事实来源）
+  \item \textbf{智能体运行时}：内嵌 pi-agent-core，执行智能体循环
+  \item \textbf{RPC 服务}：对外提供 WebSocket/HTTP API
+  \item \textbf{插件宿主}：加载并运行所有已注册插件
+\end{itemize}
+
+配置路径：\texttt{gateway.*}
+
+\section{启动方式}
+
+\subsection{前台运行}
+
+\begin{lstlisting}[language=bash]
+openclaw gateway --port 18789
+\end{lstlisting}
+
+\subsection{守护进程模式}
+
+\begin{lstlisting}[language=bash]
+openclaw daemon install   # Install systemd/launchd service
+openclaw daemon start     # Start the daemon
+openclaw daemon status    # Check status
+\end{lstlisting}
+
+\section{智能体循环（Agent Loop）}
+
+每条入站消息触发一次完整的智能体循环：
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.6cm,
+    agentstep/.style={draw=teal!60, fill=teal!8, rounded corners=4pt, minimum width=12cm, minimum height=0.7cm, font=\small, align=left},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=teal!60}
+]
+    \node[agentstep] (s1) {1. 接收入站消息，验证参数，解析会话};
+    \node[agentstep, below=of s1] (s2) {2. 路由到目标 Agent，加载 Skills 快照};
+    \node[agentstep, below=of s2] (s3) {3. 组装系统提示（基础提示 + Skills 提示 + 引导上下文）};
+    \node[agentstep, below=of s3] (s4) {4. 调用模型推理，流式输出助手回复};
+    \node[agentstep, below=of s4] (s5) {5. 执行工具调用（可能在沙箱中）};
+    \node[agentstep, below=of s5] (s6) {6. 持久化会话，发送回复到渠道};
+
+    \draw[arr] (s1) -- (s2);
+    \draw[arr] (s2) -- (s3);
+    \draw[arr] (s3) -- (s4);
+    \draw[arr] (s4) -- (s5);
+    \draw[arr] (s5) -- (s6);
+\end{tikzpicture}
+\end{center}
+
+\section{RPC 接口}
+
+Gateway 网关通过 WebSocket 和 HTTP 暴露 RPC 接口：
+
+\begin{itemize}
+  \item \texttt{agent} / \texttt{agent.wait}：触发智能体运行
+  \item \texttt{sessions.list}：列出会话
+  \item \texttt{voicecall.*}：语音通话（插件）
+  \item \texttt{message.send}：发送消息到渠道
+\end{itemize}
+
+示例（通过 CLI 调用 RPC）：
+
+\begin{lstlisting}[language=bash]
+openclaw gateway call sessions.list --params '{}'
+\end{lstlisting}
+
+\section{认证}
+
+推荐使用 \textbf{Anthropic API 密钥}：
+
+\begin{lstlisting}[language=bash]
+export ANTHROPIC_API_KEY="..."
+# Or store in daemon env file:
+echo 'ANTHROPIC_API_KEY=...' >> ~/.openclaw/.env
+\end{lstlisting}
+
+也支持 OAuth 和 setup-token 流程。使用 \texttt{openclaw models status} 验证认证状态。
+
+\section{常用运维命令}
+
+\begin{lstlisting}[language=bash]
+openclaw doctor            # Health check
+openclaw status            # Show storage paths & recent sessions
+openclaw models status     # Check model auth
+openclaw gateway --port N  # Start with custom port
+\end{lstlisting}

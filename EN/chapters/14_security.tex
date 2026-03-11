@@ -1,0 +1,1660 @@
+\chapter{Security}
+
+% === Source file: security/CONTRIBUTING-THREAT-MODEL.md ===
+\section{Contributing to the OpenClaw Threat Model}
+
+
+Thanks for helping make OpenClaw more secure. This threat model is a living document and we welcome contributions from anyone - you don't need to be a security expert.
+
+\subsection{Ways to Contribute}
+
+
+\subsubsection{Add a Threat}
+
+
+Spotted an attack vector or risk we haven't covered? Open an issue on \href{https://github.com/openclaw/trust/issues}{openclaw/trust} and describe it in your own words. You don't need to know any frameworks or fill in every field - just describe the scenario.
+
+\textbf{Helpful to include (but not required):}
+
+\begin{itemize}
+  \item The attack scenario and how it could be exploited
+  \item Which parts of OpenClaw are affected (CLI, gateway, channels, ClawHub, MCP servers, etc.)
+  \item How severe you think it is (low / medium / high / critical)
+  \item Any links to related research, CVEs, or real-world examples
+\end{itemize}
+
+
+We'll handle the ATLAS mapping, threat IDs, and risk assessment during review. If you want to include those details, great - but it's not expected.
+
+\begin{quote}
+\textbf{This is for adding to the threat model, not reporting live vulnerabilities.} If you've found an exploitable vulnerability, see our \href{https://trust.openclaw.ai}{Trust page} for responsible disclosure instructions.
+\end{quote}
+
+
+\subsubsection{Suggest a Mitigation}
+
+
+Have an idea for how to address an existing threat? Open an issue or PR referencing the threat. Useful mitigations are specific and actionable - for example, "per-sender rate limiting of 10 messages/minute at the gateway" is better than "implement rate limiting."
+
+\subsubsection{Propose an Attack Chain}
+
+
+Attack chains show how multiple threats combine into a realistic attack scenario. If you see a dangerous combination, describe the steps and how an attacker would chain them together. A short narrative of how the attack unfolds in practice is more valuable than a formal template.
+
+\subsubsection{Fix or Improve Existing Content}
+
+
+Typos, clarifications, outdated info, better examples - PRs welcome, no issue needed.
+
+\subsection{What We Use}
+
+
+\subsubsection{MITRE ATLAS}
+
+
+This threat model is built on \href{https://atlas.mitre.org/}{MITRE ATLAS} (Adversarial Threat Landscape for AI Systems), a framework designed specifically for AI/ML threats like prompt injection, tool misuse, and agent exploitation. You don't need to know ATLAS to contribute - we map submissions to the framework during review.
+
+\subsubsection{Threat IDs}
+
+
+Each threat gets an ID like \texttt{T-EXEC-003}. The categories are:
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Code & Category \\
+\hline
+RECON & Reconnaissance - information gathering \\
+\hline
+ACCESS & Initial access - gaining entry \\
+\hline
+EXEC & Execution - running malicious actions \\
+\hline
+PERSIST & Persistence - maintaining access \\
+\hline
+EVADE & Defense evasion - avoiding detection \\
+\hline
+DISC & Discovery - learning about the environment \\
+\hline
+EXFIL & Exfiltration - stealing data \\
+\hline
+IMPACT & Impact - damage or disruption \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+IDs are assigned by maintainers during review. You don't need to pick one.
+
+\subsubsection{Risk Levels}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Level & Meaning \\
+\hline
+\textbf{Critical} & Full system compromise, or high likelihood + critical impact \\
+\hline
+\textbf{High} & Significant damage likely, or medium likelihood + critical impact \\
+\hline
+\textbf{Medium} & Moderate risk, or low likelihood + high impact \\
+\hline
+\textbf{Low} & Unlikely and limited impact \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+If you're unsure about the risk level, just describe the impact and we'll assess it.
+
+\subsection{Review Process}
+
+
+\begin{enumerate}
+  \item \textbf{Triage} - We review new submissions within 48 hours
+  \item \textbf{Assessment} - We verify feasibility, assign ATLAS mapping and threat ID, validate risk level
+  \item \textbf{Documentation} - We ensure everything is formatted and complete
+  \item \textbf{Merge} - Added to the threat model and visualization
+\end{enumerate}
+
+
+\subsection{Resources}
+
+
+\begin{itemize}
+  \item \href{https://atlas.mitre.org/}{ATLAS Website}
+  \item \href{https://atlas.mitre.org/techniques/}{ATLAS Techniques}
+  \item \href{https://atlas.mitre.org/studies/}{ATLAS Case Studies}
+  \item \href{./THREAT-MODEL-ATLAS.md}{OpenClaw Threat Model}
+\end{itemize}
+
+
+\subsection{Contact}
+
+
+\begin{itemize}
+  \item \textbf{Security vulnerabilities:} See our \href{https://trust.openclaw.ai}{Trust page} for reporting instructions
+  \item \textbf{Threat model questions:} Open an issue on \href{https://github.com/openclaw/trust/issues}{openclaw/trust}
+  \item \textbf{General chat:} Discord \#security channel
+\end{itemize}
+
+
+\subsection{Recognition}
+
+
+Contributors to the threat model are recognized in the threat model acknowledgments, release notes, and the OpenClaw security hall of fame for significant contributions.
+
+
+\clearpage
+
+% === Source file: security/README.md ===
+\section{OpenClaw Security \& Trust}
+
+
+\textbf{Live:} \href{https://trust.openclaw.ai}{trust.openclaw.ai}
+
+\subsection{Documents}
+
+
+\begin{itemize}
+  \item \href{./THREAT-MODEL-ATLAS.md}{Threat Model} - MITRE ATLAS-based threat model for the OpenClaw ecosystem
+  \item \href{./CONTRIBUTING-THREAT-MODEL.md}{Contributing to the Threat Model} - How to add threats, mitigations, and attack chains
+\end{itemize}
+
+
+\subsection{Reporting Vulnerabilities}
+
+
+See the \href{https://trust.openclaw.ai}{Trust page} for full reporting instructions covering all repos.
+
+\subsection{Contact}
+
+
+\begin{itemize}
+  \item \textbf{Jamieson O'Reilly} (\href{https://twitter.com/theonejvo}{@theonejvo}) - Security \& Trust
+  \item Discord: \#security channel
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: security/THREAT-MODEL-ATLAS.md ===
+\section{OpenClaw Threat Model v1.0}
+
+
+\subsection{MITRE ATLAS Framework}
+
+
+\textbf{Version:} 1.0-draft
+\textbf{Last Updated:} 2026-02-04
+\textbf{Methodology:} MITRE ATLAS + Data Flow Diagrams
+\textbf{Framework:} \href{https://atlas.mitre.org/}{MITRE ATLAS} (Adversarial Threat Landscape for AI Systems)
+
+\subsubsection{Framework Attribution}
+
+
+This threat model is built on \href{https://atlas.mitre.org/}{MITRE ATLAS}, the industry-standard framework for documenting adversarial threats to AI/ML systems. ATLAS is maintained by \href{https://www.mitre.org/}{MITRE} in collaboration with the AI security community.
+
+\textbf{Key ATLAS Resources:}
+
+\begin{itemize}
+  \item \href{https://atlas.mitre.org/techniques/}{ATLAS Techniques}
+  \item \href{https://atlas.mitre.org/tactics/}{ATLAS Tactics}
+  \item \href{https://atlas.mitre.org/studies/}{ATLAS Case Studies}
+  \item \href{https://github.com/mitre-atlas/atlas-data}{ATLAS GitHub}
+  \item \href{https://atlas.mitre.org/resources/contribute}{Contributing to ATLAS}
+\end{itemize}
+
+
+\subsubsection{Contributing to This Threat Model}
+
+
+This is a living document maintained by the OpenClaw community. See \href{./CONTRIBUTING-THREAT-MODEL.md}{CONTRIBUTING-THREAT-MODEL.md} for guidelines on contributing:
+
+\begin{itemize}
+  \item Reporting new threats
+  \item Updating existing threats
+  \item Proposing attack chains
+  \item Suggesting mitigations
+\end{itemize}
+
+
+\hrulefill
+
+
+\subsection{1. Introduction}
+
+
+\subsubsection{1.1 Purpose}
+
+
+This threat model documents adversarial threats to the OpenClaw AI agent platform and ClawHub skill marketplace, using the MITRE ATLAS framework designed specifically for AI/ML systems.
+
+\subsubsection{1.2 Scope}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Component & Included & Notes \\
+\hline
+OpenClaw Agent Runtime & Yes & Core agent execution, tool calls, sessions \\
+\hline
+Gateway & Yes & Authentication, routing, channel integration \\
+\hline
+Channel Integrations & Yes & WhatsApp, Telegram, Discord, Signal, Slack, etc. \\
+\hline
+ClawHub Marketplace & Yes & Skill publishing, moderation, distribution \\
+\hline
+MCP Servers & Yes & External tool providers \\
+\hline
+User Devices & Partial & Mobile apps, desktop clients \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{1.3 Out of Scope}
+
+
+Nothing is explicitly out of scope for this threat model.
+
+\hrulefill
+
+
+\subsection{2. System Architecture}
+
+
+\subsubsection{2.1 Trust Boundaries}
+
+
+\begin{lstlisting}
+┌─────────────────────────────────────────────────────────────────┐
+│                    UNTRUSTED ZONE                                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │  WhatsApp   │  │  Telegram   │  │   Discord   │  ...         │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘              │
+│         │                │                │                      │
+└─────────┼────────────────┼────────────────┼──────────────────────┘
+          │                │                │
+          ▼                ▼                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 TRUST BOUNDARY 1: Channel Access                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                      GATEWAY                              │   │
+│  │  • Device Pairing (30s grace period)                      │   │
+│  │  • AllowFrom / AllowList validation                       │   │
+│  │  • Token/Password/Tailscale auth                          │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 TRUST BOUNDARY 2: Session Isolation              │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                   AGENT SESSIONS                          │   │
+│  │  • Session key = agent:channel:peer                       │   │
+│  │  • Tool policies per agent                                │   │
+│  │  • Transcript logging                                     │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 TRUST BOUNDARY 3: Tool Execution                 │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                  EXECUTION SANDBOX                        │   │
+│  │  • Docker sandbox OR Host (exec-approvals)                │   │
+│  │  • Node remote execution                                  │   │
+│  │  • SSRF protection (DNS pinning + IP blocking)            │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 TRUST BOUNDARY 4: External Content               │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │              FETCHED URLs / EMAILS / WEBHOOKS             │   │
+│  │  • External content wrapping (XML tags)                   │   │
+│  │  • Security notice injection                              │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 TRUST BOUNDARY 5: Supply Chain                   │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                      CLAWHUB                              │   │
+│  │  • Skill publishing (semver, SKILL.md required)           │   │
+│  │  • Pattern-based moderation flags                         │   │
+│  │  • VirusTotal scanning (coming soon)                      │   │
+│  │  • GitHub account age verification                        │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+\end{lstlisting}
+
+
+\subsubsection{2.2 Data Flows}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+Flow & Source & Destination & Data & Protection \\
+\hline
+F1 & Channel & Gateway & User messages & TLS, AllowFrom \\
+\hline
+F2 & Gateway & Agent & Routed messages & Session isolation \\
+\hline
+F3 & Agent & Tools & Tool invocations & Policy enforcement \\
+\hline
+F4 & Agent & External & web\_fetch requests & SSRF blocking \\
+\hline
+F5 & ClawHub & Agent & Skill code & Moderation, scanning \\
+\hline
+F6 & Agent & Channel & Responses & Output filtering \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsection{3. Threat Analysis by ATLAS Tactic}
+
+
+\subsubsection{3.1 Reconnaissance (AML.TA0002)}
+
+
+\paragraph{T-RECON-001: Agent Endpoint Discovery}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0006 - Active Scanning \\
+\hline
+\textbf{Description} & Attacker scans for exposed OpenClaw gateway endpoints \\
+\hline
+\textbf{Attack Vector} & Network scanning, shodan queries, DNS enumeration \\
+\hline
+\textbf{Affected Components} & Gateway, exposed API endpoints \\
+\hline
+\textbf{Current Mitigations} & Tailscale auth option, bind to loopback by default \\
+\hline
+\textbf{Residual Risk} & Medium - Public gateways discoverable \\
+\hline
+\textbf{Recommendations} & Document secure deployment, add rate limiting on discovery endpoints \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-RECON-002: Channel Integration Probing}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0006 - Active Scanning \\
+\hline
+\textbf{Description} & Attacker probes messaging channels to identify AI-managed accounts \\
+\hline
+\textbf{Attack Vector} & Sending test messages, observing response patterns \\
+\hline
+\textbf{Affected Components} & All channel integrations \\
+\hline
+\textbf{Current Mitigations} & None specific \\
+\hline
+\textbf{Residual Risk} & Low - Limited value from discovery alone \\
+\hline
+\textbf{Recommendations} & Consider response timing randomization \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsubsection{3.2 Initial Access (AML.TA0004)}
+
+
+\paragraph{T-ACCESS-001: Pairing Code Interception}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0040 - AI Model Inference API Access \\
+\hline
+\textbf{Description} & Attacker intercepts pairing code during 30s grace period \\
+\hline
+\textbf{Attack Vector} & Shoulder surfing, network sniffing, social engineering \\
+\hline
+\textbf{Affected Components} & Device pairing system \\
+\hline
+\textbf{Current Mitigations} & 30s expiry, codes sent via existing channel \\
+\hline
+\textbf{Residual Risk} & Medium - Grace period exploitable \\
+\hline
+\textbf{Recommendations} & Reduce grace period, add confirmation step \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-ACCESS-002: AllowFrom Spoofing}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0040 - AI Model Inference API Access \\
+\hline
+\textbf{Description} & Attacker spoofs allowed sender identity in channel \\
+\hline
+\textbf{Attack Vector} & Depends on channel - phone number spoofing, username impersonation \\
+\hline
+\textbf{Affected Components} & AllowFrom validation per channel \\
+\hline
+\textbf{Current Mitigations} & Channel-specific identity verification \\
+\hline
+\textbf{Residual Risk} & Medium - Some channels vulnerable to spoofing \\
+\hline
+\textbf{Recommendations} & Document channel-specific risks, add cryptographic verification where possible \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-ACCESS-003: Token Theft}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0040 - AI Model Inference API Access \\
+\hline
+\textbf{Description} & Attacker steals authentication tokens from config files \\
+\hline
+\textbf{Attack Vector} & Malware, unauthorized device access, config backup exposure \\
+\hline
+\textbf{Affected Components} & \textasciitilde{}/.openclaw/credentials/, config storage \\
+\hline
+\textbf{Current Mitigations} & File permissions \\
+\hline
+\textbf{Residual Risk} & High - Tokens stored in plaintext \\
+\hline
+\textbf{Recommendations} & Implement token encryption at rest, add token rotation \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsubsection{3.3 Execution (AML.TA0005)}
+
+
+\paragraph{T-EXEC-001: Direct Prompt Injection}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0051.000 - LLM Prompt Injection: Direct \\
+\hline
+\textbf{Description} & Attacker sends crafted prompts to manipulate agent behavior \\
+\hline
+\textbf{Attack Vector} & Channel messages containing adversarial instructions \\
+\hline
+\textbf{Affected Components} & Agent LLM, all input surfaces \\
+\hline
+\textbf{Current Mitigations} & Pattern detection, external content wrapping \\
+\hline
+\textbf{Residual Risk} & Critical - Detection only, no blocking; sophisticated attacks bypass \\
+\hline
+\textbf{Recommendations} & Implement multi-layer defense, output validation, user confirmation for sensitive actions \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-EXEC-002: Indirect Prompt Injection}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0051.001 - LLM Prompt Injection: Indirect \\
+\hline
+\textbf{Description} & Attacker embeds malicious instructions in fetched content \\
+\hline
+\textbf{Attack Vector} & Malicious URLs, poisoned emails, compromised webhooks \\
+\hline
+\textbf{Affected Components} & web\_fetch, email ingestion, external data sources \\
+\hline
+\textbf{Current Mitigations} & Content wrapping with XML tags and security notice \\
+\hline
+\textbf{Residual Risk} & High - LLM may ignore wrapper instructions \\
+\hline
+\textbf{Recommendations} & Implement content sanitization, separate execution contexts \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-EXEC-003: Tool Argument Injection}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0051.000 - LLM Prompt Injection: Direct \\
+\hline
+\textbf{Description} & Attacker manipulates tool arguments through prompt injection \\
+\hline
+\textbf{Attack Vector} & Crafted prompts that influence tool parameter values \\
+\hline
+\textbf{Affected Components} & All tool invocations \\
+\hline
+\textbf{Current Mitigations} & Exec approvals for dangerous commands \\
+\hline
+\textbf{Residual Risk} & High - Relies on user judgment \\
+\hline
+\textbf{Recommendations} & Implement argument validation, parameterized tool calls \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-EXEC-004: Exec Approval Bypass}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0043 - Craft Adversarial Data \\
+\hline
+\textbf{Description} & Attacker crafts commands that bypass approval allowlist \\
+\hline
+\textbf{Attack Vector} & Command obfuscation, alias exploitation, path manipulation \\
+\hline
+\textbf{Affected Components} & exec-approvals.ts, command allowlist \\
+\hline
+\textbf{Current Mitigations} & Allowlist + ask mode \\
+\hline
+\textbf{Residual Risk} & High - No command sanitization \\
+\hline
+\textbf{Recommendations} & Implement command normalization, expand blocklist \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsubsection{3.4 Persistence (AML.TA0006)}
+
+
+\paragraph{T-PERSIST-001: Malicious Skill Installation}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0010.001 - Supply Chain Compromise: AI Software \\
+\hline
+\textbf{Description} & Attacker publishes malicious skill to ClawHub \\
+\hline
+\textbf{Attack Vector} & Create account, publish skill with hidden malicious code \\
+\hline
+\textbf{Affected Components} & ClawHub, skill loading, agent execution \\
+\hline
+\textbf{Current Mitigations} & GitHub account age verification, pattern-based moderation flags \\
+\hline
+\textbf{Residual Risk} & Critical - No sandboxing, limited review \\
+\hline
+\textbf{Recommendations} & VirusTotal integration (in progress), skill sandboxing, community review \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-PERSIST-002: Skill Update Poisoning}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0010.001 - Supply Chain Compromise: AI Software \\
+\hline
+\textbf{Description} & Attacker compromises popular skill and pushes malicious update \\
+\hline
+\textbf{Attack Vector} & Account compromise, social engineering of skill owner \\
+\hline
+\textbf{Affected Components} & ClawHub versioning, auto-update flows \\
+\hline
+\textbf{Current Mitigations} & Version fingerprinting \\
+\hline
+\textbf{Residual Risk} & High - Auto-updates may pull malicious versions \\
+\hline
+\textbf{Recommendations} & Implement update signing, rollback capability, version pinning \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-PERSIST-003: Agent Configuration Tampering}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0010.002 - Supply Chain Compromise: Data \\
+\hline
+\textbf{Description} & Attacker modifies agent configuration to persist access \\
+\hline
+\textbf{Attack Vector} & Config file modification, settings injection \\
+\hline
+\textbf{Affected Components} & Agent config, tool policies \\
+\hline
+\textbf{Current Mitigations} & File permissions \\
+\hline
+\textbf{Residual Risk} & Medium - Requires local access \\
+\hline
+\textbf{Recommendations} & Config integrity verification, audit logging for config changes \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsubsection{3.5 Defense Evasion (AML.TA0007)}
+
+
+\paragraph{T-EVADE-001: Moderation Pattern Bypass}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0043 - Craft Adversarial Data \\
+\hline
+\textbf{Description} & Attacker crafts skill content to evade moderation patterns \\
+\hline
+\textbf{Attack Vector} & Unicode homoglyphs, encoding tricks, dynamic loading \\
+\hline
+\textbf{Affected Components} & ClawHub moderation.ts \\
+\hline
+\textbf{Current Mitigations} & Pattern-based FLAG\_RULES \\
+\hline
+\textbf{Residual Risk} & High - Simple regex easily bypassed \\
+\hline
+\textbf{Recommendations} & Add behavioral analysis (VirusTotal Code Insight), AST-based detection \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-EVADE-002: Content Wrapper Escape}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0043 - Craft Adversarial Data \\
+\hline
+\textbf{Description} & Attacker crafts content that escapes XML wrapper context \\
+\hline
+\textbf{Attack Vector} & Tag manipulation, context confusion, instruction override \\
+\hline
+\textbf{Affected Components} & External content wrapping \\
+\hline
+\textbf{Current Mitigations} & XML tags + security notice \\
+\hline
+\textbf{Residual Risk} & Medium - Novel escapes discovered regularly \\
+\hline
+\textbf{Recommendations} & Multiple wrapper layers, output-side validation \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsubsection{3.6 Discovery (AML.TA0008)}
+
+
+\paragraph{T-DISC-001: Tool Enumeration}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0040 - AI Model Inference API Access \\
+\hline
+\textbf{Description} & Attacker enumerates available tools through prompting \\
+\hline
+\textbf{Attack Vector} & "What tools do you have?" style queries \\
+\hline
+\textbf{Affected Components} & Agent tool registry \\
+\hline
+\textbf{Current Mitigations} & None specific \\
+\hline
+\textbf{Residual Risk} & Low - Tools generally documented \\
+\hline
+\textbf{Recommendations} & Consider tool visibility controls \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-DISC-002: Session Data Extraction}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0040 - AI Model Inference API Access \\
+\hline
+\textbf{Description} & Attacker extracts sensitive data from session context \\
+\hline
+\textbf{Attack Vector} & "What did we discuss?" queries, context probing \\
+\hline
+\textbf{Affected Components} & Session transcripts, context window \\
+\hline
+\textbf{Current Mitigations} & Session isolation per sender \\
+\hline
+\textbf{Residual Risk} & Medium - Within-session data accessible \\
+\hline
+\textbf{Recommendations} & Implement sensitive data redaction in context \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsubsection{3.7 Collection \& Exfiltration (AML.TA0009, AML.TA0010)}
+
+
+\paragraph{T-EXFIL-001: Data Theft via web\_fetch}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0009 - Collection \\
+\hline
+\textbf{Description} & Attacker exfiltrates data by instructing agent to send to external URL \\
+\hline
+\textbf{Attack Vector} & Prompt injection causing agent to POST data to attacker server \\
+\hline
+\textbf{Affected Components} & web\_fetch tool \\
+\hline
+\textbf{Current Mitigations} & SSRF blocking for internal networks \\
+\hline
+\textbf{Residual Risk} & High - External URLs permitted \\
+\hline
+\textbf{Recommendations} & Implement URL allowlisting, data classification awareness \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-EXFIL-002: Unauthorized Message Sending}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0009 - Collection \\
+\hline
+\textbf{Description} & Attacker causes agent to send messages containing sensitive data \\
+\hline
+\textbf{Attack Vector} & Prompt injection causing agent to message attacker \\
+\hline
+\textbf{Affected Components} & Message tool, channel integrations \\
+\hline
+\textbf{Current Mitigations} & Outbound messaging gating \\
+\hline
+\textbf{Residual Risk} & Medium - Gating may be bypassed \\
+\hline
+\textbf{Recommendations} & Require explicit confirmation for new recipients \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-EXFIL-003: Credential Harvesting}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0009 - Collection \\
+\hline
+\textbf{Description} & Malicious skill harvests credentials from agent context \\
+\hline
+\textbf{Attack Vector} & Skill code reads environment variables, config files \\
+\hline
+\textbf{Affected Components} & Skill execution environment \\
+\hline
+\textbf{Current Mitigations} & None specific to skills \\
+\hline
+\textbf{Residual Risk} & Critical - Skills run with agent privileges \\
+\hline
+\textbf{Recommendations} & Skill sandboxing, credential isolation \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsubsection{3.8 Impact (AML.TA0011)}
+
+
+\paragraph{T-IMPACT-001: Unauthorized Command Execution}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0031 - Erode AI Model Integrity \\
+\hline
+\textbf{Description} & Attacker executes arbitrary commands on user system \\
+\hline
+\textbf{Attack Vector} & Prompt injection combined with exec approval bypass \\
+\hline
+\textbf{Affected Components} & Bash tool, command execution \\
+\hline
+\textbf{Current Mitigations} & Exec approvals, Docker sandbox option \\
+\hline
+\textbf{Residual Risk} & Critical - Host execution without sandbox \\
+\hline
+\textbf{Recommendations} & Default to sandbox, improve approval UX \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-IMPACT-002: Resource Exhaustion (DoS)}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0031 - Erode AI Model Integrity \\
+\hline
+\textbf{Description} & Attacker exhausts API credits or compute resources \\
+\hline
+\textbf{Attack Vector} & Automated message flooding, expensive tool calls \\
+\hline
+\textbf{Affected Components} & Gateway, agent sessions, API provider \\
+\hline
+\textbf{Current Mitigations} & None \\
+\hline
+\textbf{Residual Risk} & High - No rate limiting \\
+\hline
+\textbf{Recommendations} & Implement per-sender rate limits, cost budgets \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\paragraph{T-IMPACT-003: Reputation Damage}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Attribute & Value \\
+\hline
+\textbf{ATLAS ID} & AML.T0031 - Erode AI Model Integrity \\
+\hline
+\textbf{Description} & Attacker causes agent to send harmful/offensive content \\
+\hline
+\textbf{Attack Vector} & Prompt injection causing inappropriate responses \\
+\hline
+\textbf{Affected Components} & Output generation, channel messaging \\
+\hline
+\textbf{Current Mitigations} & LLM provider content policies \\
+\hline
+\textbf{Residual Risk} & Medium - Provider filters imperfect \\
+\hline
+\textbf{Recommendations} & Output filtering layer, user controls \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsection{4. ClawHub Supply Chain Analysis}
+
+
+\subsubsection{4.1 Current Security Controls}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Control & Implementation & Effectiveness \\
+\hline
+GitHub Account Age & \texttt{requireGitHubAccountAge()} & Medium - Raises bar for new attackers \\
+\hline
+Path Sanitization & \texttt{sanitizePath()} & High - Prevents path traversal \\
+\hline
+File Type Validation & \texttt{isTextFile()} & Medium - Only text files, but can still be malicious \\
+\hline
+Size Limits & 50MB total bundle & High - Prevents resource exhaustion \\
+\hline
+Required SKILL.md & Mandatory readme & Low security value - Informational only \\
+\hline
+Pattern Moderation & FLAG\_RULES in moderation.ts & Low - Easily bypassed \\
+\hline
+Moderation Status & \texttt{moderationStatus} field & Medium - Manual review possible \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{4.2 Moderation Flag Patterns}
+
+
+Current patterns in \texttt{moderation.ts}:
+
+\begin{lstlisting}[language=javascript]
+// Known-bad identifiers
+/(keepcold131\/ClawdAuthenticatorTool|ClawdAuthenticatorTool)/i
+
+// Suspicious keywords
+/(malware|stealer|phish|phishing|keylogger)/i
+/(api[-_ ]?key|token|password|private key|secret)/i
+/(wallet|seed phrase|mnemonic|crypto)/i
+/(discord\.gg|webhook|hooks\.slack)/i
+/(curl[^\n]+\|\s*(sh|bash))/i
+/(bit\.ly|tinyurl\.com|t\.co|goo\.gl|is\.gd)/i
+\end{lstlisting}
+
+
+\textbf{Limitations:}
+
+\begin{itemize}
+  \item Only checks slug, displayName, summary, frontmatter, metadata, file paths
+  \item Does not analyze actual skill code content
+  \item Simple regex easily bypassed with obfuscation
+  \item No behavioral analysis
+\end{itemize}
+
+
+\subsubsection{4.3 Planned Improvements}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Improvement & Status & Impact \\
+\hline
+VirusTotal Integration & In Progress & High - Code Insight behavioral analysis \\
+\hline
+Community Reporting & Partial (\texttt{skillReports} table exists) & Medium \\
+\hline
+Audit Logging & Partial (\texttt{auditLogs} table exists) & Medium \\
+\hline
+Badge System & Implemented & Medium - \texttt{highlighted}, \texttt{official}, \texttt{deprecated}, \texttt{redactionApproved} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsection{5. Risk Matrix}
+
+
+\subsubsection{5.1 Likelihood vs Impact}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+Threat ID & Likelihood & Impact & Risk Level & Priority \\
+\hline
+T-EXEC-001 & High & Critical & \textbf{Critical} & P0 \\
+\hline
+T-PERSIST-001 & High & Critical & \textbf{Critical} & P0 \\
+\hline
+T-EXFIL-003 & Medium & Critical & \textbf{Critical} & P0 \\
+\hline
+T-IMPACT-001 & Medium & Critical & \textbf{High} & P1 \\
+\hline
+T-EXEC-002 & High & High & \textbf{High} & P1 \\
+\hline
+T-EXEC-004 & Medium & High & \textbf{High} & P1 \\
+\hline
+T-ACCESS-003 & Medium & High & \textbf{High} & P1 \\
+\hline
+T-EXFIL-001 & Medium & High & \textbf{High} & P1 \\
+\hline
+T-IMPACT-002 & High & Medium & \textbf{High} & P1 \\
+\hline
+T-EVADE-001 & High & Medium & \textbf{Medium} & P2 \\
+\hline
+T-ACCESS-001 & Low & High & \textbf{Medium} & P2 \\
+\hline
+T-ACCESS-002 & Low & High & \textbf{Medium} & P2 \\
+\hline
+T-PERSIST-002 & Low & High & \textbf{Medium} & P2 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{5.2 Critical Path Attack Chains}
+
+
+\textbf{Attack Chain 1: Skill-Based Data Theft}
+
+\begin{lstlisting}
+T-PERSIST-001 → T-EVADE-001 → T-EXFIL-003
+(Publish malicious skill) → (Evade moderation) → (Harvest credentials)
+\end{lstlisting}
+
+
+\textbf{Attack Chain 2: Prompt Injection to RCE}
+
+\begin{lstlisting}
+T-EXEC-001 → T-EXEC-004 → T-IMPACT-001
+(Inject prompt) → (Bypass exec approval) → (Execute commands)
+\end{lstlisting}
+
+
+\textbf{Attack Chain 3: Indirect Injection via Fetched Content}
+
+\begin{lstlisting}
+T-EXEC-002 → T-EXFIL-001 → External exfiltration
+(Poison URL content) → (Agent fetches & follows instructions) → (Data sent to attacker)
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{6. Recommendations Summary}
+
+
+\subsubsection{6.1 Immediate (P0)}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+ID & Recommendation & Addresses \\
+\hline
+R-001 & Complete VirusTotal integration & T-PERSIST-001, T-EVADE-001 \\
+\hline
+R-002 & Implement skill sandboxing & T-PERSIST-001, T-EXFIL-003 \\
+\hline
+R-003 & Add output validation for sensitive actions & T-EXEC-001, T-EXEC-002 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{6.2 Short-term (P1)}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+ID & Recommendation & Addresses \\
+\hline
+R-004 & Implement rate limiting & T-IMPACT-002 \\
+\hline
+R-005 & Add token encryption at rest & T-ACCESS-003 \\
+\hline
+R-006 & Improve exec approval UX and validation & T-EXEC-004 \\
+\hline
+R-007 & Implement URL allowlisting for web\_fetch & T-EXFIL-001 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{6.3 Medium-term (P2)}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+ID & Recommendation & Addresses \\
+\hline
+R-008 & Add cryptographic channel verification where possible & T-ACCESS-002 \\
+\hline
+R-009 & Implement config integrity verification & T-PERSIST-003 \\
+\hline
+R-010 & Add update signing and version pinning & T-PERSIST-002 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsection{7. Appendices}
+
+
+\subsubsection{7.1 ATLAS Technique Mapping}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+ATLAS ID & Technique Name & OpenClaw Threats \\
+\hline
+AML.T0006 & Active Scanning & T-RECON-001, T-RECON-002 \\
+\hline
+AML.T0009 & Collection & T-EXFIL-001, T-EXFIL-002, T-EXFIL-003 \\
+\hline
+AML.T0010.001 & Supply Chain: AI Software & T-PERSIST-001, T-PERSIST-002 \\
+\hline
+AML.T0010.002 & Supply Chain: Data & T-PERSIST-003 \\
+\hline
+AML.T0031 & Erode AI Model Integrity & T-IMPACT-001, T-IMPACT-002, T-IMPACT-003 \\
+\hline
+AML.T0040 & AI Model Inference API Access & T-ACCESS-001, T-ACCESS-002, T-ACCESS-003, T-DISC-001, T-DISC-002 \\
+\hline
+AML.T0043 & Craft Adversarial Data & T-EXEC-004, T-EVADE-001, T-EVADE-002 \\
+\hline
+AML.T0051.000 & LLM Prompt Injection: Direct & T-EXEC-001, T-EXEC-003 \\
+\hline
+AML.T0051.001 & LLM Prompt Injection: Indirect & T-EXEC-002 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{7.2 Key Security Files}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Path & Purpose & Risk Level \\
+\hline
+\texttt{src/infra/exec-approvals.ts} & Command approval logic & \textbf{Critical} \\
+\hline
+\texttt{src/gateway/auth.ts} & Gateway authentication & \textbf{Critical} \\
+\hline
+\texttt{src/web/inbound/access-control.ts} & Channel access control & \textbf{Critical} \\
+\hline
+\texttt{src/infra/net/ssrf.ts} & SSRF protection & \textbf{Critical} \\
+\hline
+\texttt{src/security/external-content.ts} & Prompt injection mitigation & \textbf{Critical} \\
+\hline
+\texttt{src/agents/sandbox/tool-policy.ts} & Tool policy enforcement & \textbf{Critical} \\
+\hline
+\texttt{convex/lib/moderation.ts} & ClawHub moderation & \textbf{High} \\
+\hline
+\texttt{convex/lib/skillPublish.ts} & Skill publishing flow & \textbf{High} \\
+\hline
+\texttt{src/routing/resolve-route.ts} & Session isolation & \textbf{Medium} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{7.3 Glossary}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Term & Definition \\
+\hline
+\textbf{ATLAS} & MITRE's Adversarial Threat Landscape for AI Systems \\
+\hline
+\textbf{ClawHub} & OpenClaw's skill marketplace \\
+\hline
+\textbf{Gateway} & OpenClaw's message routing and authentication layer \\
+\hline
+\textbf{MCP} & Model Context Protocol - tool provider interface \\
+\hline
+\textbf{Prompt Injection} & Attack where malicious instructions are embedded in input \\
+\hline
+\textbf{Skill} & Downloadable extension for OpenClaw agents \\
+\hline
+\textbf{SSRF} & Server-Side Request Forgery \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\_This threat model is a living document. Report security issues to security@openclaw.ai\_
+
+
+\clearpage
+
+% === Source file: security/formal-verification.md ===
+\section{Formal Verification (Security Models)}
+
+
+This page tracks OpenClaw’s \textbf{formal security models} (TLA+/TLC today; more as needed).
+
+\begin{quote}
+Note: some older links may refer to the previous project name.
+\end{quote}
+
+
+\textbf{Goal (north star):} provide a machine-checked argument that OpenClaw enforces its
+intended security policy (authorization, session isolation, tool gating, and
+misconfiguration safety), under explicit assumptions.
+
+\textbf{What this is (today):} an executable, attacker-driven \textbf{security regression suite}:
+
+\begin{itemize}
+  \item Each claim has a runnable model-check over a finite state space.
+  \item Many claims have a paired \textbf{negative model} that produces a counterexample trace for a realistic bug class.
+\end{itemize}
+
+
+\textbf{What this is not (yet):} a proof that “OpenClaw is secure in all respects” or that the full TypeScript implementation is correct.
+
+\subsection{Where the models live}
+
+
+Models are maintained in a separate repo: \href{https://github.com/vignesh07/openclaw-formal-models}{vignesh07/openclaw-formal-models}.
+
+\subsection{Important caveats}
+
+
+\begin{itemize}
+  \item These are \textbf{models}, not the full TypeScript implementation. Drift between model and code is possible.
+  \item Results are bounded by the state space explored by TLC; “green” does not imply security beyond the modeled assumptions and bounds.
+  \item Some claims rely on explicit environmental assumptions (e.g., correct deployment, correct configuration inputs).
+\end{itemize}
+
+
+\subsection{Reproducing results}
+
+
+Today, results are reproduced by cloning the models repo locally and running TLC (see below). A future iteration could offer:
+
+\begin{itemize}
+  \item CI-run models with public artifacts (counterexample traces, run logs)
+  \item a hosted “run this model” workflow for small, bounded checks
+\end{itemize}
+
+
+Getting started:
+
+\begin{lstlisting}[language=bash]
+git clone https://github.com/vignesh07/openclaw-formal-models
+cd openclaw-formal-models
+
+# Java 11+ required (TLC runs on the JVM).
+# The repo vendors a pinned `tla2tools.jar` (TLA+ tools) and provides `bin/tlc` + Make targets.
+
+make <target>
+\end{lstlisting}
+
+
+\subsubsection{Gateway exposure and open gateway misconfiguration}
+
+
+\textbf{Claim:} binding beyond loopback without auth can make remote compromise possible / increases exposure; token/password blocks unauth attackers (per the model assumptions).
+
+\begin{itemize}
+  \item Green runs:
+  \item \texttt{make gateway-exposure-v2}
+  \item \texttt{make gateway-exposure-v2-protected}
+  \item Red (expected):
+  \item \texttt{make gateway-exposure-v2-negative}
+\end{itemize}
+
+
+See also: \texttt{docs/gateway-exposure-matrix.md} in the models repo.
+
+\subsubsection{Nodes.run pipeline (highest-risk capability)}
+
+
+\textbf{Claim:} \texttt{nodes.run} requires (a) node command allowlist plus declared commands and (b) live approval when configured; approvals are tokenized to prevent replay (in the model).
+
+\begin{itemize}
+  \item Green runs:
+  \item \texttt{make nodes-pipeline}
+  \item \texttt{make approvals-token}
+  \item Red (expected):
+  \item \texttt{make nodes-pipeline-negative}
+  \item \texttt{make approvals-token-negative}
+\end{itemize}
+
+
+\subsubsection{Pairing store (DM gating)}
+
+
+\textbf{Claim:} pairing requests respect TTL and pending-request caps.
+
+\begin{itemize}
+  \item Green runs:
+  \item \texttt{make pairing}
+  \item \texttt{make pairing-cap}
+  \item Red (expected):
+  \item \texttt{make pairing-negative}
+  \item \texttt{make pairing-cap-negative}
+\end{itemize}
+
+
+\subsubsection{Ingress gating (mentions + control-command bypass)}
+
+
+\textbf{Claim:} in group contexts requiring mention, an unauthorized “control command” cannot bypass mention gating.
+
+\begin{itemize}
+  \item Green:
+  \item \texttt{make ingress-gating}
+  \item Red (expected):
+  \item \texttt{make ingress-gating-negative}
+\end{itemize}
+
+
+\subsubsection{Routing/session-key isolation}
+
+
+\textbf{Claim:} DMs from distinct peers do not collapse into the same session unless explicitly linked/configured.
+
+\begin{itemize}
+  \item Green:
+  \item \texttt{make routing-isolation}
+  \item Red (expected):
+  \item \texttt{make routing-isolation-negative}
+\end{itemize}
+
+
+\subsection{v1++: additional bounded models (concurrency, retries, trace correctness)}
+
+
+These are follow-on models that tighten fidelity around real-world failure modes (non-atomic updates, retries, and message fan-out).
+
+\subsubsection{Pairing store concurrency / idempotency}
+
+
+\textbf{Claim:} a pairing store should enforce \texttt{MaxPending} and idempotency even under interleavings (i.e., “check-then-write” must be atomic / locked; refresh shouldn’t create duplicates).
+
+What it means:
+
+\begin{itemize}
+  \item Under concurrent requests, you can’t exceed \texttt{MaxPending} for a channel.
+  \item Repeated requests/refreshes for the same \texttt{(channel, sender)} should not create duplicate live pending rows.
+\end{itemize}
+
+
+\begin{itemize}
+  \item Green runs:
+  \item \texttt{make pairing-race} (atomic/locked cap check)
+  \item \texttt{make pairing-idempotency}
+  \item \texttt{make pairing-refresh}
+  \item \texttt{make pairing-refresh-race}
+  \item Red (expected):
+  \item \texttt{make pairing-race-negative} (non-atomic begin/commit cap race)
+  \item \texttt{make pairing-idempotency-negative}
+  \item \texttt{make pairing-refresh-negative}
+  \item \texttt{make pairing-refresh-race-negative}
+\end{itemize}
+
+
+\subsubsection{Ingress trace correlation / idempotency}
+
+
+\textbf{Claim:} ingestion should preserve trace correlation across fan-out and be idempotent under provider retries.
+
+What it means:
+
+\begin{itemize}
+  \item When one external event becomes multiple internal messages, every part keeps the same trace/event identity.
+  \item Retries do not result in double-processing.
+  \item If provider event IDs are missing, dedupe falls back to a safe key (e.g., trace ID) to avoid dropping distinct events.
+\end{itemize}
+
+
+\begin{itemize}
+  \item Green:
+  \item \texttt{make ingress-trace}
+  \item \texttt{make ingress-trace2}
+  \item \texttt{make ingress-idempotency}
+  \item \texttt{make ingress-dedupe-fallback}
+  \item Red (expected):
+  \item \texttt{make ingress-trace-negative}
+  \item \texttt{make ingress-trace2-negative}
+  \item \texttt{make ingress-idempotency-negative}
+  \item \texttt{make ingress-dedupe-fallback-negative}
+\end{itemize}
+
+
+\subsubsection{Routing dmScope precedence + identityLinks}
+
+
+\textbf{Claim:} routing must keep DM sessions isolated by default, and only collapse sessions when explicitly configured (channel precedence + identity links).
+
+What it means:
+
+\begin{itemize}
+  \item Channel-specific dmScope overrides must win over global defaults.
+  \item identityLinks should collapse only within explicit linked groups, not across unrelated peers.
+\end{itemize}
+
+
+\begin{itemize}
+  \item Green:
+  \item \texttt{make routing-precedence}
+  \item \texttt{make routing-identitylinks}
+  \item Red (expected):
+  \item \texttt{make routing-precedence-negative}
+  \item \texttt{make routing-identitylinks-negative}
+\end{itemize}
+
+
+
+\clearpage

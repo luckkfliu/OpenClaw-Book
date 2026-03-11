@@ -1,0 +1,857 @@
+\chapter{Web Interface}
+
+% === Source file: web/control-ui.md ===
+\section{Control UI (browser)}
+
+
+The Control UI is a small \textbf{Vite + Lit} single-page app served by the Gateway:
+
+\begin{itemize}
+  \item default: \texttt{http://:18789/}
+  \item optional prefix: set \texttt{gateway.controlUi.basePath} (e.g. \texttt{/openclaw})
+\end{itemize}
+
+
+It speaks \textbf{directly to the Gateway WebSocket} on the same port.
+
+\subsection{Quick open (local)}
+
+
+If the Gateway is running on the same computer, open:
+
+\begin{itemize}
+  \item \href{http://127.0.0.1:18789/}{http://127.0.0.1:18789/} (or \href{http://localhost:18789/}{http://localhost:18789/})
+\end{itemize}
+
+
+If the page fails to load, start the Gateway first: \texttt{openclaw gateway}.
+
+Auth is supplied during the WebSocket handshake via:
+
+\begin{itemize}
+  \item \texttt{connect.params.auth.token}
+  \item \texttt{connect.params.auth.password}
+\end{itemize}
+
+The dashboard settings panel lets you store a token; passwords are not persisted.
+The onboarding wizard generates a gateway token by default, so paste it here on first connect.
+
+\subsection{Device pairing (first connection)}
+
+
+When you connect to the Control UI from a new browser or device, the Gateway
+requires a \textbf{one-time pairing approval} — even if you're on the same Tailnet
+with \texttt{gateway.auth.allowTailscale: true}. This is a security measure to prevent
+unauthorized access.
+
+\textbf{What you'll see:} "disconnected (1008): pairing required"
+
+\textbf{To approve the device:}
+
+\begin{lstlisting}[language=bash]
+# List pending requests
+openclaw devices list
+
+# Approve by request ID
+openclaw devices approve <requestId>
+\end{lstlisting}
+
+
+Once approved, the device is remembered and won't require re-approval unless
+you revoke it with \texttt{openclaw devices revoke --device  --role }. See
+\href{/cli/devices}{Devices CLI} for token rotation and revocation.
+
+\textbf{Notes:}
+
+\begin{itemize}
+  \item Local connections (\texttt{127.0.0.1}) are auto-approved.
+  \item Remote connections (LAN, Tailnet, etc.) require explicit approval.
+  \item Each browser profile generates a unique device ID, so switching browsers or
+\end{itemize}
+
+clearing browser data will require re-pairing.
+
+\subsection{What it can do (today)}
+
+
+\begin{itemize}
+  \item Chat with the model via Gateway WS (\texttt{chat.history}, \texttt{chat.send}, \texttt{chat.abort}, \texttt{chat.inject})
+  \item Stream tool calls + live tool output cards in Chat (agent events)
+  \item Channels: WhatsApp/Telegram/Discord/Slack + plugin channels (Mattermost, etc.) status + QR login + per-channel config (\texttt{channels.status}, \texttt{web.login.*}, \texttt{config.patch})
+  \item Instances: presence list + refresh (\texttt{system-presence})
+  \item Sessions: list + per-session thinking/verbose overrides (\texttt{sessions.list}, \texttt{sessions.patch})
+  \item Cron jobs: list/add/edit/run/enable/disable + run history (\texttt{cron.*})
+  \item Skills: status, enable/disable, install, API key updates (\texttt{skills.*})
+  \item Nodes: list + caps (\texttt{node.list})
+  \item Exec approvals: edit gateway or node allowlists + ask policy for \texttt{exec host=gateway/node} (\texttt{exec.approvals.*})
+  \item Config: view/edit \texttt{\textasciitilde{}/.openclaw/openclaw.json} (\texttt{config.get}, \texttt{config.set})
+  \item Config: apply + restart with validation (\texttt{config.apply}) and wake the last active session
+  \item Config writes include a base-hash guard to prevent clobbering concurrent edits
+  \item Config schema + form rendering (\texttt{config.schema}, including plugin + channel schemas); Raw JSON editor remains available
+  \item Debug: status/health/models snapshots + event log + manual RPC calls (\texttt{status}, \texttt{health}, \texttt{models.list})
+  \item Logs: live tail of gateway file logs with filter/export (\texttt{logs.tail})
+  \item Update: run a package/git update + restart (\texttt{update.run}) with a restart report
+\end{itemize}
+
+
+Cron jobs panel notes:
+
+\begin{itemize}
+  \item For isolated jobs, delivery defaults to announce summary. You can switch to none if you want internal-only runs.
+  \item Channel/target fields appear when announce is selected.
+  \item Webhook mode uses \texttt{delivery.mode = "webhook"} with \texttt{delivery.to} set to a valid HTTP(S) webhook URL.
+  \item For main-session jobs, webhook and none delivery modes are available.
+  \item Advanced edit controls include delete-after-run, clear agent override, cron exact/stagger options,
+\end{itemize}
+
+agent model/thinking overrides, and best-effort delivery toggles.
+\begin{itemize}
+  \item Form validation is inline with field-level errors; invalid values disable the save button until fixed.
+  \item Set \texttt{cron.webhookToken} to send a dedicated bearer token, if omitted the webhook is sent without an auth header.
+  \item Deprecated fallback: stored legacy jobs with \texttt{notify: true} can still use \texttt{cron.webhook} until migrated.
+\end{itemize}
+
+
+\subsection{Chat behavior}
+
+
+\begin{itemize}
+  \item \texttt{chat.send} is \textbf{non-blocking}: it acks immediately with \texttt{\{ runId, status: "started" \}} and the response streams via \texttt{chat} events.
+  \item Re-sending with the same \texttt{idempotencyKey} returns \texttt{\{ status: "in\_flight" \}} while running, and \texttt{\{ status: "ok" \}} after completion.
+  \item \texttt{chat.history} responses are size-bounded for UI safety. When transcript entries are too large, Gateway may truncate long text fields, omit heavy metadata blocks, and replace oversized messages with a placeholder (\texttt{[chat.history omitted: message too large]}).
+  \item \texttt{chat.inject} appends an assistant note to the session transcript and broadcasts a \texttt{chat} event for UI-only updates (no agent run, no channel delivery).
+  \item Stop:
+  \item Click \textbf{Stop} (calls \texttt{chat.abort})
+  \item Type \texttt{/stop} (or standalone abort phrases like \texttt{stop}, \texttt{stop action}, \texttt{stop run}, \texttt{stop openclaw}, \texttt{please stop}) to abort out-of-band
+  \item \texttt{chat.abort} supports \texttt{\{ sessionKey \}} (no \texttt{runId}) to abort all active runs for that session
+  \item Abort partial retention:
+  \item When a run is aborted, partial assistant text can still be shown in the UI
+  \item Gateway persists aborted partial assistant text into transcript history when buffered output exists
+  \item Persisted entries include abort metadata so transcript consumers can tell abort partials from normal completion output
+\end{itemize}
+
+
+\subsection{Tailnet access (recommended)}
+
+
+\subsubsection{Integrated Tailscale Serve (preferred)}
+
+
+Keep the Gateway on loopback and let Tailscale Serve proxy it with HTTPS:
+
+\begin{lstlisting}[language=bash]
+openclaw gateway --tailscale serve
+\end{lstlisting}
+
+
+Open:
+
+\begin{itemize}
+  \item \texttt{https:///} (or your configured \texttt{gateway.controlUi.basePath})
+\end{itemize}
+
+
+By default, Control UI/WebSocket Serve requests can authenticate via Tailscale identity headers
+(\texttt{tailscale-user-login}) when \texttt{gateway.auth.allowTailscale} is \texttt{true}. OpenClaw
+verifies the identity by resolving the \texttt{x-forwarded-for} address with
+\texttt{tailscale whois} and matching it to the header, and only accepts these when the
+request hits loopback with Tailscale’s \texttt{x-forwarded-*} headers. Set
+\texttt{gateway.auth.allowTailscale: false} (or force \texttt{gateway.auth.mode: "password"})
+if you want to require a token/password even for Serve traffic.
+Tokenless Serve auth assumes the gateway host is trusted. If untrusted local
+code may run on that host, require token/password auth.
+
+\subsubsection{Bind to tailnet + token}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway --bind tailnet --token "$(openssl rand -hex 32)"
+\end{lstlisting}
+
+
+Then open:
+
+\begin{itemize}
+  \item \texttt{http://:18789/} (or your configured \texttt{gateway.controlUi.basePath})
+\end{itemize}
+
+
+Paste the token into the UI settings (sent as \texttt{connect.params.auth.token}).
+
+\subsection{Insecure HTTP}
+
+
+If you open the dashboard over plain HTTP (\texttt{http://} or \texttt{http://}),
+the browser runs in a \textbf{non-secure context} and blocks WebCrypto. By default,
+OpenClaw \textbf{blocks} Control UI connections without device identity.
+
+\textbf{Recommended fix:} use HTTPS (Tailscale Serve) or open the UI locally:
+
+\begin{itemize}
+  \item \texttt{https:///} (Serve)
+  \item \texttt{http://127.0.0.1:18789/} (on the gateway host)
+\end{itemize}
+
+
+\textbf{Insecure-auth toggle behavior:}
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    controlUi: { allowInsecureAuth: true },
+    bind: "tailnet",
+    auth: { mode: "token", token: "replace-me" },
+  },
+}
+\end{lstlisting}
+
+
+\texttt{allowInsecureAuth} does not bypass Control UI device identity or pairing checks.
+
+\textbf{Break-glass only:}
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    controlUi: { dangerouslyDisableDeviceAuth: true },
+    bind: "tailnet",
+    auth: { mode: "token", token: "replace-me" },
+  },
+}
+\end{lstlisting}
+
+
+\texttt{dangerouslyDisableDeviceAuth} disables Control UI device identity checks and is a
+severe security downgrade. Revert quickly after emergency use.
+
+See \href{/gateway/tailscale}{Tailscale} for HTTPS setup guidance.
+
+\subsection{Building the UI}
+
+
+The Gateway serves static files from \texttt{dist/control-ui}. Build them with:
+
+\begin{lstlisting}[language=bash]
+pnpm ui:build # auto-installs UI deps on first run
+\end{lstlisting}
+
+
+Optional absolute base (when you want fixed asset URLs):
+
+\begin{lstlisting}[language=bash]
+OPENCLAW_CONTROL_UI_BASE_PATH=/openclaw/ pnpm ui:build
+\end{lstlisting}
+
+
+For local development (separate dev server):
+
+\begin{lstlisting}[language=bash]
+pnpm ui:dev # auto-installs UI deps on first run
+\end{lstlisting}
+
+
+Then point the UI at your Gateway WS URL (e.g. \texttt{ws://127.0.0.1:18789}).
+
+\subsection{Debugging/testing: dev server + remote Gateway}
+
+
+The Control UI is static files; the WebSocket target is configurable and can be
+different from the HTTP origin. This is handy when you want the Vite dev server
+locally but the Gateway runs elsewhere.
+
+\begin{enumerate}
+  \item Start the UI dev server: \texttt{pnpm ui:dev}
+  \item Open a URL like:
+\end{enumerate}
+
+
+\begin{lstlisting}
+http://localhost:5173/?gatewayUrl=ws://<gateway-host>:18789
+\end{lstlisting}
+
+
+Optional one-time auth (if needed):
+
+\begin{lstlisting}
+http://localhost:5173/?gatewayUrl=wss://<gateway-host>:18789&token=<gateway-token>
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{gatewayUrl} is stored in localStorage after load and removed from the URL.
+  \item \texttt{token} is stored in localStorage; \texttt{password} is kept in memory only.
+  \item When \texttt{gatewayUrl} is set, the UI does not fall back to config or environment credentials.
+\end{itemize}
+
+Provide \texttt{token} (or \texttt{password}) explicitly. Missing explicit credentials is an error.
+\begin{itemize}
+  \item Use \texttt{wss://} when the Gateway is behind TLS (Tailscale Serve, HTTPS proxy, etc.).
+  \item \texttt{gatewayUrl} is only accepted in a top-level window (not embedded) to prevent clickjacking.
+  \item Non-loopback Control UI deployments must set \texttt{gateway.controlUi.allowedOrigins}
+\end{itemize}
+
+explicitly (full origins). This includes remote dev setups.
+\begin{itemize}
+  \item \texttt{gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback=true} enables
+\end{itemize}
+
+Host-header origin fallback mode, but it is a dangerous security mode.
+
+Example:
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    controlUi: {
+      allowedOrigins: ["http://localhost:5173"],
+    },
+  },
+}
+\end{lstlisting}
+
+
+Remote access setup details: \href{/gateway/remote}{Remote access}.
+
+
+\clearpage
+
+% === Source file: web/dashboard.md ===
+\section{Dashboard (Control UI)}
+
+
+The Gateway dashboard is the browser Control UI served at \texttt{/} by default
+(override with \texttt{gateway.controlUi.basePath}).
+
+Quick open (local Gateway):
+
+\begin{itemize}
+  \item \href{http://127.0.0.1:18789/}{http://127.0.0.1:18789/} (or \href{http://localhost:18789/}{http://localhost:18789/})
+\end{itemize}
+
+
+Key references:
+
+\begin{itemize}
+  \item \href{/web/control-ui}{Control UI} for usage and UI capabilities.
+  \item \href{/gateway/tailscale}{Tailscale} for Serve/Funnel automation.
+  \item \href{/web}{Web surfaces} for bind modes and security notes.
+\end{itemize}
+
+
+Authentication is enforced at the WebSocket handshake via \texttt{connect.params.auth}
+(token or password). See \texttt{gateway.auth} in \href{/gateway/configuration}{Gateway configuration}.
+
+Security note: the Control UI is an \textbf{admin surface} (chat, config, exec approvals).
+Do not expose it publicly. The UI stores the token in \texttt{localStorage} after first load.
+Prefer localhost, Tailscale Serve, or an SSH tunnel.
+
+\subsection{Fast path (recommended)}
+
+
+\begin{itemize}
+  \item After onboarding, the CLI auto-opens the dashboard and prints a clean (non-tokenized) link.
+  \item Re-open anytime: \texttt{openclaw dashboard} (copies link, opens browser if possible, shows SSH hint if headless).
+  \item If the UI prompts for auth, paste the token from \texttt{gateway.auth.token} (or \texttt{OPENCLAW\_GATEWAY\_TOKEN}) into Control UI settings.
+\end{itemize}
+
+
+\subsection{Token basics (local vs remote)}
+
+
+\begin{itemize}
+  \item \textbf{Localhost}: open \texttt{http://127.0.0.1:18789/}.
+  \item \textbf{Token source}: \texttt{gateway.auth.token} (or \texttt{OPENCLAW\_GATEWAY\_TOKEN}); the UI stores a copy in localStorage after you connect.
+  \item \textbf{Not localhost}: use Tailscale Serve (tokenless for Control UI/WebSocket if \texttt{gateway.auth.allowTailscale: true}, assumes trusted gateway host; HTTP APIs still need token/password), tailnet bind with a token, or an SSH tunnel. See \href{/web}{Web surfaces}.
+\end{itemize}
+
+
+\subsection{If you see “unauthorized” / 1008}
+
+
+\begin{itemize}
+  \item Ensure the gateway is reachable (local: \texttt{openclaw status}; remote: SSH tunnel \texttt{ssh -N -L 18789:127.0.0.1:18789 user@host} then open \texttt{http://127.0.0.1:18789/}).
+  \item Retrieve the token from the gateway host: \texttt{openclaw config get gateway.auth.token} (or generate one: \texttt{openclaw doctor --generate-gateway-token}).
+  \item In the dashboard settings, paste the token into the auth field, then connect.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: web/index.md ===
+\section{Web (Gateway)}
+
+
+The Gateway serves a small \textbf{browser Control UI} (Vite + Lit) from the same port as the Gateway WebSocket:
+
+\begin{itemize}
+  \item default: \texttt{http://:18789/}
+  \item optional prefix: set \texttt{gateway.controlUi.basePath} (e.g. \texttt{/openclaw})
+\end{itemize}
+
+
+Capabilities live in \href{/web/control-ui}{Control UI}.
+This page focuses on bind modes, security, and web-facing surfaces.
+
+\subsection{Webhooks}
+
+
+When \texttt{hooks.enabled=true}, the Gateway also exposes a small webhook endpoint on the same HTTP server.
+See \href{/gateway/configuration}{Gateway configuration} → \texttt{hooks} for auth + payloads.
+
+\subsection{Config (default-on)}
+
+
+The Control UI is \textbf{enabled by default} when assets are present (\texttt{dist/control-ui}).
+You can control it via config:
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    controlUi: { enabled: true, basePath: "/openclaw" }, // basePath optional
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Tailscale access}
+
+
+\subsubsection{Integrated Serve (recommended)}
+
+
+Keep the Gateway on loopback and let Tailscale Serve proxy it:
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    bind: "loopback",
+    tailscale: { mode: "serve" },
+  },
+}
+\end{lstlisting}
+
+
+Then start the gateway:
+
+\begin{lstlisting}[language=bash]
+openclaw gateway
+\end{lstlisting}
+
+
+Open:
+
+\begin{itemize}
+  \item \texttt{https:///} (or your configured \texttt{gateway.controlUi.basePath})
+\end{itemize}
+
+
+\subsubsection{Tailnet bind + token}
+
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    bind: "tailnet",
+    controlUi: { enabled: true },
+    auth: { mode: "token", token: "your-token" },
+  },
+}
+\end{lstlisting}
+
+
+Then start the gateway (token required for non-loopback binds):
+
+\begin{lstlisting}[language=bash]
+openclaw gateway
+\end{lstlisting}
+
+
+Open:
+
+\begin{itemize}
+  \item \texttt{http://:18789/} (or your configured \texttt{gateway.controlUi.basePath})
+\end{itemize}
+
+
+\subsubsection{Public internet (Funnel)}
+
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    bind: "loopback",
+    tailscale: { mode: "funnel" },
+    auth: { mode: "password" }, // or OPENCLAW_GATEWAY_PASSWORD
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Security notes}
+
+
+\begin{itemize}
+  \item Gateway auth is required by default (token/password or Tailscale identity headers).
+  \item Non-loopback binds still \textbf{require} a shared token/password (\texttt{gateway.auth} or env).
+  \item The wizard generates a gateway token by default (even on loopback).
+  \item The UI sends \texttt{connect.params.auth.token} or \texttt{connect.params.auth.password}.
+  \item For non-loopback Control UI deployments, set \texttt{gateway.controlUi.allowedOrigins}
+\end{itemize}
+
+explicitly (full origins). Without it, gateway startup is refused by default.
+\begin{itemize}
+  \item \texttt{gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback=true} enables
+\end{itemize}
+
+Host-header origin fallback mode, but is a dangerous security downgrade.
+\begin{itemize}
+  \item With Serve, Tailscale identity headers can satisfy Control UI/WebSocket auth
+\end{itemize}
+
+when \texttt{gateway.auth.allowTailscale} is \texttt{true} (no token/password required).
+HTTP API endpoints still require token/password. Set
+\texttt{gateway.auth.allowTailscale: false} to require explicit credentials. See
+\href{/gateway/tailscale}{Tailscale} and \href{/gateway/security}{Security}. This
+tokenless flow assumes the gateway host is trusted.
+\begin{itemize}
+  \item \texttt{gateway.tailscale.mode: "funnel"} requires \texttt{gateway.auth.mode: "password"} (shared password).
+\end{itemize}
+
+
+\subsection{Building the UI}
+
+
+The Gateway serves static files from \texttt{dist/control-ui}. Build them with:
+
+\begin{lstlisting}[language=bash]
+pnpm ui:build # auto-installs UI deps on first run
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: web/tui.md ===
+\section{TUI (Terminal UI)}
+
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Start the Gateway.
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Open the TUI.
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw tui
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Type a message and press Enter.
+\end{enumerate}
+
+
+Remote Gateway:
+
+\begin{lstlisting}[language=bash]
+openclaw tui --url ws://<host>:<port> --token <gateway-token>
+\end{lstlisting}
+
+
+Use \texttt{--password} if your Gateway uses password auth.
+
+\subsection{What you see}
+
+
+\begin{itemize}
+  \item Header: connection URL, current agent, current session.
+  \item Chat log: user messages, assistant replies, system notices, tool cards.
+  \item Status line: connection/run state (connecting, running, streaming, idle, error).
+  \item Footer: connection state + agent + session + model + think/verbose/reasoning + token counts + deliver.
+  \item Input: text editor with autocomplete.
+\end{itemize}
+
+
+\subsection{Mental model: agents + sessions}
+
+
+\begin{itemize}
+  \item Agents are unique slugs (e.g. \texttt{main}, \texttt{research}). The Gateway exposes the list.
+  \item Sessions belong to the current agent.
+  \item Session keys are stored as \texttt{agent::}.
+  \item If you type \texttt{/session main}, the TUI expands it to \texttt{agent::main}.
+  \item If you type \texttt{/session agent:other:main}, you switch to that agent session explicitly.
+  \item Session scope:
+  \item \texttt{per-sender} (default): each agent has many sessions.
+  \item \texttt{global}: the TUI always uses the \texttt{global} session (the picker may be empty).
+  \item The current agent + session are always visible in the footer.
+\end{itemize}
+
+
+\subsection{Sending + delivery}
+
+
+\begin{itemize}
+  \item Messages are sent to the Gateway; delivery to providers is off by default.
+  \item Turn delivery on:
+  \item \texttt{/deliver on}
+  \item or the Settings panel
+  \item or start with \texttt{openclaw tui --deliver}
+\end{itemize}
+
+
+\subsection{Pickers + overlays}
+
+
+\begin{itemize}
+  \item Model picker: list available models and set the session override.
+  \item Agent picker: choose a different agent.
+  \item Session picker: shows only sessions for the current agent.
+  \item Settings: toggle deliver, tool output expansion, and thinking visibility.
+\end{itemize}
+
+
+\subsection{Keyboard shortcuts}
+
+
+\begin{itemize}
+  \item Enter: send message
+  \item Esc: abort active run
+  \item Ctrl+C: clear input (press twice to exit)
+  \item Ctrl+D: exit
+  \item Ctrl+L: model picker
+  \item Ctrl+G: agent picker
+  \item Ctrl+P: session picker
+  \item Ctrl+O: toggle tool output expansion
+  \item Ctrl+T: toggle thinking visibility (reloads history)
+\end{itemize}
+
+
+\subsection{Slash commands}
+
+
+Core:
+
+\begin{itemize}
+  \item \texttt{/help}
+  \item \texttt{/status}
+  \item \texttt{/agent } (or \texttt{/agents})
+  \item \texttt{/session } (or \texttt{/sessions})
+  \item \texttt{/model } (or \texttt{/models})
+\end{itemize}
+
+
+Session controls:
+
+\begin{itemize}
+  \item \texttt{/think }
+  \item \texttt{/verbose }
+  \item \texttt{/reasoning }
+  \item \texttt{/usage }
+  \item \texttt{/elevated } (alias: \texttt{/elev})
+  \item \texttt{/activation }
+  \item \texttt{/deliver }
+\end{itemize}
+
+
+Session lifecycle:
+
+\begin{itemize}
+  \item \texttt{/new} or \texttt{/reset} (reset the session)
+  \item \texttt{/abort} (abort the active run)
+  \item \texttt{/settings}
+  \item \texttt{/exit}
+\end{itemize}
+
+
+Other Gateway slash commands (for example, \texttt{/context}) are forwarded to the Gateway and shown as system output. See \href{/tools/slash-commands}{Slash commands}.
+
+\subsection{Local shell commands}
+
+
+\begin{itemize}
+  \item Prefix a line with \texttt{!} to run a local shell command on the TUI host.
+  \item The TUI prompts once per session to allow local execution; declining keeps \texttt{!} disabled for the session.
+  \item Commands run in a fresh, non-interactive shell in the TUI working directory (no persistent \texttt{cd}/env).
+  \item Local shell commands receive \texttt{OPENCLAW\_SHELL=tui-local} in their environment.
+  \item A lone \texttt{!} is sent as a normal message; leading spaces do not trigger local exec.
+\end{itemize}
+
+
+\subsection{Tool output}
+
+
+\begin{itemize}
+  \item Tool calls show as cards with args + results.
+  \item Ctrl+O toggles between collapsed/expanded views.
+  \item While tools run, partial updates stream into the same card.
+\end{itemize}
+
+
+\subsection{History + streaming}
+
+
+\begin{itemize}
+  \item On connect, the TUI loads the latest history (default 200 messages).
+  \item Streaming responses update in place until finalized.
+  \item The TUI also listens to agent tool events for richer tool cards.
+\end{itemize}
+
+
+\subsection{Connection details}
+
+
+\begin{itemize}
+  \item The TUI registers with the Gateway as \texttt{mode: "tui"}.
+  \item Reconnects show a system message; event gaps are surfaced in the log.
+\end{itemize}
+
+
+\subsection{Options}
+
+
+\begin{itemize}
+  \item \texttt{--url }: Gateway WebSocket URL (defaults to config or \texttt{ws://127.0.0.1:})
+  \item \texttt{--token }: Gateway token (if required)
+  \item \texttt{--password }: Gateway password (if required)
+  \item \texttt{--session }: Session key (default: \texttt{main}, or \texttt{global} when scope is global)
+  \item \texttt{--deliver}: Deliver assistant replies to the provider (default off)
+  \item \texttt{--thinking }: Override thinking level for sends
+  \item \texttt{--timeout-ms }: Agent timeout in ms (defaults to \texttt{agents.defaults.timeoutSeconds})
+\end{itemize}
+
+
+Note: when you set \texttt{--url}, the TUI does not fall back to config or environment credentials.
+Pass \texttt{--token} or \texttt{--password} explicitly. Missing explicit credentials is an error.
+
+\subsection{Troubleshooting}
+
+
+No output after sending a message:
+
+\begin{itemize}
+  \item Run \texttt{/status} in the TUI to confirm the Gateway is connected and idle/busy.
+  \item Check the Gateway logs: \texttt{openclaw logs --follow}.
+  \item Confirm the agent can run: \texttt{openclaw status} and \texttt{openclaw models status}.
+  \item If you expect messages in a chat channel, enable delivery (\texttt{/deliver on} or \texttt{--deliver}).
+  \item \texttt{--history-limit }: History entries to load (default 200)
+\end{itemize}
+
+
+\subsection{Connection troubleshooting}
+
+
+\begin{itemize}
+  \item \texttt{disconnected}: ensure the Gateway is running and your \texttt{--url/--token/--password} are correct.
+  \item No agents in picker: check \texttt{openclaw agents list} and your routing config.
+  \item Empty session picker: you might be in global scope or have no sessions yet.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: web/webchat.md ===
+\section{WebChat (Gateway WebSocket UI)}
+
+
+Status: the macOS/iOS SwiftUI chat UI talks directly to the Gateway WebSocket.
+
+\subsection{What it is}
+
+
+\begin{itemize}
+  \item A native chat UI for the gateway (no embedded browser and no local static server).
+  \item Uses the same sessions and routing rules as other channels.
+  \item Deterministic routing: replies always go back to WebChat.
+\end{itemize}
+
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Start the gateway.
+  \item Open the WebChat UI (macOS/iOS app) or the Control UI chat tab.
+  \item Ensure gateway auth is configured (required by default, even on loopback).
+\end{enumerate}
+
+
+\subsection{How it works (behavior)}
+
+
+\begin{itemize}
+  \item The UI connects to the Gateway WebSocket and uses \texttt{chat.history}, \texttt{chat.send}, and \texttt{chat.inject}.
+  \item \texttt{chat.history} is bounded for stability: Gateway may truncate long text fields, omit heavy metadata, and replace oversized entries with \texttt{[chat.history omitted: message too large]}.
+  \item \texttt{chat.inject} appends an assistant note directly to the transcript and broadcasts it to the UI (no agent run).
+  \item Aborted runs can keep partial assistant output visible in the UI.
+  \item Gateway persists aborted partial assistant text into transcript history when buffered output exists, and marks those entries with abort metadata.
+  \item History is always fetched from the gateway (no local file watching).
+  \item If the gateway is unreachable, WebChat is read-only.
+\end{itemize}
+
+
+\subsection{Control UI agents tools panel}
+
+
+\begin{itemize}
+  \item The Control UI \texttt{/agents} Tools panel fetches a runtime catalog via \texttt{tools.catalog} and labels each
+\end{itemize}
+
+tool as \texttt{core} or \texttt{plugin:} (plus \texttt{optional} for optional plugin tools).
+\begin{itemize}
+  \item If \texttt{tools.catalog} is unavailable, the panel falls back to a built-in static list.
+  \item The panel edits profile and override config, but effective runtime access still follows policy
+\end{itemize}
+
+precedence (\texttt{allow}/\texttt{deny}, per-agent and provider/channel overrides).
+
+\subsection{Remote use}
+
+
+\begin{itemize}
+  \item Remote mode tunnels the gateway WebSocket over SSH/Tailscale.
+  \item You do not need to run a separate WebChat server.
+\end{itemize}
+
+
+\subsection{Configuration reference (WebChat)}
+
+
+Full configuration: \href{/gateway/configuration}{Configuration}
+
+Channel options:
+
+\begin{itemize}
+  \item No dedicated \texttt{webchat.*} block. WebChat uses the gateway endpoint + auth settings below.
+\end{itemize}
+
+
+Related global options:
+
+\begin{itemize}
+  \item \texttt{gateway.port}, \texttt{gateway.bind}: WebSocket host/port.
+  \item \texttt{gateway.auth.mode}, \texttt{gateway.auth.token}, \texttt{gateway.auth.password}: WebSocket auth (token/password).
+  \item \texttt{gateway.auth.mode: "trusted-proxy"}: reverse-proxy auth for browser clients (see \href{/gateway/trusted-proxy-auth}{Trusted Proxy Auth}).
+  \item \texttt{gateway.remote.url}, \texttt{gateway.remote.token}, \texttt{gateway.remote.password}: remote gateway target.
+  \item \texttt{session.*}: session storage and main key defaults.
+\end{itemize}
+
+
+
+\clearpage

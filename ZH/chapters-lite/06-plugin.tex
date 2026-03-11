@@ -1,0 +1,132 @@
+\chapter{Plugin（插件）}
+
+\section{概述}
+
+Plugin（插件）是 OpenClaw 的扩展模块，可以注册：
+
+\begin{itemize}
+  \item \textbf{智能体工具}（JSON 模式函数）
+  \item \textbf{渠道适配器}（新的聊天平台）
+  \item \textbf{生命周期钩子}（拦截消息/工具/会话事件）
+  \item \textbf{记忆提供者}
+\end{itemize}
+
+配置路径：\texttt{plugins.entries.*}
+
+\section{安装插件}
+
+\begin{lstlisting}[language=bash]
+# From npm (recommended)
+openclaw plugins install @openclaw/voice-call
+
+# From local folder (dev)
+openclaw plugins install ./extensions/my-plugin
+\end{lstlisting}
+
+安装后需\textbf{重启 Gateway 网关}加载插件。
+
+\section{插件清单}
+
+每个插件必须提供 \texttt{openclaw.plugin.json}：
+
+\begin{lstlisting}[language=json]
+{
+  "id": "voice-call",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
+\end{lstlisting}
+
+可选字段：\texttt{kind}、\texttt{channels}、\texttt{providers}、\texttt{skills}、\texttt{name}、\texttt{description}。
+
+\section{注册智能体工具}
+
+\begin{lstlisting}[language=typescript]
+import { Type } from "@sinclair/typebox";
+
+export default function (api) {
+  api.registerTool({
+    name: "my_tool",
+    description: "Do a thing",
+    parameters: Type.Object({
+      input: Type.String(),
+    }),
+    async execute(_id, params) {
+      return { content: [{ type: "text", text: params.input }] };
+    },
+  });
+}
+\end{lstlisting}
+
+\subsection{可选工具}
+
+可选工具需显式添加到智能体允许列表：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [{
+      id: "main",
+      tools: {
+        allow: ["workflow_tool", "group:plugins"]
+      }
+    }]
+  }
+}
+\end{lstlisting}
+
+\section{插件钩子}
+
+插件可以注册以下生命周期钩子：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{钩子} & \textbf{时机} \\
+\midrule
+\texttt{before\_agent\_start} & 运行开始前，注入上下文 \\
+\texttt{agent\_end} & 完成后，检查结果 \\
+\texttt{before\_tool\_call} & 工具调用前，拦截参数 \\
+\texttt{after\_tool\_call} & 工具调用后，拦截结果 \\
+\texttt{message\_received} & 入站消息 \\
+\texttt{message\_sending} & 出站消息（发送前） \\
+\texttt{session\_start / session\_end} & 会话生命周期 \\
+\texttt{gateway\_start / gateway\_stop} & Gateway 生命周期 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{配置示例}
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        enabled: true,
+        config: {
+          provider: "twilio",
+          fromNumber: "+15550001234",
+          twilio: {
+            accountSid: "ACxxxxxxxx",
+            authToken: "..."
+          }
+        }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+\section{社区插件}
+
+可通过 npm 安装社区维护的插件，例如：
+
+\begin{itemize}
+  \item \textbf{WeChat}：\texttt{openclaw plugins install @icesword760/openclaw-wechat}
+  \item \textbf{Voice Call}：\texttt{openclaw plugins install @openclaw/voice-call}
+  \item \textbf{Zalo}：\texttt{openclaw plugins install @openclaw/zalouser}
+\end{itemize}
