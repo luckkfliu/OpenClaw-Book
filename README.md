@@ -1,33 +1,56 @@
 # OpenClaw-Book
 
-OpenClaw 中文技术文档的 LaTeX 精排版本。基于 XeLaTeX + ctex 排版引擎，提供专业的中英文混排、语法高亮代码块、自动生成目录与交叉引用，输出印刷级品质的 PDF 文档。覆盖 Gateway 网关、Agent 系统、Channel 渠道、工具链、自动化、插件、安全等 21 个章节。
+**[中文](README-ZH.md) | English**
 
-## 编译环境
+LaTeX-typeset edition of the OpenClaw technical documentation, with multi-language support. Powered by XeLaTeX + ctex, featuring professional CJK typesetting, syntax-highlighted code blocks, auto-generated table of contents, and cross-references — producing print-quality PDF output.
 
-- **TeX 发行版**：[TeX Live](https://tug.org/texlive/)（推荐 2022+）或 [MacTeX](https://tug.org/mactex/)（macOS）
-- **编译引擎**：XeLaTeX（ctex + xeCJK 需要 XeLaTeX 引擎）
-- **系统字体**：需安装中文字体（macOS / Windows 通常已自带）
+## Directory Structure
 
-## 编译方法
+```
+OpenClaw-Book/
+├── ZH/                           # Chinese edition
+│   ├── chapters/                 # Chapter .tex files
+│   ├── openclaw-book-zh.tex      # Main document
+│   ├── Makefile                  # Build script
+│   └── convert_md_to_latex.py    # MD → LaTeX converter
+├── README.md                     # English README
+├── README-ZH.md                  # Chinese README
+└── .gitignore
+```
+
+## Prerequisites
+
+- **TeX Distribution**: [TeX Live](https://tug.org/texlive/) (2022+ recommended) or [MacTeX](https://tug.org/mactex/) (macOS)
+- **Engine**: XeLaTeX (required by ctex + xeCJK)
+- **Fonts**: CJK fonts required (pre-installed on macOS / Windows)
+
+## Build
 
 ```bash
-# 编译 PDF（两次编译，生成正确的目录和交叉引用）
+# Enter the Chinese edition directory
+cd ZH
+
+# Build PDF (two passes for TOC & cross-references)
 make
 
-# 快速编译（仅一次，适合草稿预览）
+# Quick build (single pass, for draft preview)
 make quick
 
-# 编译并打开 PDF 预览（macOS）
+# Build and open PDF preview (macOS)
 make view
 
-# 监听文件变化自动编译（需要 fswatch: brew install fswatch）
+# Watch for changes and auto-rebuild (requires fswatch: brew install fswatch)
 make watch
 
-# 清理辅助文件
+# Clean auxiliary files
 make clean
 
-# 深度清理（含 PDF）
+# Deep clean (including PDF)
 make distclean
 ```
 
-编译成功后将在项目根目录生成 `openclaw-book-zh.pdf`。
+The compiled PDF will be generated at `ZH/openclaw-book-zh.pdf`.
+
+## License
+
+This project is for learning and reference purposes.

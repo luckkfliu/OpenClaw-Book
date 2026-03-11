@@ -1,0 +1,717 @@
+\chapter{实验性功能}
+
+% === 源文件: experiments/onboarding-config-protocol.md ===
+\section{新手引导 + 配置协议}
+
+
+目的：CLI、macOS 应用和 Web UI 之间共享的新手引导 + 配置界面。
+
+\subsection{组件}
+
+
+\begin{itemize}
+  \item 向导引擎（共享会话 + 提示 + 新手引导状态）。
+  \item CLI 新手引导使用与 UI 客户端相同的向导流程。
+  \item Gateway 网关 RPC 公开向导 + 配置模式端点。
+  \item macOS 新手引导使用向导步骤模型。
+  \item Web UI 从 JSON Schema + UI 提示渲染配置表单。
+\end{itemize}
+
+
+\subsection{Gateway 网关 RPC}
+
+
+\begin{itemize}
+  \item \texttt{wizard.start} 参数：\texttt{\{ mode?: "local"|"remote", workspace?: string \}}
+  \item \texttt{wizard.next} 参数：\texttt{\{ sessionId, answer?: \{ stepId, value? \} \}}
+  \item \texttt{wizard.cancel} 参数：\texttt{\{ sessionId \}}
+  \item \texttt{wizard.status} 参数：\texttt{\{ sessionId \}}
+  \item \texttt{config.schema} 参数：\texttt{\{\}}
+\end{itemize}
+
+
+响应（结构）
+
+\begin{itemize}
+  \item 向导：\texttt{\{ sessionId, done, step?, status?, error? \}}
+  \item 配置模式：\texttt{\{ schema, uiHints, version, generatedAt \}}
+\end{itemize}
+
+
+\subsection{UI 提示}
+
+
+\begin{itemize}
+  \item \texttt{uiHints} 按路径键入；可选元数据（label/help/group/order/advanced/sensitive/placeholder）。
+  \item 敏感字段渲染为密码输入；无脱敏层。
+  \item 不支持的模式节点回退到原始 JSON 编辑器。
+\end{itemize}
+
+
+\subsection{注意}
+
+
+\begin{itemize}
+  \item 本文档是跟踪新手引导/配置协议重构的唯一位置。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: experiments/plans/cron-add-hardening.md ===
+\section{Cron Add 加固 \& Schema 对齐}
+
+
+\subsection{背景}
+
+
+最近的 Gateway 网关日志显示重复的 \texttt{cron.add} 失败，参数无效（缺少 \texttt{sessionTarget}、\texttt{wakeMode}、\texttt{payload}，以及格式错误的 \texttt{schedule}）。这表明至少有一个客户端（可能是智能体工具调用路径）正在发送包装的或部分指定的任务负载。另外，TypeScript 中的 cron 提供商枚举、Gateway 网关 schema、CLI 标志和 UI 表单类型之间存在漂移，加上 \texttt{cron.status} 的 UI 不匹配（期望 \texttt{jobCount} 而 Gateway 网关返回 \texttt{jobs}）。
+
+\subsection{目标}
+
+
+\begin{itemize}
+  \item 通过规范化常见的包装负载并推断缺失的 \texttt{kind} 字段来停止 \texttt{cron.add} INVALID\_REQUEST 垃圾。
+  \item 在 Gateway 网关 schema、cron 类型、CLI 文档和 UI 表单之间对齐 cron 提供商列表。
+  \item 使智能体 cron 工具 schema 明确，以便 LLM 生成正确的任务负载。
+  \item 修复 Control UI cron 状态任务计数显示。
+  \item 添加测试以覆盖规范化和工具行为。
+\end{itemize}
+
+
+\subsection{非目标}
+
+
+\begin{itemize}
+  \item 更改 cron 调度语义或任务执行行为。
+  \item 添加新的调度类型或 cron 表达式解析。
+  \item 除了必要的字段修复外，不大改 cron 的 UI/UX。
+\end{itemize}
+
+
+\subsection{发现（当前差距）}
+
+
+\begin{itemize}
+  \item Gateway 网关中的 \texttt{CronPayloadSchema} 排除了 \texttt{signal} + \texttt{imessage}，而 TS 类型包含它们。
+  \item Control UI CronStatus 期望 \texttt{jobCount}，但 Gateway 网关返回 \texttt{jobs}。
+  \item 智能体 cron 工具 schema 允许任意 \texttt{job} 对象，导致格式错误的输入。
+  \item Gateway 网关严格验证 \texttt{cron.add} 而不进行规范化，因此包装的负载会失败。
+\end{itemize}
+
+
+\subsection{变更内容}
+
+
+\begin{itemize}
+  \item \texttt{cron.add} 和 \texttt{cron.update} 现在规范化常见的包装形式并推断缺失的 \texttt{kind} 字段。
+  \item 智能体 cron 工具 schema 与 Gateway 网关 schema 匹配，减少无效负载。
+  \item 提供商枚举在 Gateway 网关、CLI、UI 和 macOS 选择器之间对齐。
+  \item Control UI 使用 Gateway 网关的 \texttt{jobs} 计数字段显示状态。
+\end{itemize}
+
+
+\subsection{当前行为}
+
+
+\begin{itemize}
+  \item \textbf{规范化：}包装的 \texttt{data}/\texttt{job} 负载被解包；\texttt{schedule.kind} 和 \texttt{payload.kind} 在安全时被推断。
+  \item \textbf{默认值：}当缺失时，为 \texttt{wakeMode} 和 \texttt{sessionTarget} 应用安全默认值。
+  \item \textbf{提供商：}Discord/Slack/Signal/iMessage 现在在 CLI/UI 中一致显示。
+\end{itemize}
+
+
+参见 \href{/automation/cron-jobs}{Cron 任务} 了解规范化的形式和示例。
+
+\subsection{验证}
+
+
+\begin{itemize}
+  \item 观察 Gateway 网关日志中 \texttt{cron.add} INVALID\_REQUEST 错误是否减少。
+  \item 确认 Control UI cron 状态在刷新后显示任务计数。
+\end{itemize}
+
+
+\subsection{可选后续工作}
+
+
+\begin{itemize}
+  \item 手动 Control UI 冒烟测试：为每个提供商添加一个 cron 任务 + 验证状态任务计数。
+\end{itemize}
+
+
+\subsection{开放问题}
+
+
+\begin{itemize}
+  \item \texttt{cron.add} 是否应该接受来自客户端的显式 \texttt{state}（当前被 schema 禁止）？
+  \item 我们是否应该允许 \texttt{webchat} 作为显式投递提供商（当前在投递解析中被过滤）？
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: experiments/plans/group-policy-hardening.md ===
+\section{Telegram 允许列表加固}
+
+
+\textbf{日期}：2026-01-05
+\textbf{状态}：已完成
+\textbf{PR}：\#216
+
+\subsection{摘要}
+
+
+Telegram 允许列表现在不区分大小写地接受 \texttt{telegram:} 和 \texttt{tg:} 前缀，并容忍意外的空白。这使入站允许列表检查与出站发送规范化保持一致。
+
+\subsection{更改内容}
+
+
+\begin{itemize}
+  \item 前缀 \texttt{telegram:} 和 \texttt{tg:} 被同等对待（不区分大小写）。
+  \item 允许列表条目会被修剪；空条目会被忽略。
+\end{itemize}
+
+
+\subsection{示例}
+
+
+以下所有形式都被接受为同一 ID：
+
+\begin{itemize}
+  \item \texttt{telegram:123456}
+  \item \texttt{TG:123456}
+  \item \texttt{tg:123456}
+\end{itemize}
+
+
+\subsection{为什么重要}
+
+
+从日志或聊天 ID 复制/粘贴通常会包含前缀和空白。规范化可避免在决定是否在私信或群组中响应时出现误判。
+
+\subsection{相关文档}
+
+
+\begin{itemize}
+  \item \href{/channels/groups}{群聊}
+  \item \href{/channels/telegram}{Telegram 提供商}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: experiments/plans/openresponses-gateway.md ===
+\section{OpenResponses Gateway 网关集成计划}
+
+
+\subsection{背景}
+
+
+OpenClaw Gateway 网关目前在 \texttt{/v1/chat/completions} 暴露了一个最小的 OpenAI 兼容 Chat Completions 端点（参见 \href{/gateway/openai-http-api}{OpenAI Chat Completions}）。
+
+Open Responses 是基于 OpenAI Responses API 的开放推理标准。它专为智能体工作流设计，使用基于项目的输入加语义流式事件。OpenResponses 规范定义的是 \texttt{/v1/responses}，而不是 \texttt{/v1/chat/completions}。
+
+\subsection{目标}
+
+
+\begin{itemize}
+  \item 添加一个遵循 OpenResponses 语义的 \texttt{/v1/responses} 端点。
+  \item 保留 Chat Completions 作为兼容层，易于禁用并最终移除。
+  \item 使用隔离的、可复用的 schema 标准化验证和解析。
+\end{itemize}
+
+
+\subsection{非目标}
+
+
+\begin{itemize}
+  \item 第一阶段完全实现 OpenResponses 功能（图片、文件、托管工具）。
+  \item 替换内部智能体执行逻辑或工具编排。
+  \item 在第一阶段更改现有的 \texttt{/v1/chat/completions} 行为。
+\end{itemize}
+
+
+\subsection{研究摘要}
+
+
+来源：OpenResponses OpenAPI、OpenResponses 规范网站和 Hugging Face 博客文章。
+
+提取的关键点：
+
+\begin{itemize}
+  \item \texttt{POST /v1/responses} 接受 \texttt{CreateResponseBody} 字段，如 \texttt{model}、\texttt{input}（字符串或 \texttt{ItemParam[]}）、\texttt{instructions}、\texttt{tools}、\texttt{tool\_choice}、\texttt{stream}、\texttt{max\_output\_tokens} 和 \texttt{max\_tool\_calls}。
+  \item \texttt{ItemParam} 是以下类型的可区分联合：
+  \item 具有角色 \texttt{system}、\texttt{developer}、\texttt{user}、\texttt{assistant} 的 \texttt{message} 项
+  \item \texttt{function\_call} 和 \texttt{function\_call\_output}
+  \item \texttt{reasoning}
+  \item \texttt{item\_reference}
+  \item 成功响应返回带有 \texttt{object: "response"}、\texttt{status} 和 \texttt{output} 项的 \texttt{ResponseResource}。
+  \item 流式传输使用语义事件，如：
+  \item \texttt{response.created}、\texttt{response.in\_progress}、\texttt{response.completed}、\texttt{response.failed}
+  \item \texttt{response.output\_item.added}、\texttt{response.output\_item.done}
+  \item \texttt{response.content\_part.added}、\texttt{response.content\_part.done}
+  \item \texttt{response.output\_text.delta}、\texttt{response.output\_text.done}
+  \item 规范要求：
+  \item \texttt{Content-Type: text/event-stream}
+  \item \texttt{event:} 必须匹配 JSON \texttt{type} 字段
+  \item 终止事件必须是字面量 \texttt{[DONE]}
+  \item Reasoning 项可能暴露 \texttt{content}、\texttt{encrypted\_content} 和 \texttt{summary}。
+  \item HF 示例在请求中包含 \texttt{OpenResponses-Version: latest}（可选头部）。
+\end{itemize}
+
+
+\subsection{提议的架构}
+
+
+\begin{itemize}
+  \item 添加 \texttt{src/gateway/open-responses.schema.ts}，仅包含 Zod schema（无 gateway 导入）。
+  \item 添加 \texttt{src/gateway/openresponses-http.ts}（或 \texttt{open-responses-http.ts}）用于 \texttt{/v1/responses}。
+  \item 保持 \texttt{src/gateway/openai-http.ts} 不变，作为遗留兼容适配器。
+  \item 添加配置 \texttt{gateway.http.endpoints.responses.enabled}（默认 \texttt{false}）。
+  \item 保持 \texttt{gateway.http.endpoints.chatCompletions.enabled} 独立；允许两个端点分别切换。
+  \item 当 Chat Completions 启用时发出启动警告，以表明其遗留状态。
+\end{itemize}
+
+
+\subsection{Chat Completions 弃用路径}
+
+
+\begin{itemize}
+  \item 保持严格的模块边界：responses 和 chat completions 之间不共享 schema 类型。
+  \item 通过配置使 Chat Completions 成为可选，这样无需代码更改即可禁用。
+  \item 一旦 \texttt{/v1/responses} 稳定，更新文档将 Chat Completions 标记为遗留。
+  \item 可选的未来步骤：将 Chat Completions 请求映射到 Responses 处理器，以便更简单地移除。
+\end{itemize}
+
+
+\subsection{第一阶段支持子集}
+
+
+\begin{itemize}
+  \item 接受 \texttt{input} 为字符串或带有消息角色和 \texttt{function\_call\_output} 的 \texttt{ItemParam[]}。
+  \item 将 system 和 developer 消息提取到 \texttt{extraSystemPrompt} 中。
+  \item 使用最近的 \texttt{user} 或 \texttt{function\_call\_output} 作为智能体运行的当前消息。
+  \item 对不支持的内容部分（图片/文件）返回 \texttt{invalid\_request\_error} 拒绝。
+  \item 返回带有 \texttt{output\_text} 内容的单个助手消息。
+  \item 返回带有零值的 \texttt{usage}，直到 token 计数接入。
+\end{itemize}
+
+
+\subsection{验证策略（无 SDK）}
+
+
+\begin{itemize}
+  \item 为以下支持子集实现 Zod schema：
+  \item \texttt{CreateResponseBody}
+  \item \texttt{ItemParam} + 消息内容部分联合
+  \item \texttt{ResponseResource}
+  \item Gateway 网关使用的流式事件形状
+  \item 将 schema 保存在单个隔离模块中，以避免漂移并允许未来代码生成。
+\end{itemize}
+
+
+\subsection{流式实现（第一阶段）}
+
+
+\begin{itemize}
+  \item 带有 \texttt{event:} 和 \texttt{data:} 的 SSE 行。
+  \item 所需序列（最小可行）：
+  \item \texttt{response.created}
+  \item \texttt{response.output\_item.added}
+  \item \texttt{response.content\_part.added}
+  \item \texttt{response.output\_text.delta}（根据需要重复）
+  \item \texttt{response.output\_text.done}
+  \item \texttt{response.content\_part.done}
+  \item \texttt{response.completed}
+  \item \texttt{[DONE]}
+\end{itemize}
+
+
+\subsection{测试和验证计划}
+
+
+\begin{itemize}
+  \item 为 \texttt{/v1/responses} 添加端到端覆盖：
+  \item 需要认证
+  \item 非流式响应形状
+  \item 流式事件顺序和 \texttt{[DONE]}
+  \item 使用头部和 \texttt{user} 的会话路由
+  \item 保持 \texttt{src/gateway/openai-http.e2e.test.ts} 不变。
+  \item 手动：用 \texttt{stream: true} curl \texttt{/v1/responses} 并验证事件顺序和终止 \texttt{[DONE]}。
+\end{itemize}
+
+
+\subsection{文档更新（后续）}
+
+
+\begin{itemize}
+  \item 为 \texttt{/v1/responses} 使用和示例添加新文档页面。
+  \item 更新 \texttt{/gateway/openai-http-api}，添加遗留说明和指向 \texttt{/v1/responses} 的指针。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: experiments/proposals/model-config.md ===
+\section{模型配置（探索）}
+
+
+本文档记录了未来模型配置的\textbf{构想}。这不是正式的发布规范。如需了解当前行为，请参阅：
+
+\begin{itemize}
+  \item \href{/concepts/models}{模型}
+  \item \href{/concepts/model-failover}{模型故障转移}
+  \item \href{/concepts/oauth}{OAuth + 配置文件}
+\end{itemize}
+
+
+\subsection{动机}
+
+
+运营者希望：
+
+\begin{itemize}
+  \item 每个提供商支持多个认证配置文件（个人 vs 工作）。
+  \item 简单的 \texttt{/model} 选择，并具有可预测的回退行为。
+  \item 文本模型与图像模型之间有清晰的分离。
+\end{itemize}
+
+
+\subsection{可能的方向（高层级）}
+
+
+\begin{itemize}
+  \item 保持模型选择简洁：\texttt{provider/model} 加可选别名。
+  \item 允许提供商拥有多个认证配置文件，并指定明确的顺序。
+  \item 使用全局回退列表，使所有会话以一致的方式进行故障转移。
+  \item 仅在明确配置时才覆盖图像路由。
+\end{itemize}
+
+
+\subsection{待解决的问题}
+
+
+\begin{itemize}
+  \item 配置文件轮换应该按提供商还是按模型进行？
+  \item UI 应如何为会话展示配置文件选择？
+  \item 从旧版配置键迁移的最安全路径是什么？
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: experiments/research/memory.md ===
+\section{工作区记忆 v2（离线）：研究笔记}
+
+
+目标：Clawd 风格的工作区（\texttt{agents.defaults.workspace}，默认 \texttt{\textasciitilde{}/.openclaw/workspace}），其中"记忆"以每天一个 Markdown 文件（\texttt{memory/YYYY-MM-DD.md}）加上一小组稳定文件（例如 \texttt{memory.md}、\texttt{SOUL.md}）的形式存储。
+
+本文档提出一种\textbf{离线优先}的记忆架构，保持 Markdown 作为规范的、可审查的数据源，但通过派生索引添加\textbf{结构化回忆}（搜索、实体摘要、置信度更新）。
+
+\subsection{为什么要改变？}
+
+
+当前设置（每天一个文件）非常适合：
+
+\begin{itemize}
+  \item "仅追加"式日志记录
+  \item 人工编辑
+  \item git 支持的持久性 + 可审计性
+  \item 低摩擦捕获（"直接写下来"）
+\end{itemize}
+
+
+但它在以下方面较弱：
+
+\begin{itemize}
+  \item 高召回率检索（"我们对 X 做了什么决定？"、"上次我们尝试 Y 时？"）
+  \item 以实体为中心的答案（"告诉我关于 Alice / The Castle / warelay 的信息"）而无需重读多个文件
+  \item 观点/偏好稳定性（以及变化时的证据）
+  \item 时间约束（"2025 年 11 月期间什么是真实的？"）和冲突解决
+\end{itemize}
+
+
+\subsection{设计目标}
+
+
+\begin{itemize}
+  \item \textbf{离线}：无需网络即可工作；可在笔记本电脑/Castle 上运行；无云依赖。
+  \item \textbf{可解释}：检索的项目应该可归因（文件 + 位置）并与推理分离。
+  \item \textbf{低仪式感}：每日日志保持 Markdown，无需繁重的 schema 工作。
+  \item \textbf{增量式}：v1 仅使用 FTS 就很有用；语义/向量和图是可选升级。
+  \item \textbf{对智能体友好}：使"在 token 预算内回忆"变得简单（返回小型事实包）。
+\end{itemize}
+
+
+\subsection{北极星模型（Hindsight × Letta）}
+
+
+需要融合两个部分：
+
+\begin{enumerate}
+  \item \textbf{Letta/MemGPT 风格的控制循环}
+\end{enumerate}
+
+
+\begin{itemize}
+  \item 保持一个小的"核心"始终在上下文中（角色 + 关键用户事实）
+  \item 其他所有内容都在上下文之外，通过工具检索
+  \item 记忆写入是显式的工具调用（append/replace/insert），持久化后在下一轮重新注入
+\end{itemize}
+
+
+\begin{enumerate}
+  \item \textbf{Hindsight 风格的记忆基底}
+\end{enumerate}
+
+
+\begin{itemize}
+  \item 分离观察到的、相信的和总结的内容
+  \item 支持 retain/recall/reflect
+  \item 带有置信度的观点可以随证据演变
+  \item 实体感知检索 + 时间查询（即使没有完整的知识图谱）
+\end{itemize}
+
+
+\subsection{提议的架构（Markdown 数据源 + 派生索引）}
+
+
+\subsubsection{规范存储（git 友好）}
+
+
+保持 \texttt{\textasciitilde{}/.openclaw/workspace} 作为规范的人类可读记忆。
+
+建议的工作区布局：
+
+\begin{lstlisting}
+~/.openclaw/workspace/
+  memory.md                    # 小型：持久事实 + 偏好（类似核心）
+  memory/
+    YYYY-MM-DD.md              # 每日日志（追加；叙事）
+  bank/                        # "类型化"记忆页面（稳定、可审查）
+    world.md                   # 关于世界的客观事实
+    experience.md              # 智能体做了什么（第一人称）
+    opinions.md                # 主观偏好/判断 + 置信度 + 证据指针
+    entities/
+      Peter.md
+      The-Castle.md
+      warelay.md
+      ...
+\end{lstlisting}
+
+
+注意：
+
+\begin{itemize}
+  \item \textbf{每日日志保持为每日日志}。无需将其转换为 JSON。
+  \item \texttt{bank/} 文件是\textbf{经过整理的}，由反思任务生成，仍可手动编辑。
+  \item \texttt{memory.md} 保持"小型 + 类似核心"：你希望 Clawd 每次会话都能看到的内容。
+\end{itemize}
+
+
+\subsubsection{派生存储（机器回忆）}
+
+
+在工作区下添加派生索引（不一定需要 git 跟踪）：
+
+\begin{lstlisting}
+~/.openclaw/workspace/.memory/index.sqlite
+\end{lstlisting}
+
+
+后端支持：
+
+\begin{itemize}
+  \item 用于事实 + 实体链接 + 观点元数据的 SQLite schema
+  \item SQLite \textbf{FTS5} 用于词法回忆（快速、小巧、离线）
+  \item 可选的嵌入表用于语义回忆（仍然离线）
+\end{itemize}
+
+
+索引始终\textbf{可从 Markdown 重建}。
+
+\subsection{Retain / Recall / Reflect（操作循环）}
+
+
+\subsubsection{Retain：将每日日志规范化为"事实"}
+
+
+Hindsight 在这里重要的关键洞察：存储\textbf{叙事性、自包含的事实}，而不是微小的片段。
+
+\texttt{memory/YYYY-MM-DD.md} 的实用规则：
+
+\begin{itemize}
+  \item 在一天结束时（或期间），添加一个 \texttt{\#\# Retain} 部分，包含 2-5 个要点：
+  \item 叙事性（保留跨轮上下文）
+  \item 自包含（独立时也有意义）
+  \item 标记类型 + 实体提及
+\end{itemize}
+
+
+示例：
+
+\begin{lstlisting}
+## Retain
+- W @Peter: Currently in Marrakech (Nov 27–Dec 1, 2025) for Andy's birthday.
+- B @warelay: I fixed the Baileys WS crash by wrapping connection.update handlers in try/catch (see memory/2025-11-27.md).
+- O(c=0.95) @Peter: Prefers concise replies (&lt;1500 chars) on WhatsApp; long content goes into files.
+\end{lstlisting}
+
+
+最小化解析：
+
+\begin{itemize}
+  \item 类型前缀：\texttt{W}（世界）、\texttt{B}（经历/传记）、\texttt{O}（观点）、\texttt{S}（观察/摘要；通常是生成的）
+  \item 实体：\texttt{@Peter}、\texttt{@warelay} 等（slug 映射到 \texttt{bank/entities/*.md}）
+  \item 观点置信度：\texttt{O(c=0.0..1.0)} 可选
+\end{itemize}
+
+
+如果你不想让作者考虑这些：反思任务可以从日志的其余部分推断这些要点，但有一个显式的 \texttt{\#\# Retain} 部分是最简单的"质量杠杆"。
+
+\subsubsection{Recall：对派生索引的查询}
+
+
+Recall 应支持：
+
+\begin{itemize}
+  \item \textbf{词法}："查找精确的术语/名称/命令"（FTS5）
+  \item \textbf{实体}："告诉我关于 X 的信息"（实体页面 + 实体链接的事实）
+  \item \textbf{时间}："11 月 27 日前后发生了什么"/"自上周以来"
+  \item \textbf{观点}："Peter 偏好什么？"（带置信度 + 证据）
+\end{itemize}
+
+
+返回格式应对智能体友好并引用来源：
+
+\begin{itemize}
+  \item \texttt{kind}（\texttt{world|experience|opinion|observation}）
+  \item \texttt{timestamp}（来源日期，或如果存在则提取的时间范围）
+  \item \texttt{entities}（\texttt{["Peter","warelay"]}）
+  \item \texttt{content}（叙事性事实）
+  \item \texttt{source}（\texttt{memory/2025-11-27.md\#L12} 等）
+\end{itemize}
+
+
+\subsubsection{Reflect：生成稳定页面 + 更新信念}
+
+
+反思是一个定时任务（每日或心跳 \texttt{ultrathink}），它：
+
+\begin{itemize}
+  \item 根据最近的事实更新 \texttt{bank/entities/*.md}（实体摘要）
+  \item 根据强化/矛盾更新 \texttt{bank/opinions.md} 置信度
+  \item 可选地提议对 \texttt{memory.md}（"类似核心"的持久事实）的编辑
+\end{itemize}
+
+
+观点演变（简单、可解释）：
+
+\begin{itemize}
+  \item 每个观点有：
+  \item 陈述
+  \item 置信度 \texttt{c ∈ [0,1]}
+  \item last\_updated
+  \item 证据链接（支持 + 矛盾的事实 ID）
+  \item 当新事实到达时：
+  \item 通过实体重叠 + 相似性找到候选观点（先 FTS，后嵌入）
+  \item 通过小幅增量更新置信度；大幅跳跃需要强矛盾 + 重复证据
+\end{itemize}
+
+
+\subsection{CLI 集成：独立 vs 深度集成}
+
+
+建议：\textbf{深度集成到 OpenClaw}，但保持可分离的核心库。
+
+\subsubsection{为什么要集成到 OpenClaw？}
+
+
+\begin{itemize}
+  \item OpenClaw 已经知道：
+  \item 工作区路径（\texttt{agents.defaults.workspace}）
+  \item 会话模型 + 心跳
+  \item 日志记录 + 故障排除模式
+  \item 你希望智能体自己调用工具：
+  \item \texttt{openclaw memory recall "…" --k 25 --since 30d}
+  \item \texttt{openclaw memory reflect --since 7d}
+\end{itemize}
+
+
+\subsubsection{为什么仍要分离库？}
+
+
+\begin{itemize}
+  \item 保持记忆逻辑可测试，无需 Gateway 网关/运行时
+  \item 可从其他上下文重用（本地脚本、未来的桌面应用等）
+\end{itemize}
+
+
+形态：
+记忆工具预计是一个小型 CLI + 库层，但这仅是探索性的。
+
+\subsection{"S-Collide" / SuCo：何时使用（研究）}
+
+
+如果"S-Collide"指的是 \textbf{SuCo（Subspace Collision）}：这是一种 ANN 检索方法，通过在子空间中使用学习/结构化碰撞来实现强召回/延迟权衡（论文：arXiv 2411.14754，2024）。
+
+对于 \texttt{\textasciitilde{}/.openclaw/workspace} 的务实观点：
+
+\begin{itemize}
+  \item \textbf{不要从} SuCo 开始。
+  \item 从 SQLite FTS +（可选的）简单嵌入开始；你会立即获得大部分 UX 收益。
+  \item 仅在以下情况下考虑 SuCo/HNSW/ScaNN 级别的解决方案：
+  \item 语料库很大（数万/数十万个块）
+  \item 暴力嵌入搜索变得太慢
+  \item 召回质量明显受到词法搜索的瓶颈限制
+\end{itemize}
+
+
+离线友好的替代方案（按复杂性递增）：
+
+\begin{itemize}
+  \item SQLite FTS5 + 元数据过滤（零 ML）
+  \item 嵌入 + 暴力搜索（如果块数量低，效果出奇地好）
+  \item HNSW 索引（常见、稳健；需要库绑定）
+  \item SuCo（研究级；如果有可嵌入的可靠实现则很有吸引力）
+\end{itemize}
+
+
+开放问题：
+
+\begin{itemize}
+  \item 对于你的机器（笔记本 + 台式机）上的"个人助理记忆"，\textbf{最佳}的离线嵌入模型是什么？
+  \item 如果你已经有 Ollama：使用本地模型嵌入；否则在工具链中附带一个小型嵌入模型。
+\end{itemize}
+
+
+\subsection{最小可用试点}
+
+
+如果你想要一个最小但仍有用的版本：
+
+\begin{itemize}
+  \item 添加 \texttt{bank/} 实体页面和每日日志中的 \texttt{\#\# Retain} 部分。
+  \item 使用 SQLite FTS 进行带引用的回忆（路径 + 行号）。
+  \item 仅在召回质量或规模需要时添加嵌入。
+\end{itemize}
+
+
+\subsection{参考资料}
+
+
+\begin{itemize}
+  \item Letta / MemGPT 概念："核心记忆块" + "档案记忆" + 工具驱动的自编辑记忆。
+  \item Hindsight 技术报告："retain / recall / reflect"，四网络记忆，叙事性事实提取，观点置信度演变。
+  \item SuCo：arXiv 2411.14754（2024）："Subspace Collision"近似最近邻检索。
+\end{itemize}
+
+
+
+\clearpage

@@ -1,0 +1,733 @@
+\chapter{Web 界面}
+
+% === 源文件: web/control-ui.md ===
+\section{控制 UI（浏览器）}
+
+
+控制 UI 是一个由 Gateway 网关提供服务的小型 \textbf{Vite + Lit} 单页应用：
+
+\begin{itemize}
+  \item 默认：\texttt{http://:18789/}
+  \item 可选前缀：设置 \texttt{gateway.controlUi.basePath}（例如 \texttt{/openclaw}）
+\end{itemize}
+
+
+它\textbf{直接与同一端口上的 Gateway 网关 WebSocket} 通信。
+
+\subsection{快速打开（本地）}
+
+
+如果 Gateway 网关在同一台计算机上运行，打开：
+
+\begin{itemize}
+  \item http://127.0.0.1:18789/（或 http://localhost:18789/）
+\end{itemize}
+
+
+如果页面加载失败，请先启动 Gateway 网关：\texttt{openclaw gateway}。
+
+认证在 WebSocket 握手期间通过以下方式提供：
+
+\begin{itemize}
+  \item \texttt{connect.params.auth.token}
+  \item \texttt{connect.params.auth.password}
+\end{itemize}
+
+仪表板设置面板允许你存储 token；密码不会被持久化。
+新手引导向导默认生成一个 Gateway 网关 token，所以在首次连接时将其粘贴到这里。
+
+\subsection{设备配对（首次连接）}
+
+
+当你从新浏览器或设备连接到控制 UI 时，Gateway 网关需要\textbf{一次性配对批准} — 即使你在同一个 Tailnet 上且 \texttt{gateway.auth.allowTailscale: true}。这是防止未授权访问的安全措施。
+
+\textbf{你会看到：} "disconnected (1008): pairing required"
+
+\textbf{批准设备：}
+
+\begin{lstlisting}[language=bash]
+# 列出待处理的请求
+openclaw devices list
+
+# 按请求 ID 批准
+openclaw devices approve <requestId>
+\end{lstlisting}
+
+
+一旦批准，设备会被记住，除非你使用 \texttt{openclaw devices revoke --device  --role } 撤销它，否则不需要重新批准。参见 \href{/cli/devices}{Devices CLI} 了解 token 轮换和撤销。
+
+\textbf{注意：}
+
+\begin{itemize}
+  \item 本地连接（\texttt{127.0.0.1}）会自动批准。
+  \item 远程连接（LAN、Tailnet 等）需要显式批准。
+  \item 每个浏览器配置文件生成唯一的设备 ID，因此切换浏览器或清除浏览器数据将需要重新配对。
+\end{itemize}
+
+
+\subsection{目前可以做什么}
+
+
+\begin{itemize}
+  \item 通过 Gateway 网关 WS 与模型聊天（\texttt{chat.history}、\texttt{chat.send}、\texttt{chat.abort}、\texttt{chat.inject}）
+  \item 在聊天中流式传输工具调用 + 实时工具输出卡片（智能体事件）
+  \item 渠道：WhatsApp/Telegram/Discord/Slack + 插件渠道（Mattermost 等）状态 + QR 登录 + 每渠道配置（\texttt{channels.status}、\texttt{web.login.*}、\texttt{config.patch}）
+  \item 实例：在线列表 + 刷新（\texttt{system-presence}）
+  \item 会话：列表 + 每会话思考/详细覆盖（\texttt{sessions.list}、\texttt{sessions.patch}）
+  \item 定时任务：列出/添加/运行/启用/禁用 + 运行历史（\texttt{cron.*}）
+  \item Skills：状态、启用/禁用、安装、API 密钥更新（\texttt{skills.*}）
+  \item 节点：列表 + 能力（\texttt{node.list}）
+  \item 执行批准：编辑 Gateway 网关或节点允许列表 + \texttt{exec host=gateway/node} 的询问策略（\texttt{exec.approvals.*}）
+  \item 配置：查看/编辑 \texttt{\textasciitilde{}/.openclaw/openclaw.json}（\texttt{config.get}、\texttt{config.set}）
+  \item 配置：应用 + 带验证的重启（\texttt{config.apply}）并唤醒上次活动的会话
+  \item 配置写入包含基础哈希保护，以防止覆盖并发编辑
+  \item 配置 schema + 表单渲染（\texttt{config.schema}，包括插件 + 渠道 schema）；原始 JSON 编辑器仍然可用
+  \item 调试：状态/健康/模型快照 + 事件日志 + 手动 RPC 调用（\texttt{status}、\texttt{health}、\texttt{models.list}）
+  \item 日志：Gateway 网关文件日志的实时尾部跟踪，带过滤/导出（\texttt{logs.tail}）
+  \item 更新：运行包/git 更新 + 重启（\texttt{update.run}）并显示重启报告
+\end{itemize}
+
+
+\subsection{聊天行为}
+
+
+\begin{itemize}
+  \item \texttt{chat.send} 是\textbf{非阻塞的}：它立即以 \texttt{\{ runId, status: "started" \}} 确认，响应通过 \texttt{chat} 事件流式传输。
+  \item 使用相同的 \texttt{idempotencyKey} 重新发送在运行时返回 \texttt{\{ status: "in\_flight" \}}，完成后返回 \texttt{\{ status: "ok" \}}。
+  \item \texttt{chat.inject} 将助手备注附加到会话转录，并为仅 UI 更新广播 \texttt{chat} 事件（无智能体运行，无渠道投递）。
+  \item 停止：
+  \item 点击\textbf{停止}（调用 \texttt{chat.abort}）
+  \item 输入 \texttt{/stop}（或 \texttt{stop|esc|abort|wait|exit|interrupt}）以带外中止
+  \item \texttt{chat.abort} 支持 \texttt{\{ sessionKey \}}（无 \texttt{runId}）以中止该会话的所有活动运行
+\end{itemize}
+
+
+\subsection{Tailnet 访问（推荐）}
+
+
+\subsubsection{集成 Tailscale Serve（首选）}
+
+
+保持 Gateway 网关在 loopback 上，让 Tailscale Serve 用 HTTPS 代理它：
+
+\begin{lstlisting}[language=bash]
+openclaw gateway --tailscale serve
+\end{lstlisting}
+
+
+打开：
+
+\begin{itemize}
+  \item \texttt{https:///}（或你配置的 \texttt{gateway.controlUi.basePath}）
+\end{itemize}
+
+
+默认情况下，当 \texttt{gateway.auth.allowTailscale} 为 \texttt{true} 时，Serve 请求可以通过 Tailscale 身份头（\texttt{tailscale-user-login}）进行认证。OpenClaw 通过使用 \texttt{tailscale whois} 解析 \texttt{x-forwarded-for} 地址并与头匹配来验证身份，并且只在请求通过 Tailscale 的 \texttt{x-forwarded-*} 头到达 loopback 时接受这些。如果你想即使对于 Serve 流量也要求 token/密码，请设置 \texttt{gateway.auth.allowTailscale: false}（或强制 \texttt{gateway.auth.mode: "password"}）。
+
+\subsubsection{绑定到 tailnet + token}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway --bind tailnet --token "$(openssl rand -hex 32)"
+\end{lstlisting}
+
+
+然后打开：
+
+\begin{itemize}
+  \item \texttt{http://:18789/}（或你配置的 \texttt{gateway.controlUi.basePath}）
+\end{itemize}
+
+
+将 token 粘贴到 UI 设置中（作为 \texttt{connect.params.auth.token} 发送）。
+
+\subsection{不安全的 HTTP}
+
+
+如果你通过普通 HTTP 打开仪表板（\texttt{http://} 或 \texttt{http://}），浏览器在\textbf{非安全上下文}中运行并阻止 WebCrypto。默认情况下，OpenClaw \textbf{阻止}没有设备身份的控制 UI 连接。
+
+\textbf{推荐修复：} 使用 HTTPS（Tailscale Serve）或在本地打开 UI：
+
+\begin{itemize}
+  \item \texttt{https:///}（Serve）
+  \item \texttt{http://127.0.0.1:18789/}（在 Gateway 网关主机上）
+\end{itemize}
+
+
+\textbf{降级示例（仅通过 HTTP 使用 token）：}
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    controlUi: { allowInsecureAuth: true },
+    bind: "tailnet",
+    auth: { mode: "token", token: "replace-me" },
+  },
+}
+\end{lstlisting}
+
+
+这会为控制 UI 禁用设备身份 + 配对（即使在 HTTPS 上）。仅在你信任网络时使用。
+
+参见 \href{/gateway/tailscale}{Tailscale} 了解 HTTPS 设置指南。
+
+\subsection{构建 UI}
+
+
+Gateway 网关从 \texttt{dist/control-ui} 提供静态文件。使用以下命令构建：
+
+\begin{lstlisting}[language=bash]
+pnpm ui:build # 首次运行时自动安装 UI 依赖
+\end{lstlisting}
+
+
+可选的绝对基础路径（当你想要固定的资源 URL 时）：
+
+\begin{lstlisting}[language=bash]
+OPENCLAW_CONTROL_UI_BASE_PATH=/openclaw/ pnpm ui:build
+\end{lstlisting}
+
+
+用于本地开发（单独的开发服务器）：
+
+\begin{lstlisting}[language=bash]
+pnpm ui:dev # 首次运行时自动安装 UI 依赖
+\end{lstlisting}
+
+
+然后将 UI 指向你的 Gateway 网关 WS URL（例如 \texttt{ws://127.0.0.1:18789}）。
+
+\subsection{调试/测试：开发服务器 + 远程 Gateway 网关}
+
+
+控制 UI 是静态文件；WebSocket 目标是可配置的，可以与 HTTP 源不同。当你想要在本地使用 Vite 开发服务器但 Gateway 网关在其他地方运行时，这很方便。
+
+\begin{enumerate}
+  \item 启动 UI 开发服务器：\texttt{pnpm ui:dev}
+  \item 打开类似以下的 URL：
+\end{enumerate}
+
+
+\begin{lstlisting}
+http://localhost:5173/?gatewayUrl=ws://<gateway-host>:18789
+\end{lstlisting}
+
+
+可选的一次性认证（如需要）：
+
+\begin{lstlisting}
+http://localhost:5173/?gatewayUrl=wss://<gateway-host>:18789&token=<gateway-token>
+\end{lstlisting}
+
+
+注意：
+
+\begin{itemize}
+  \item \texttt{gatewayUrl} 在加载后存储在 localStorage 中并从 URL 中移除。
+  \item \texttt{token} 存储在 localStorage 中；\texttt{password} 仅保留在内存中。
+  \item 当 Gateway 网关在 TLS 后面时（Tailscale Serve、HTTPS 代理等），使用 \texttt{wss://}。
+\end{itemize}
+
+
+远程访问设置详情：\href{/gateway/remote}{远程访问}。
+
+
+\clearpage
+
+% === 源文件: web/dashboard.md ===
+\section{仪表板（控制 UI）}
+
+
+Gateway 网关仪表板是默认在 \texttt{/} 提供的浏览器控制 UI
+（通过 \texttt{gateway.controlUi.basePath} 覆盖）。
+
+快速打开（本地 Gateway 网关）：
+
+\begin{itemize}
+  \item http://127.0.0.1:18789/（或 http://localhost:18789/）
+\end{itemize}
+
+
+关键参考：
+
+\begin{itemize}
+  \item \href{/web/control-ui}{控制 UI} 了解使用方法和 UI 功能。
+  \item \href{/gateway/tailscale}{Tailscale} 了解 Serve/Funnel 自动化。
+  \item \href{/web}{Web 界面} 了解绑定模式和安全注意事项。
+\end{itemize}
+
+
+认证通过 \texttt{connect.params.auth}（token 或密码）在 WebSocket 握手时强制执行。
+参见 \href{/gateway/configuration}{Gateway 网关配置} 中的 \texttt{gateway.auth}。
+
+安全注意事项：控制 UI 是一个\textbf{管理界面}（聊天、配置、执行审批）。
+不要公开暴露它。UI 在首次加载后将 token 存储在 \texttt{localStorage} 中。
+优先使用 localhost、Tailscale Serve 或 SSH 隧道。
+
+\subsection{快速路径（推荐）}
+
+
+\begin{itemize}
+  \item 新手引导后，CLI 现在会自动打开带有你的 token 的仪表板，并打印相同的带 token 链接。
+  \item 随时重新打开：\texttt{openclaw dashboard}（复制链接，如果可能则打开浏览器，如果是无头环境则显示 SSH 提示）。
+  \item token 保持本地（仅查询参数）；UI 在首次加载后移除它并保存到 localStorage。
+\end{itemize}
+
+
+\subsection{Token 基础（本地 vs 远程）}
+
+
+\begin{itemize}
+  \item \textbf{Localhost}：打开 \texttt{http://127.0.0.1:18789/}。如果你看到"unauthorized"，运行 \texttt{openclaw dashboard} 并使用带 token 的链接（\texttt{?token=...}）。
+  \item \textbf{Token 来源}：\texttt{gateway.auth.token}（或 \texttt{OPENCLAW\_GATEWAY\_TOKEN}）；UI 在首次加载后存储它。
+  \item \textbf{非 localhost}：使用 Tailscale Serve（如果 \texttt{gateway.auth.allowTailscale: true} 则无需 token）、带 token 的 tailnet 绑定，或 SSH 隧道。参见 \href{/web}{Web 界面}。
+\end{itemize}
+
+
+\subsection{如果你看到"unauthorized" / 1008}
+
+
+\begin{itemize}
+  \item 运行 \texttt{openclaw dashboard} 获取新的带 token 链接。
+  \item 确保 Gateway 网关可达（本地：\texttt{openclaw status}；远程：SSH 隧道 \texttt{ssh -N -L 18789:127.0.0.1:18789 user@host} 然后打开 \texttt{http://127.0.0.1:18789/?token=...}）。
+  \item 在仪表板设置中，粘贴你在 \texttt{gateway.auth.token}（或 \texttt{OPENCLAW\_GATEWAY\_TOKEN}）中配置的相同 token。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: web/index.md ===
+\section{Web（Gateway 网关）}
+
+
+Gateway 网关从与 Gateway 网关 WebSocket 相同的端口提供一个小型\textbf{浏览器 Control UI}（Vite + Lit）：
+
+\begin{itemize}
+  \item 默认：\texttt{http://:18789/}
+  \item 可选前缀：设置 \texttt{gateway.controlUi.basePath}（例如 \texttt{/openclaw}）
+\end{itemize}
+
+
+功能详见 \href{/web/control-ui}{Control UI}。
+本页重点介绍绑定模式、安全和面向 Web 的界面。
+
+\subsection{Webhooks}
+
+
+当 \texttt{hooks.enabled=true} 时，Gateway 网关还在同一 HTTP 服务器上公开一个小型 webhook 端点。
+参见 \href{/gateway/configuration}{Gateway 网关配置} → \texttt{hooks} 了解认证 + 载荷。
+
+\subsection{配置（默认开启）}
+
+
+当资源存在时（\texttt{dist/control-ui}），Control UI \textbf{默认启用}。
+你可以通过配置控制它：
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    controlUi: { enabled: true, basePath: "/openclaw" }, // basePath 可选
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Tailscale 访问}
+
+
+\subsubsection{集成 Serve（推荐）}
+
+
+保持 Gateway 网关在本地回环上，让 Tailscale Serve 代理它：
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    bind: "loopback",
+    tailscale: { mode: "serve" },
+  },
+}
+\end{lstlisting}
+
+
+然后启动 Gateway 网关：
+
+\begin{lstlisting}[language=bash]
+openclaw gateway
+\end{lstlisting}
+
+
+打开：
+
+\begin{itemize}
+  \item \texttt{https:///}（或你配置的 \texttt{gateway.controlUi.basePath}）
+\end{itemize}
+
+
+\subsubsection{Tailnet 绑定 + 令牌}
+
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    bind: "tailnet",
+    controlUi: { enabled: true },
+    auth: { mode: "token", token: "your-token" },
+  },
+}
+\end{lstlisting}
+
+
+然后启动 Gateway 网关（非本地回环绑定需要令牌）：
+
+\begin{lstlisting}[language=bash]
+openclaw gateway
+\end{lstlisting}
+
+
+打开：
+
+\begin{itemize}
+  \item \texttt{http://:18789/}（或你配置的 \texttt{gateway.controlUi.basePath}）
+\end{itemize}
+
+
+\subsubsection{公共互联网（Funnel）}
+
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    bind: "loopback",
+    tailscale: { mode: "funnel" },
+    auth: { mode: "password" }, // 或 OPENCLAW_GATEWAY_PASSWORD
+  },
+}
+\end{lstlisting}
+
+
+\subsection{安全注意事项}
+
+
+\begin{itemize}
+  \item Gateway 网关认证默认是必需的（令牌/密码或 Tailscale 身份头）。
+  \item 非本地回环绑定仍然\textbf{需要}共享令牌/密码（\texttt{gateway.auth} 或环境变量）。
+  \item 向导默认生成 Gateway 网关令牌（即使在本地回环上）。
+  \item UI 发送 \texttt{connect.params.auth.token} 或 \texttt{connect.params.auth.password}。
+  \item 使用 Serve 时，当 \texttt{gateway.auth.allowTailscale} 为 \texttt{true} 时，Tailscale 身份头可以满足认证（无需令牌/密码）。设置 \texttt{gateway.auth.allowTailscale: false} 以要求显式凭证。参见 \href{/gateway/tailscale}{Tailscale} 和 \href{/gateway/security}{安全}。
+  \item \texttt{gateway.tailscale.mode: "funnel"} 需要 \texttt{gateway.auth.mode: "password"}（共享密码）。
+\end{itemize}
+
+
+\subsection{构建 UI}
+
+
+Gateway 网关从 \texttt{dist/control-ui} 提供静态文件。使用以下命令构建：
+
+\begin{lstlisting}[language=bash]
+pnpm ui:build # 首次运行时自动安装 UI 依赖
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === 源文件: web/tui.md ===
+\section{TUI（终端 UI）}
+
+
+\subsection{快速开始}
+
+
+\begin{enumerate}
+  \item 启动 Gateway 网关。
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 打开 TUI。
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw tui
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item 输入消息并按 Enter。
+\end{enumerate}
+
+
+远程 Gateway 网关：
+
+\begin{lstlisting}[language=bash]
+openclaw tui --url ws://<host>:<port> --token <gateway-token>
+\end{lstlisting}
+
+
+如果你的 Gateway 网关使用密码认证，请使用 \texttt{--password}。
+
+\subsection{你看到的内容}
+
+
+\begin{itemize}
+  \item 标题栏：连接 URL、当前智能体、当前会话。
+  \item 聊天日志：用户消息、助手回复、系统通知、工具卡片。
+  \item 状态行：连接/运行状态（连接中、运行中、流式传输中、空闲、错误）。
+  \item 页脚：连接状态 + 智能体 + 会话 + 模型 + think/verbose/reasoning + token 计数 + 投递状态。
+  \item 输入：带自动完成的文本编辑器。
+\end{itemize}
+
+
+\subsection{心智模型：智能体 + 会话}
+
+
+\begin{itemize}
+  \item 智能体是唯一的标识符（例如 \texttt{main}、\texttt{research}）。Gateway 网关公开列表。
+  \item 会话属于当前智能体。
+  \item 会话键存储为 \texttt{agent::}。
+  \item 如果你输入 \texttt{/session main}，TUI 会将其扩展为 \texttt{agent::main}。
+  \item 如果你输入 \texttt{/session agent:other:main}，你会显式切换到该智能体会话。
+  \item 会话范围：
+  \item \texttt{per-sender}（默认）：每个智能体有多个会话。
+  \item \texttt{global}：TUI 始终使用 \texttt{global} 会话（选择器可能为空）。
+  \item 当前智能体 + 会话始终在页脚中可见。
+\end{itemize}
+
+
+\subsection{发送 + 投递}
+
+
+\begin{itemize}
+  \item 消息发送到 Gateway 网关；默认情况下不投递到提供商。
+  \item 开启投递：
+  \item \texttt{/deliver on}
+  \item 或设置面板
+  \item 或使用 \texttt{openclaw tui --deliver} 启动
+\end{itemize}
+
+
+\subsection{选择器 + 覆盖层}
+
+
+\begin{itemize}
+  \item 模型选择器：列出可用模型并设置会话覆盖。
+  \item 智能体选择器：选择不同的智能体。
+  \item 会话选择器：仅显示当前智能体的会话。
+  \item 设置：切换投递、工具输出展开和思考可见性。
+\end{itemize}
+
+
+\subsection{键盘快捷键}
+
+
+\begin{itemize}
+  \item Enter：发送消息
+  \item Esc：中止活动运行
+  \item Ctrl+C：清除输入（按两次退出）
+  \item Ctrl+D：退出
+  \item Ctrl+L：模型选择器
+  \item Ctrl+G：智能体选择器
+  \item Ctrl+P：会话选择器
+  \item Ctrl+O：切换工具输出展开
+  \item Ctrl+T：切换思考可见性（重新加载历史）
+\end{itemize}
+
+
+\subsection{斜杠命令}
+
+
+核心：
+
+\begin{itemize}
+  \item \texttt{/help}
+  \item \texttt{/status}
+  \item \texttt{/agent }（或 \texttt{/agents}）
+  \item \texttt{/session }（或 \texttt{/sessions}）
+  \item \texttt{/model }（或 \texttt{/models}）
+\end{itemize}
+
+
+会话控制：
+
+\begin{itemize}
+  \item \texttt{/think }
+  \item \texttt{/verbose }
+  \item \texttt{/reasoning }
+  \item \texttt{/usage }
+  \item \texttt{/elevated }（别名：\texttt{/elev}）
+  \item \texttt{/activation }
+  \item \texttt{/deliver }
+\end{itemize}
+
+
+会话生命周期：
+
+\begin{itemize}
+  \item \texttt{/new} 或 \texttt{/reset}（重置会话）
+  \item \texttt{/abort}（中止活动运行）
+  \item \texttt{/settings}
+  \item \texttt{/exit}
+\end{itemize}
+
+
+其他 Gateway 网关斜杠命令（例如 \texttt{/context}）会转发到 Gateway 网关并显示为系统输出。参见\href{/tools/slash-commands}{斜杠命令}。
+
+\subsection{本地 shell 命令}
+
+
+\begin{itemize}
+  \item 以 \texttt{!} 为前缀的行会在 TUI 主机上运行本地 shell 命令。
+  \item TUI 每个会话会提示一次以允许本地执行；拒绝会在该会话中禁用 \texttt{!}。
+  \item 命令在 TUI 工作目录中以全新的非交互式 shell 运行（无持久化 \texttt{cd}/环境变量）。
+  \item 单独的 \texttt{!} 会作为普通消息发送；前导空格不会触发本地执行。
+\end{itemize}
+
+
+\subsection{工具输出}
+
+
+\begin{itemize}
+  \item 工具调用显示为带有参数 + 结果的卡片。
+  \item Ctrl+O 在折叠/展开视图之间切换。
+  \item 工具运行时，部分更新会流式传输到同一张卡片。
+\end{itemize}
+
+
+\subsection{历史 + 流式传输}
+
+
+\begin{itemize}
+  \item 连接时，TUI 加载最新历史（默认 200 条消息）。
+  \item 流式响应原地更新直到完成。
+  \item TUI 还监听智能体工具事件以获得更丰富的工具卡片。
+\end{itemize}
+
+
+\subsection{连接详情}
+
+
+\begin{itemize}
+  \item TUI 以 \texttt{mode: "tui"} 向 Gateway 网关注册。
+  \item 重新连接会显示系统消息；事件间隙会在日志中显示。
+\end{itemize}
+
+
+\subsection{选项}
+
+
+\begin{itemize}
+  \item \texttt{--url }：Gateway 网关 WebSocket URL（默认为配置或 \texttt{ws://127.0.0.1:}）
+  \item \texttt{--token }：Gateway 网关令牌（如果需要）
+  \item \texttt{--password }：Gateway 网关密码（如果需要）
+  \item \texttt{--session }：会话键（默认：\texttt{main}，或范围为全局时为 \texttt{global}）
+  \item \texttt{--deliver}：将助手回复投递到提供商（默认关闭）
+  \item \texttt{--thinking }：覆盖发送的思考级别
+  \item \texttt{--timeout-ms }：智能体超时（毫秒）（默认为 \texttt{agents.defaults.timeoutSeconds}）
+\end{itemize}
+
+
+\subsection{故障排除}
+
+
+发送消息后没有输出：
+
+\begin{itemize}
+  \item 在 TUI 中运行 \texttt{/status} 以确认 Gateway 网关已连接且处于空闲/忙碌状态。
+  \item 检查 Gateway 网关日志：\texttt{openclaw logs --follow}。
+  \item 确认智能体可以运行：\texttt{openclaw status} 和 \texttt{openclaw models status}。
+  \item 如果你期望消息出现在聊天渠道中，请启用投递（\texttt{/deliver on} 或 \texttt{--deliver}）。
+  \item \texttt{--history-limit }：要加载的历史条目数（默认 200）
+\end{itemize}
+
+
+\subsection{故障排除}
+
+
+\begin{itemize}
+  \item \texttt{disconnected}：确保 Gateway 网关正在运行且你的 \texttt{--url/--token/--password} 正确。
+  \item 选择器中没有智能体：检查 \texttt{openclaw agents list} 和你的路由配置。
+  \item 会话选择器为空：你可能处于全局范围或还没有会话。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: web/webchat.md ===
+\section{WebChat（Gateway 网关 WebSocket UI）}
+
+
+状态：macOS/iOS SwiftUI 聊天 UI 直接与 Gateway 网关 WebSocket 通信。
+
+\subsection{它是什么}
+
+
+\begin{itemize}
+  \item Gateway 网关的原生聊天 UI（无嵌入式浏览器，无本地静态服务器）。
+  \item 使用与其他渠道相同的会话和路由规则。
+  \item 确定性路由：回复始终返回到 WebChat。
+\end{itemize}
+
+
+\subsection{快速开始}
+
+
+\begin{enumerate}
+  \item 启动 Gateway 网关。
+  \item 打开 WebChat UI（macOS/iOS 应用）或控制 UI 聊天标签页。
+  \item 确保已配置 Gateway 网关认证（默认需要，即使在 loopback 上）。
+\end{enumerate}
+
+
+\subsection{工作原理（行为）}
+
+
+\begin{itemize}
+  \item UI 连接到 Gateway 网关 WebSocket 并使用 \texttt{chat.history}、\texttt{chat.send} 和 \texttt{chat.inject}。
+  \item \texttt{chat.inject} 直接将助手注释追加到转录并广播到 UI（无智能体运行）。
+  \item 历史记录始终从 Gateway 网关获取（无本地文件监听）。
+  \item 如果 Gateway 网关不可达，WebChat 为只读模式。
+\end{itemize}
+
+
+\subsection{远程使用}
+
+
+\begin{itemize}
+  \item 远程模式通过 SSH/Tailscale 隧道传输 Gateway 网关 WebSocket。
+  \item 你不需要运行单独的 WebChat 服务器。
+\end{itemize}
+
+
+\subsection{配置参考（WebChat）}
+
+
+完整配置：\href{/gateway/configuration}{配置}
+
+渠道选项：
+
+\begin{itemize}
+  \item 没有专用的 \texttt{webchat.*} 块。WebChat 使用下面的 Gateway 网关端点 + 认证设置。
+\end{itemize}
+
+
+相关的全局选项：
+
+\begin{itemize}
+  \item \texttt{gateway.port}、\texttt{gateway.bind}：WebSocket 主机/端口。
+  \item \texttt{gateway.auth.mode}、\texttt{gateway.auth.token}、\texttt{gateway.auth.password}：WebSocket 认证。
+  \item \texttt{gateway.remote.url}、\texttt{gateway.remote.token}、\texttt{gateway.remote.password}：远程 Gateway 网关目标。
+  \item \texttt{session.*}：会话存储和主键默认值。
+\end{itemize}
+
+
+
+\clearpage
