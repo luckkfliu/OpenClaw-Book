@@ -1,0 +1,1733 @@
+\chapter{移动节点}
+
+% === 源文件: nodes/audio.md ===
+\section{音频 / 语音消息 — 2026-01-17}
+
+
+\subsection{已支持的功能}
+
+
+\begin{itemize}
+  \item \textbf{媒体理解（音频）}：如果音频理解已启用（或自动检测），OpenClaw 会：
+\end{itemize}
+
+\begin{enumerate}
+  \item 找到第一个音频附件（本地路径或 URL），如有需要则下载。
+  \item 在发送给每个模型条目之前执行 \texttt{maxBytes} 限制。
+  \item 按顺序运行第一个符合条件的模型条目（提供商或 CLI）。
+  \item 如果失败或跳过（大小/超时），则尝试下一个条目。
+  \item 成功后，将 \texttt{Body} 替换为 \texttt{[Audio]} 块并设置 \texttt{\{\{Transcript\}\}}。
+\end{enumerate}
+
+\begin{itemize}
+  \item \textbf{命令解析}：转录成功时，\texttt{CommandBody}/\texttt{RawBody} 会设置为转录文本，因此斜杠命令仍然有效。
+  \item \textbf{详细日志}：在 \texttt{--verbose} 模式下，我们会在转录运行和替换正文时记录日志。
+\end{itemize}
+
+
+\subsection{自动检测（默认）}
+
+
+如果你\textbf{未配置模型}且 \texttt{tools.media.audio.enabled} \textbf{未}设置为 \texttt{false}，OpenClaw 会按以下顺序自动检测，并在找到第一个可用选项时停止：
+
+\begin{enumerate}
+  \item \textbf{本地 CLI}（如已安装）
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{sherpa-onnx-offline}（需要 \texttt{SHERPA\_ONNX\_MODEL\_DIR} 包含 encoder/decoder/joiner/tokens）
+  \item \texttt{whisper-cli}（来自 \texttt{whisper-cpp}；使用 \texttt{WHISPER\_CPP\_MODEL} 或内置的 tiny 模型）
+  \item \texttt{whisper}（Python CLI；自动下载模型）
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{Gemini CLI}（\texttt{gemini}）使用 \texttt{read\_many\_files}
+  \item \textbf{提供商密钥}（OpenAI → Groq → Deepgram → Google）
+\end{enumerate}
+
+
+要禁用自动检测，请设置 \texttt{tools.media.audio.enabled: false}。
+要自定义，请设置 \texttt{tools.media.audio.models}。
+注意：二进制检测在 macOS/Linux/Windows 上采用尽力而为的方式；请确保 CLI 在 \texttt{PATH} 中（我们会展开 \texttt{\textasciitilde{}}），或通过完整命令路径设置显式 CLI 模型。
+
+\subsection{配置示例}
+
+
+\subsubsection{提供商 + CLI 回退（OpenAI + Whisper CLI）}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        maxBytes: 20971520,
+        models: [
+          { provider: "openai", model: "gpt-4o-mini-transcribe" },
+          {
+            type: "cli",
+            command: "whisper",
+            args: ["--model", "base", "{{MediaPath}}"],
+            timeoutSeconds: 45,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{仅提供商 + 作用域控制}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        scope: {
+          default: "allow",
+          rules: [{ action: "deny", match: { chatType: "group" } }],
+        },
+        models: [{ provider: "openai", model: "gpt-4o-mini-transcribe" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{仅提供商（Deepgram）}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [{ provider: "deepgram", model: "nova-3" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{注意事项与限制}
+
+
+\begin{itemize}
+  \item 提供商认证遵循标准的模型认证顺序（认证配置文件、环境变量、\texttt{models.providers.*.apiKey}）。
+  \item 当使用 \texttt{provider: "deepgram"} 时，Deepgram 会读取 \texttt{DEEPGRAM\_API\_KEY}。
+  \item Deepgram 设置详情：\href{/providers/deepgram}{Deepgram（音频转录）}。
+  \item 音频提供商可以通过 \texttt{tools.media.audio} 覆盖 \texttt{baseUrl}、\texttt{headers} 和 \texttt{providerOptions}。
+  \item 默认大小限制为 20MB（\texttt{tools.media.audio.maxBytes}）。超大音频会跳过该模型并尝试下一个条目。
+  \item 音频的默认 \texttt{maxChars} \textbf{未设置}（完整转录文本）。设置 \texttt{tools.media.audio.maxChars} 或每个条目的 \texttt{maxChars} 来裁剪输出。
+  \item OpenAI 自动检测默认使用 \texttt{gpt-4o-mini-transcribe}；设置 \texttt{model: "gpt-4o-transcribe"} 可获得更高准确度。
+  \item 使用 \texttt{tools.media.audio.attachments} 处理多条语音消息（\texttt{mode: "all"} + \texttt{maxAttachments}）。
+  \item 转录文本可在模板中通过 \texttt{\{\{Transcript\}\}} 使用。
+  \item CLI 标准输出有上限（5MB）；请保持 CLI 输出简洁。
+\end{itemize}
+
+
+\subsection{常见陷阱}
+
+
+\begin{itemize}
+  \item 作用域规则采用首次匹配优先。\texttt{chatType} 会被规范化为 \texttt{direct}、\texttt{group} 或 \texttt{room}。
+  \item 确保你的 CLI 以退出码 0 退出并输出纯文本；JSON 格式需要通过 \texttt{jq -r .text} 进行转换。
+  \item 保持合理的超时时间（\texttt{timeoutSeconds}，默认 60 秒），以避免阻塞回复队列。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: nodes/camera.md ===
+\section{相机捕获（智能体）}
+
+
+OpenClaw 支持用于智能体工作流的\textbf{相机捕获}：
+
+\begin{itemize}
+  \item \textbf{iOS 节点}（通过 Gateway 网关配对）：通过 \texttt{node.invoke} 捕获\textbf{照片}（\texttt{jpg}）或\textbf{短视频片段}（\texttt{mp4}，可选音频）。
+  \item \textbf{Android 节点}（通过 Gateway 网关配对）：通过 \texttt{node.invoke} 捕获\textbf{照片}（\texttt{jpg}）或\textbf{短视频片段}（\texttt{mp4}，可选音频）。
+  \item \textbf{macOS 应用}（通过 Gateway 网关的节点）：通过 \texttt{node.invoke} 捕获\textbf{照片}（\texttt{jpg}）或\textbf{短视频片段}（\texttt{mp4}，可选音频）。
+\end{itemize}
+
+
+所有相机访问都受\textbf{用户控制的设置}限制。
+
+\subsection{iOS 节点}
+
+
+\subsubsection{用户设置（默认开启）}
+
+
+\begin{itemize}
+  \item iOS 设置标签页 → \textbf{相机} → \textbf{允许相机}（\texttt{camera.enabled}）
+  \item 默认：\textbf{开启}（缺少键时视为启用）。
+  \item 关闭时：\texttt{camera.*} 命令返回 \texttt{CAMERA\_DISABLED}。
+\end{itemize}
+
+
+\subsubsection{命令（通过 Gateway 网关 node.invoke）}
+
+
+\begin{itemize}
+  \item \texttt{camera.list}
+  \item 响应载荷：
+  \item \texttt{devices}：\texttt{\{ id, name, position, deviceType \}} 数组
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{camera.snap}
+  \item 参数：
+  \item \texttt{facing}：\texttt{front|back}（默认：\texttt{front}）
+  \item \texttt{maxWidth}：数字（可选；iOS 节点默认 \texttt{1600}）
+  \item \texttt{quality}：\texttt{0..1}（可选；默认 \texttt{0.9}）
+  \item \texttt{format}：当前为 \texttt{jpg}
+  \item \texttt{delayMs}：数字（可选；默认 \texttt{0}）
+  \item \texttt{deviceId}：字符串（可选；来自 \texttt{camera.list}）
+  \item 响应载荷：
+  \item \texttt{format: "jpg"}
+  \item \texttt{base64: "<...>"}
+  \item \texttt{width}、\texttt{height}
+  \item 载荷保护：照片会重新压缩以保持 base64 载荷小于 5 MB。
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{camera.clip}
+  \item 参数：
+  \item \texttt{facing}：\texttt{front|back}（默认：\texttt{front}）
+  \item \texttt{durationMs}：数字（默认 \texttt{3000}，上限 \texttt{60000}）
+  \item \texttt{includeAudio}：布尔值（默认 \texttt{true}）
+  \item \texttt{format}：当前为 \texttt{mp4}
+  \item \texttt{deviceId}：字符串（可选；来自 \texttt{camera.list}）
+  \item 响应载荷：
+  \item \texttt{format: "mp4"}
+  \item \texttt{base64: "<...>"}
+  \item \texttt{durationMs}
+  \item \texttt{hasAudio}
+\end{itemize}
+
+
+\subsubsection{前台要求}
+
+
+与 \texttt{canvas.\textit{} 类似，iOS 节点仅允许在\textbf{前台}执行 \texttt{camera.}} 命令。后台调用返回 \texttt{NODE\_BACKGROUND\_UNAVAILABLE}。
+
+\subsubsection{CLI 辅助工具（临时文件 + MEDIA）}
+
+
+获取附件最简单的方法是通过 CLI 辅助工具，它将解码的媒体写入临时文件并打印 \texttt{MEDIA:}。
+
+示例：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes camera snap --node <id>               # default: both front + back (2 MEDIA lines)
+openclaw nodes camera snap --node <id> --facing front
+openclaw nodes camera clip --node <id> --duration 3000
+openclaw nodes camera clip --node <id> --no-audio
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{nodes camera snap} 默认拍摄\textbf{两个}方向以给智能体提供两个视角。
+  \item 输出文件是临时的（在操作系统临时目录中），除非你构建自己的包装器。
+\end{itemize}
+
+
+\subsection{Android 节点}
+
+
+\subsubsection{用户设置（默认开启）}
+
+
+\begin{itemize}
+  \item Android 设置页 → \textbf{相机} → \textbf{允许相机}（\texttt{camera.enabled}）
+  \item 默认：\textbf{开启}（缺少键时视为启用）。
+  \item 关闭时：\texttt{camera.*} 命令返回 \texttt{CAMERA\_DISABLED}。
+\end{itemize}
+
+
+\subsubsection{权限}
+
+
+\begin{itemize}
+  \item Android 需要运行时权限：
+  \item \texttt{CAMERA} 用于 \texttt{camera.snap} 和 \texttt{camera.clip}。
+  \item \texttt{RECORD\_AUDIO} 用于 \texttt{includeAudio=true} 时的 \texttt{camera.clip}。
+\end{itemize}
+
+
+如果缺少权限，应用会在可能时提示；如果被拒绝，\texttt{camera.\textit{} 请求会失败并返回 \texttt{}\_PERMISSION\_REQUIRED} 错误。
+
+\subsubsection{前台要求}
+
+
+与 \texttt{canvas.\textit{} 类似，Android 节点仅允许在\textbf{前台}执行 \texttt{camera.}} 命令。后台调用返回 \texttt{NODE\_BACKGROUND\_UNAVAILABLE}。
+
+\subsubsection{载荷保护}
+
+
+照片会重新压缩以保持 base64 载荷小于 5 MB。
+
+\subsection{macOS 应用}
+
+
+\subsubsection{用户设置（默认关闭）}
+
+
+macOS 配套应用暴露一个复选框：
+
+\begin{itemize}
+  \item \textbf{设置 → 通用 → 允许相机}（\texttt{openclaw.cameraEnabled}）
+  \item 默认：\textbf{关闭}
+  \item 关闭时：相机请求返回"用户已禁用相机"。
+\end{itemize}
+
+
+\subsubsection{CLI 辅助工具（节点调用）}
+
+
+使用主 \texttt{openclaw} CLI 在 macOS 节点上调用相机命令。
+
+示例：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes camera list --node <id>            # list camera ids
+openclaw nodes camera snap --node <id>            # prints MEDIA:<path>
+openclaw nodes camera snap --node <id> --max-width 1280
+openclaw nodes camera snap --node <id> --delay-ms 2000
+openclaw nodes camera snap --node <id> --device-id <id>
+openclaw nodes camera clip --node <id> --duration 10s          # prints MEDIA:<path>
+openclaw nodes camera clip --node <id> --duration-ms 3000      # prints MEDIA:<path> (legacy flag)
+openclaw nodes camera clip --node <id> --device-id <id>
+openclaw nodes camera clip --node <id> --no-audio
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{openclaw nodes camera snap} 默认 \texttt{maxWidth=1600}，除非被覆盖。
+  \item 在 macOS 上，\texttt{camera.snap} 在预热/曝光稳定后等待 \texttt{delayMs}（默认 2000ms）再捕获。
+  \item 照片载荷会重新压缩以保持 base64 小于 5 MB。
+\end{itemize}
+
+
+\subsection{安全性 + 实际限制}
+
+
+\begin{itemize}
+  \item 相机和麦克风访问会触发通常的操作系统权限提示（并需要 Info.plist 中的使用说明字符串）。
+  \item 视频片段有上限（当前 \texttt{<= 60s}）以避免过大的节点载荷（base64 开销 + 消息限制）。
+\end{itemize}
+
+
+\subsection{macOS 屏幕视频（操作系统级别）}
+
+
+对于\textit{屏幕}视频（非相机），使用 macOS 配套应用：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes screen record --node <id> --duration 10s --fps 15   # prints MEDIA:<path>
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 需要 macOS \textbf{屏幕录制}权限（TCC）。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: nodes/images.md ===
+\section{图像与媒体支持 — 2025-12-05}
+
+
+WhatsApp 渠道通过 \textbf{Baileys Web} 运行。本文档记录了发送、Gateway 网关和智能体回复的当前媒体处理规则。
+
+\subsection{目标}
+
+
+\begin{itemize}
+  \item 通过 \texttt{openclaw message send --media} 发送带可选标题的媒体。
+  \item 允许来自网页收件箱的自动回复在文本旁边包含媒体。
+  \item 保持每种类型的限制合理且可预测。
+\end{itemize}
+
+
+\subsection{CLI 接口}
+
+
+\begin{itemize}
+  \item \texttt{openclaw message send --media  [--message ]}
+  \item \texttt{--media} 可选；标题可以为空以进行纯媒体发送。
+  \item \texttt{--dry-run} 打印解析后的负载；\texttt{--json} 输出 \texttt{\{ channel, to, messageId, mediaUrl, caption \}}。
+\end{itemize}
+
+
+\subsection{WhatsApp Web 渠道行为}
+
+
+\begin{itemize}
+  \item 输入：本地文件路径\textbf{或} HTTP(S) URL。
+  \item 流程：加载到 Buffer，检测媒体类型，并构建正确的负载：
+  \item \textbf{图像：} 调整大小并重新压缩为 JPEG（最大边 2048px），目标为 \texttt{agents.defaults.mediaMaxMb}（默认 5 MB），上限 6 MB。
+  \item \textbf{音频/语音/视频：} 直通最大 16 MB；音频作为语音消息发送（\texttt{ptt: true}）。
+  \item \textbf{文档：} 其他任何内容，最大 100 MB，可用时保留文件名。
+  \item WhatsApp GIF 风格播放：发送带 \texttt{gifPlayback: true} 的 MP4（CLI：\texttt{--gif-playback}），使移动客户端内联循环播放。
+  \item MIME 检测优先使用魔数字节，然后是头信息，最后是文件扩展名。
+  \item 标题来自 \texttt{--message} 或 \texttt{reply.text}；允许空标题。
+  \item 日志：非详细模式显示 \texttt{↩️}/\texttt{✅}；详细模式包含大小和源路径/URL。
+\end{itemize}
+
+
+\subsection{自动回复管道}
+
+
+\begin{itemize}
+  \item \texttt{getReplyFromConfig} 返回 \texttt{\{ text?, mediaUrl?, mediaUrls? \}}。
+  \item 当存在媒体时，网页发送器使用与 \texttt{openclaw message send} 相同的管道解析本地路径或 URL。
+  \item 如果提供多个媒体条目，则按顺序发送。
+\end{itemize}
+
+
+\subsection{入站媒体到命令（Pi）}
+
+
+\begin{itemize}
+  \item 当入站网页消息包含媒体时，OpenClaw 下载到临时文件并暴露模板变量：
+  \item \texttt{\{\{MediaUrl\}\}} 入站媒体的伪 URL。
+  \item \texttt{\{\{MediaPath\}\}} 运行命令前写入的本地临时路径。
+  \item 当启用每会话 Docker 沙箱时，入站媒体被复制到沙箱工作区，\texttt{MediaPath}/\texttt{MediaUrl} 被重写为相对路径如 \texttt{media/inbound/}。
+  \item 媒体理解（如果通过 \texttt{tools.media.*} 或共享的 \texttt{tools.media.models} 配置）在模板化之前运行，可以将 \texttt{[Image]}、\texttt{[Audio]} 和 \texttt{[Video]} 块插入 \texttt{Body}。
+  \item 音频设置 \texttt{\{\{Transcript\}\}} 并使用转录进行命令解析，因此斜杠命令仍然有效。
+  \item 视频和图像描述保留任何标题文本用于命令解析。
+  \item 默认情况下只处理第一个匹配的图像/音频/视频附件；设置 \texttt{tools.media..attachments} 以处理多个附件。
+\end{itemize}
+
+
+\subsection{限制与错误}
+
+
+\textbf{出站发送上限（WhatsApp 网页发送）}
+
+\begin{itemize}
+  \item 图像：重新压缩后约 6 MB 上限。
+  \item 音频/语音/视频：16 MB 上限；文档：100 MB 上限。
+  \item 超大或无法读取的媒体 → 日志中有明确错误，回复被跳过。
+\end{itemize}
+
+
+\textbf{媒体理解上限（转录/描述）}
+
+\begin{itemize}
+  \item 图像默认：10 MB（\texttt{tools.media.image.maxBytes}）。
+  \item 音频默认：20 MB（\texttt{tools.media.audio.maxBytes}）。
+  \item 视频默认：50 MB（\texttt{tools.media.video.maxBytes}）。
+  \item 超大媒体跳过理解，但回复仍然使用原始正文通过。
+\end{itemize}
+
+
+\subsection{测试说明}
+
+
+\begin{itemize}
+  \item 覆盖图像/音频/文档情况的发送 + 回复流程。
+  \item 验证图像的重新压缩（大小限制）和音频的语音消息标志。
+  \item 确保多媒体回复作为顺序发送扇出。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: nodes/index.md ===
+\section{节点}
+
+
+\textbf{节点}是一个配套设备（macOS/iOS/Android/无头），它以 \texttt{role: "node"} 连接到 Gateway 网关 \textbf{WebSocket}（与操作员相同的端口），并通过 \texttt{node.invoke} 暴露命令接口（例如 \texttt{canvas.\textit{}、\texttt{camera.}}、\texttt{system.*}）。协议详情：\href{/gateway/protocol}{Gateway 网关协议}。
+
+旧版传输：\href{/gateway/bridge-protocol}{Bridge 协议}（TCP JSONL；当前节点已弃用/移除）。
+
+macOS 也可以在\textbf{节点模式}下运行：菜单栏应用连接到 Gateway 网关的 WS 服务器，并将其本地 canvas/camera 命令作为节点暴露（因此 \texttt{openclaw nodes …} 可以针对这台 Mac 工作）。
+
+注意事项：
+
+\begin{itemize}
+  \item 节点是\textbf{外围设备}，不是 Gateway 网关。它们不运行 Gateway 网关服务。
+  \item Telegram/WhatsApp 等消息落在 \textbf{Gateway 网关}上，而不是节点上。
+\end{itemize}
+
+
+\subsection{配对 + 状态}
+
+
+\textbf{WS 节点使用设备配对。} 节点在 \texttt{connect} 期间呈现设备身份；Gateway 网关
+为 \texttt{role: node} 创建设备配对请求。通过设备 CLI（或 UI）批准。
+
+快速 CLI：
+
+\begin{lstlisting}[language=bash]
+openclaw devices list
+openclaw devices approve <requestId>
+openclaw devices reject <requestId>
+openclaw nodes status
+openclaw nodes describe --node <idOrNameOrIp>
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 当节点的设备配对角色包含 \texttt{node} 时，\texttt{nodes status} 将节点标记为\textbf{已配对}。
+  \item \texttt{node.pair.*}（CLI：\texttt{openclaw nodes pending/approve/reject}）是一个单独的 Gateway 网关拥有的
+\end{itemize}
+
+节点配对存储；它\textbf{不会}限制 WS \texttt{connect} 握手。
+
+\subsection{远程节点主机（system.run）}
+
+
+当你的 Gateway 网关在一台机器上运行而你希望命令
+在另一台机器上执行时，使用\textbf{节点主机}。模型仍然与 \textbf{Gateway 网关}通信；当选择 \texttt{host=node} 时，Gateway 网关
+将 \texttt{exec} 调用转发到\textbf{节点主机}。
+
+\subsubsection{什么在哪里运行}
+
+
+\begin{itemize}
+  \item \textbf{Gateway 网关主机}：接收消息，运行模型，路由工具调用。
+  \item \textbf{节点主机}：在节点机器上执行 \texttt{system.run}/\texttt{system.which}。
+  \item \textbf{批准}：通过 \texttt{\textasciitilde{}/.openclaw/exec-approvals.json} 在节点主机上执行。
+\end{itemize}
+
+
+\subsubsection{启动节点主机（前台）}
+
+
+在节点机器上：
+
+\begin{lstlisting}[language=bash]
+openclaw node run --host <gateway-host> --port 18789 --display-name "Build Node"
+\end{lstlisting}
+
+
+\subsubsection{通过 SSH 隧道访问远程 Gateway 网关（loopback 绑定）}
+
+
+如果 Gateway 网关绑定到 loopback（\texttt{gateway.bind=loopback}，本地模式下的默认值），
+远程节点主机无法直接连接。创建 SSH 隧道并将
+节点主机指向隧道的本地端。
+
+示例（节点主机 -> Gateway 网关主机）：
+
+\begin{lstlisting}[language=bash]
+# 终端 A（保持运行）：转发本地 18790 -> Gateway 网关 127.0.0.1:18789
+ssh -N -L 18790:127.0.0.1:18789 user@gateway-host
+
+# 终端 B：导出 Gateway 网关令牌并通过隧道连接
+export OPENCLAW_GATEWAY_TOKEN="<gateway-token>"
+openclaw node run --host 127.0.0.1 --port 18790 --display-name "Build Node"
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 令牌是 Gateway 网关配置中的 \texttt{gateway.auth.token}（Gateway 网关主机上的 \texttt{\textasciitilde{}/.openclaw/openclaw.json}）。
+  \item \texttt{openclaw node run} 读取 \texttt{OPENCLAW\_GATEWAY\_TOKEN} 进行认证。
+\end{itemize}
+
+
+\subsubsection{启动节点主机（服务）}
+
+
+\begin{lstlisting}[language=bash]
+openclaw node install --host <gateway-host> --port 18789 --display-name "Build Node"
+openclaw node restart
+\end{lstlisting}
+
+
+\subsubsection{配对 + 命名}
+
+
+在 Gateway 网关主机上：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes pending
+openclaw nodes approve <requestId>
+openclaw nodes list
+\end{lstlisting}
+
+
+命名选项：
+
+\begin{itemize}
+  \item 在 \texttt{openclaw node run} / \texttt{openclaw node install} 上使用 \texttt{--display-name}（持久化在节点上的 \texttt{\textasciitilde{}/.openclaw/node.json} 中）。
+  \item \texttt{openclaw nodes rename --node  --name "Build Node"}（Gateway 网关覆盖）。
+\end{itemize}
+
+
+\subsubsection{将命令加入允许列表}
+
+
+Exec 批准是\textbf{每个节点主机}的。从 Gateway 网关添加允许列表条目：
+
+\begin{lstlisting}[language=bash]
+openclaw approvals allowlist add --node <id|name|ip> "/usr/bin/uname"
+openclaw approvals allowlist add --node <id|name|ip> "/usr/bin/sw_vers"
+\end{lstlisting}
+
+
+批准存储在节点主机的 \texttt{\textasciitilde{}/.openclaw/exec-approvals.json} 中。
+
+\subsubsection{将 exec 指向节点}
+
+
+配置默认值（Gateway 网关配置）：
+
+\begin{lstlisting}[language=bash]
+openclaw config set tools.exec.host node
+openclaw config set tools.exec.security allowlist
+openclaw config set tools.exec.node "<id-or-name>"
+\end{lstlisting}
+
+
+或按会话：
+
+\begin{lstlisting}
+/exec host=node security=allowlist node=<id-or-name>
+\end{lstlisting}
+
+
+设置后，任何带有 \texttt{host=node} 的 \texttt{exec} 调用都会在节点主机上运行（受
+节点允许列表/批准约束）。
+
+相关：
+
+\begin{itemize}
+  \item \href{/cli/node}{节点主机 CLI}
+  \item \href{/tools/exec}{Exec 工具}
+  \item \href{/tools/exec-approvals}{Exec 批准}
+\end{itemize}
+
+
+\subsection{调用命令}
+
+
+低级（原始 RPC）：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node <idOrNameOrIp> --command canvas.eval --params '{"javaScript":"location.href"}'
+\end{lstlisting}
+
+
+对于常见的"给智能体一个 MEDIA 附件"工作流，存在更高级的辅助工具。
+
+\subsection{截图（canvas 快照）}
+
+
+如果节点正在显示 Canvas（WebView），\texttt{canvas.snapshot} 返回 \texttt{\{ format, base64 \}}。
+
+CLI 辅助工具（写入临时文件并打印 \texttt{MEDIA:}）：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas snapshot --node <idOrNameOrIp> --format png
+openclaw nodes canvas snapshot --node <idOrNameOrIp> --format jpg --max-width 1200 --quality 0.9
+\end{lstlisting}
+
+
+\subsubsection{Canvas 控制}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas present --node <idOrNameOrIp> --target https://example.com
+openclaw nodes canvas hide --node <idOrNameOrIp>
+openclaw nodes canvas navigate https://example.com --node <idOrNameOrIp>
+openclaw nodes canvas eval --node <idOrNameOrIp> --js "document.title"
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{canvas present} 接受 URL 或本地文件路径（\texttt{--target}），以及可选的 \texttt{--x/--y/--width/--height} 用于定位。
+  \item \texttt{canvas eval} 接受内联 JS（\texttt{--js}）或位置参数。
+\end{itemize}
+
+
+\subsubsection{A2UI（Canvas）}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas a2ui push --node <idOrNameOrIp> --text "Hello"
+openclaw nodes canvas a2ui push --node <idOrNameOrIp> --jsonl ./payload.jsonl
+openclaw nodes canvas a2ui reset --node <idOrNameOrIp>
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 仅支持 A2UI v0.8 JSONL（v0.9/createSurface 被拒绝）。
+\end{itemize}
+
+
+\subsection{照片 + 视频（节点相机）}
+
+
+照片（\texttt{jpg}）：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes camera list --node <idOrNameOrIp>
+openclaw nodes camera snap --node <idOrNameOrIp>            # 默认：两个朝向（2 个 MEDIA 行）
+openclaw nodes camera snap --node <idOrNameOrIp> --facing front
+\end{lstlisting}
+
+
+视频片段（\texttt{mp4}）：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes camera clip --node <idOrNameOrIp> --duration 10s
+openclaw nodes camera clip --node <idOrNameOrIp> --duration 3000 --no-audio
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 节点必须处于\textbf{前台}才能使用 \texttt{canvas.\textit{} 和 \texttt{camera.}}（后台调用返回 \texttt{NODE\_BACKGROUND\_UNAVAILABLE}）。
+  \item 片段时长被限制（当前 \texttt{<= 60s}）以避免过大的 base64 负载。
+  \item Android 会在可能时提示 \texttt{CAMERA}/\texttt{RECORD\_AUDIO} 权限；权限被拒绝会以 \texttt{*\_PERMISSION\_REQUIRED} 失败。
+\end{itemize}
+
+
+\subsection{屏幕录制（节点）}
+
+
+节点暴露 \texttt{screen.record}（mp4）。示例：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes screen record --node <idOrNameOrIp> --duration 10s --fps 10
+openclaw nodes screen record --node <idOrNameOrIp> --duration 10s --fps 10 --no-audio
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{screen.record} 需要节点应用处于前台。
+  \item Android 会在录制前显示系统屏幕捕获提示。
+  \item 屏幕录制被限制为 \texttt{<= 60s}。
+  \item \texttt{--no-audio} 禁用麦克风捕获（iOS/Android 支持；macOS 使用系统捕获音频）。
+  \item 当有多个屏幕可用时，使用 \texttt{--screen } 选择显示器。
+\end{itemize}
+
+
+\subsection{位置（节点）}
+
+
+当在设置中启用位置时，节点暴露 \texttt{location.get}。
+
+CLI 辅助工具：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes location get --node <idOrNameOrIp>
+openclaw nodes location get --node <idOrNameOrIp> --accuracy precise --max-age 15000 --location-timeout 10000
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 位置\textbf{默认关闭}。
+  \item "始终"需要系统权限；后台获取是尽力而为的。
+  \item 响应包括纬度/经度、精度（米）和时间戳。
+\end{itemize}
+
+
+\subsection{短信（Android 节点）}
+
+
+当用户授予 \textbf{SMS} 权限且设备支持电话功能时，Android 节点可以暴露 \texttt{sms.send}。
+
+低级调用：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node <idOrNameOrIp> --command sms.send --params '{"to":"+15555550123","message":"Hello from OpenClaw"}'
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 在能力被广播之前，必须在 Android 设备上接受权限提示。
+  \item 没有电话功能的纯 Wi-Fi 设备不会广播 \texttt{sms.send}。
+\end{itemize}
+
+
+\subsection{系统命令（节点主机 / mac 节点）}
+
+
+macOS 节点暴露 \texttt{system.run}、\texttt{system.notify} 和 \texttt{system.execApprovals.get/set}。
+无头节点主机暴露 \texttt{system.run}、\texttt{system.which} 和 \texttt{system.execApprovals.get/set}。
+
+示例：
+
+\begin{lstlisting}[language=bash]
+openclaw nodes run --node <idOrNameOrIp> -- echo "Hello from mac node"
+openclaw nodes notify --node <idOrNameOrIp> --title "Ping" --body "Gateway ready"
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item \texttt{system.run} 在负载中返回 stdout/stderr/退出码。
+  \item \texttt{system.notify} 遵守 macOS 应用上的通知权限状态。
+  \item \texttt{system.run} 支持 \texttt{--cwd}、\texttt{--env KEY=VAL}、\texttt{--command-timeout} 和 \texttt{--needs-screen-recording}。
+  \item \texttt{system.notify} 支持 \texttt{--priority } 和 \texttt{--delivery }。
+  \item macOS 节点会丢弃 \texttt{PATH} 覆盖；无头节点主机仅在 \texttt{PATH} 前置到节点主机 PATH 时才接受它。
+  \item 在 macOS 节点模式下，\texttt{system.run} 受 macOS 应用中的 exec 批准限制（设置 → Exec 批准）。
+\end{itemize}
+
+Ask/allowlist/full 的行为与无头节点主机相同；被拒绝的提示返回 \texttt{SYSTEM\_RUN\_DENIED}。
+\begin{itemize}
+  \item 在无头节点主机上，\texttt{system.run} 受 exec 批准限制（\texttt{\textasciitilde{}/.openclaw/exec-approvals.json}）。
+\end{itemize}
+
+
+\subsection{Exec 节点绑定}
+
+
+当有多个节点可用时，你可以将 exec 绑定到特定节点。
+这设置了 \texttt{exec host=node} 的默认节点（可以按智能体覆盖）。
+
+全局默认：
+
+\begin{lstlisting}[language=bash]
+openclaw config set tools.exec.node "node-id-or-name"
+\end{lstlisting}
+
+
+按智能体覆盖：
+
+\begin{lstlisting}[language=bash]
+openclaw config get agents.list
+openclaw config set agents.list[0].tools.exec.node "node-id-or-name"
+\end{lstlisting}
+
+
+取消设置以允许任何节点：
+
+\begin{lstlisting}[language=bash]
+openclaw config unset tools.exec.node
+openclaw config unset agents.list[0].tools.exec.node
+\end{lstlisting}
+
+
+\subsection{权限映射}
+
+
+节点可能在 \texttt{node.list} / \texttt{node.describe} 中包含 \texttt{permissions} 映射，按权限名称（例如 \texttt{screenRecording}、\texttt{accessibility}）键入，值为布尔值（\texttt{true} = 已授予）。
+
+\subsection{无头节点主机（跨平台）}
+
+
+OpenClaw 可以运行\textbf{无头节点主机}（无 UI），它连接到 Gateway 网关
+WebSocket 并暴露 \texttt{system.run} / \texttt{system.which}。这在 Linux/Windows
+上或在服务器旁运行最小节点时很有用。
+
+启动它：
+
+\begin{lstlisting}[language=bash]
+openclaw node run --host <gateway-host> --port 18789
+\end{lstlisting}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 仍然需要配对（Gateway 网关会显示节点批准提示）。
+  \item 节点主机将其节点 id、令牌、显示名称和 Gateway 网关连接信息存储在 \texttt{\textasciitilde{}/.openclaw/node.json} 中。
+  \item Exec 批准通过 \texttt{\textasciitilde{}/.openclaw/exec-approvals.json} 在本地执行
+\end{itemize}
+
+（参见 \href{/tools/exec-approvals}{Exec 批准}）。
+\begin{itemize}
+  \item 在 macOS 上，当配套应用 exec 主机可达时，无头节点主机优先使用它，
+\end{itemize}
+
+如果应用不可用则回退到本地执行。设置 \texttt{OPENCLAW\_NODE\_EXEC\_HOST=app} 要求
+使用应用，或设置 \texttt{OPENCLAW\_NODE\_EXEC\_FALLBACK=0} 禁用回退。
+\begin{itemize}
+  \item 当 Gateway 网关 WS 使用 TLS 时，添加 \texttt{--tls} / \texttt{--tls-fingerprint}。
+\end{itemize}
+
+
+\subsection{Mac 节点模式}
+
+
+\begin{itemize}
+  \item macOS 菜单栏应用作为节点连接到 Gateway 网关 WS 服务器（因此 \texttt{openclaw nodes …} 可以针对这台 Mac 工作）。
+  \item 在远程模式下，应用为 Gateway 网关端口打开 SSH 隧道并连接到 \texttt{localhost}。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: nodes/location-command.md ===
+\section{位置命令（节点）}
+
+
+\subsection{简要概述}
+
+
+\begin{itemize}
+  \item \texttt{location.get} 是一个节点命令（通过 \texttt{node.invoke}）。
+  \item 默认关闭。
+  \item 设置使用选择器：关闭 / 使用时 / 始终。
+  \item 单独的开关：精确位置。
+\end{itemize}
+
+
+\subsection{为什么用选择器（而不只是开关）}
+
+
+操作系统权限是多级的。我们可以在应用内暴露选择器，但操作系统仍然决定实际授权。
+
+\begin{itemize}
+  \item iOS/macOS：用户可以在系统提示/设置中选择\textbf{使用时}或\textbf{始终}。应用可以请求升级，但操作系统可能要求进入设置。
+  \item Android：后台位置是单独的权限；在 Android 10+ 上通常需要进入设置流程。
+  \item 精确位置是单独的授权（iOS 14+ "精确"，Android "精细" vs "粗略"）。
+\end{itemize}
+
+
+UI 中的选择器驱动我们请求的模式；实际授权存在于操作系统设置中。
+
+\subsection{设置模型}
+
+
+每个节点设备：
+
+\begin{itemize}
+  \item \texttt{location.enabledMode}：\texttt{off | whileUsing | always}
+  \item \texttt{location.preciseEnabled}：bool
+\end{itemize}
+
+
+UI 行为：
+
+\begin{itemize}
+  \item 选择 \texttt{whileUsing} 请求前台权限。
+  \item 选择 \texttt{always} 首先确保 \texttt{whileUsing}，然后请求后台（或在需要时将用户引导到设置）。
+  \item 如果操作系统拒绝请求的级别，回退到已授予的最高级别并显示状态。
+\end{itemize}
+
+
+\subsection{权限映射（node.permissions）}
+
+
+可选。macOS 节点通过权限映射报告 \texttt{location}；iOS/Android 可能省略它。
+
+\subsection{命令：location.get}
+
+
+通过 \texttt{node.invoke} 调用。
+
+参数（建议）：
+
+\begin{lstlisting}[language=json]
+{
+  "timeoutMs": 10000,
+  "maxAgeMs": 15000,
+  "desiredAccuracy": "coarse|balanced|precise"
+}
+\end{lstlisting}
+
+
+响应负载：
+
+\begin{lstlisting}[language=json]
+{
+  "lat": 48.20849,
+  "lon": 16.37208,
+  "accuracyMeters": 12.5,
+  "altitudeMeters": 182.0,
+  "speedMps": 0.0,
+  "headingDeg": 270.0,
+  "timestamp": "2026-01-03T12:34:56.000Z",
+  "isPrecise": true,
+  "source": "gps|wifi|cell|unknown"
+}
+\end{lstlisting}
+
+
+错误（稳定代码）：
+
+\begin{itemize}
+  \item \texttt{LOCATION\_DISABLED}：选择器已关闭。
+  \item \texttt{LOCATION\_PERMISSION\_REQUIRED}：缺少请求模式的权限。
+  \item \texttt{LOCATION\_BACKGROUND\_UNAVAILABLE}：应用在后台但只允许使用时。
+  \item \texttt{LOCATION\_TIMEOUT}：在时间内没有定位。
+  \item \texttt{LOCATION\_UNAVAILABLE}：系统故障/没有提供商。
+\end{itemize}
+
+
+\subsection{后台行为（未来）}
+
+
+目标：模型可以在节点处于后台时请求位置，但仅当：
+
+\begin{itemize}
+  \item 用户选择了\textbf{始终}。
+  \item 操作系统授予后台位置权限。
+  \item 应用被允许在后台运行以获取位置（iOS 后台模式/Android 前台服务或特殊许可）。
+\end{itemize}
+
+
+推送触发流程（未来）：
+
+\begin{enumerate}
+  \item Gateway 网关向节点发送推送（静默推送或 FCM 数据）。
+  \item 节点短暂唤醒并从设备请求位置。
+  \item 节点将负载转发给 Gateway 网关。
+\end{enumerate}
+
+
+说明：
+
+\begin{itemize}
+  \item iOS：需要始终权限 + 后台位置模式。静默推送可能被限流；预期会有间歇性失败。
+  \item Android：后台位置可能需要前台服务；否则预期会被拒绝。
+\end{itemize}
+
+
+\subsection{模型/工具集成}
+
+
+\begin{itemize}
+  \item 工具接口：\texttt{nodes} 工具添加 \texttt{location\_get} 操作（需要节点）。
+  \item CLI：\texttt{openclaw nodes location get --node }。
+  \item 智能体指南：仅在用户启用位置并理解范围时调用。
+\end{itemize}
+
+
+\subsection{UX 文案（建议）}
+
+
+\begin{itemize}
+  \item 关闭："位置共享已禁用。"
+  \item 使用时："仅当 OpenClaw 打开时。"
+  \item 始终："允许后台位置。需要系统权限。"
+  \item 精确："使用精确 GPS 位置。关闭以共享大致位置。"
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: nodes/media-understanding.md ===
+\section{媒体理解（入站）— 2026-01-17}
+
+
+OpenClaw 可以在回复流程运行之前\textbf{摘要入站媒体}（图片/音频/视频）。它会自动检测本地工具或提供商密钥是否可用，并且可以禁用或自定义。如果理解关闭，模型仍然会像往常一样接收原始文件/URL。
+
+\subsection{目标}
+
+
+\begin{itemize}
+  \item 可选：将入站媒体预先消化为短文本，以便更快路由 + 更好的命令解析。
+  \item 保留原始媒体传递给模型（始终）。
+  \item 支持\textbf{提供商 API} 和 \textbf{CLI 回退}。
+  \item 允许多个模型并按顺序回退（错误/大小/超时）。
+\end{itemize}
+
+
+\subsection{高层行为}
+
+
+\begin{enumerate}
+  \item 收集入站附件（\texttt{MediaPaths}、\texttt{MediaUrls}、\texttt{MediaTypes}）。
+  \item 对于每个启用的能力（图片/音频/视频），根据策略选择附件（默认：\textbf{第一个}）。
+  \item 选择第一个符合条件的模型条目（大小 + 能力 + 认证）。
+  \item 如果模型失败或媒体太大，\textbf{回退到下一个条目}。
+  \item 成功时：
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{Body} 变为 \texttt{[Image]}、\texttt{[Audio]} 或 \texttt{[Video]} 块。
+  \item 音频设置 \texttt{\{\{Transcript\}\}}；命令解析在有标题文本时使用标题文本，否则使用转录。
+  \item 标题作为 \texttt{User text:} 保留在块内。
+\end{itemize}
+
+
+如果理解失败或被禁用，\textbf{回复流程继续}使用原始正文 + 附件。
+
+\subsection{配置概述}
+
+
+\texttt{tools.media} 支持\textbf{共享模型}加上每能力覆盖：
+
+\begin{itemize}
+  \item \texttt{tools.media.models}：共享模型列表（使用 \texttt{capabilities} 来限定）。
+  \item \texttt{tools.media.image} / \texttt{tools.media.audio} / \texttt{tools.media.video}：
+  \item 默认值（\texttt{prompt}、\texttt{maxChars}、\texttt{maxBytes}、\texttt{timeoutSeconds}、\texttt{language}）
+  \item 提供商覆盖（\texttt{baseUrl}、\texttt{headers}、\texttt{providerOptions}）
+  \item 通过 \texttt{tools.media.audio.providerOptions.deepgram} 配置 Deepgram 音频选项
+  \item 可选的\textbf{每能力 \texttt{models} 列表}（优先于共享模型）
+  \item \texttt{attachments} 策略（\texttt{mode}、\texttt{maxAttachments}、\texttt{prefer}）
+  \item \texttt{scope}（可选的按渠道/聊天类型/会话键限定）
+  \item \texttt{tools.media.concurrency}：最大并发能力运行数（默认 \textbf{2}）。
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      models: [
+        /* 共享列表 */
+      ],
+      image: {
+        /* 可选覆盖 */
+      },
+      audio: {
+        /* 可选覆盖 */
+      },
+      video: {
+        /* 可选覆盖 */
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{模型条目}
+
+
+每个 \texttt{models[]} 条目可以是\textbf{提供商}或 \textbf{CLI}：
+
+\begin{lstlisting}[language=json]
+{
+  type: "provider", // 省略时默认
+  provider: "openai",
+  model: "gpt-5.2",
+  prompt: "Describe the image in <= 500 chars.",
+  maxChars: 500,
+  maxBytes: 10485760,
+  timeoutSeconds: 60,
+  capabilities: ["image"], // 可选，用于多模态条目
+  profile: "vision-profile",
+  preferredProfile: "vision-fallback",
+}
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=json]
+{
+  type: "cli",
+  command: "gemini",
+  args: [
+    "-m",
+    "gemini-3-flash",
+    "--allowed-tools",
+    "read_file",
+    "Read the media at {{MediaPath}} and describe it in <= {{MaxChars}} characters.",
+  ],
+  maxChars: 500,
+  maxBytes: 52428800,
+  timeoutSeconds: 120,
+  capabilities: ["video", "image"],
+}
+\end{lstlisting}
+
+
+CLI 模板还可以使用：
+
+\begin{itemize}
+  \item \texttt{\{\{MediaDir\}\}}（包含媒体文件的目录）
+  \item \texttt{\{\{OutputDir\}\}}（为本次运行创建的临时目录）
+  \item \texttt{\{\{OutputBase\}\}}（临时文件基础路径，无扩展名）
+\end{itemize}
+
+
+\subsection{默认值和限制}
+
+
+推荐默认值：
+
+\begin{itemize}
+  \item \texttt{maxChars}：图片/视频为 \textbf{500}（简短，适合命令）
+  \item \texttt{maxChars}：音频\textbf{不设置}（完整转录，除非你设置限制）
+  \item \texttt{maxBytes}：
+  \item 图片：\textbf{10MB}
+  \item 音频：\textbf{20MB}
+  \item 视频：\textbf{50MB}
+\end{itemize}
+
+
+规则：
+
+\begin{itemize}
+  \item 如果媒体超过 \texttt{maxBytes}，该模型被跳过，\textbf{尝试下一个模型}。
+  \item 如果模型返回超过 \texttt{maxChars}，输出被截断。
+  \item \texttt{prompt} 默认为简单的"Describe the \{media\}."加上 \texttt{maxChars} 指导（仅图片/视频）。
+  \item 如果 \texttt{.enabled: true} 但未配置模型，当提供商支持该能力时，OpenClaw 尝试\textbf{活动的回复模型}。
+\end{itemize}
+
+
+\subsubsection{自动检测媒体理解（默认）}
+
+
+如果 \texttt{tools.media..enabled} \textbf{未}设置为 \texttt{false} 且你没有配置模型，OpenClaw 按以下顺序自动检测并\textbf{在第一个可用选项处停止}：
+
+\begin{enumerate}
+  \item \textbf{本地 CLI}（仅音频；如果已安装）
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{sherpa-onnx-offline}（需要带有 encoder/decoder/joiner/tokens 的 \texttt{SHERPA\_ONNX\_MODEL\_DIR}）
+  \item \texttt{whisper-cli}（\texttt{whisper-cpp}；使用 \texttt{WHISPER\_CPP\_MODEL} 或捆绑的 tiny 模型）
+  \item \texttt{whisper}（Python CLI；自动下载模型）
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{Gemini CLI}（\texttt{gemini}）使用 \texttt{read\_many\_files}
+  \item \textbf{提供商密钥}
+\end{enumerate}
+
+\begin{itemize}
+  \item 音频：OpenAI → Groq → Deepgram → Google
+  \item 图片：OpenAI → Anthropic → Google → MiniMax
+  \item 视频：Google
+\end{itemize}
+
+
+要禁用自动检测，设置：
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: false,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+注意：二进制文件检测在 macOS/Linux/Windows 上是尽力而为的；确保 CLI 在 \texttt{PATH} 上（我们会展开 \texttt{\textasciitilde{}}），或设置带有完整命令路径的显式 CLI 模型。
+
+\subsection{能力（可选）}
+
+
+如果你设置了 \texttt{capabilities}，该条目仅对这些媒体类型运行。对于共享列表，OpenClaw 可以推断默认值：
+
+\begin{itemize}
+  \item \texttt{openai}、\texttt{anthropic}、\texttt{minimax}：\textbf{图片}
+  \item \texttt{google}（Gemini API）：\textbf{图片 + 音频 + 视频}
+  \item \texttt{groq}：\textbf{音频}
+  \item \texttt{deepgram}：\textbf{音频}
+\end{itemize}
+
+
+对于 CLI 条目，\textbf{显式设置 \texttt{capabilities}} 以避免意外匹配。如果你省略 \texttt{capabilities}，该条目对它出现的列表都符合条件。
+
+\subsection{提供商支持矩阵（OpenClaw 集成）}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+能力 & 提供商集成 & 说明 \\
+\hline
+图片 & OpenAI / Anthropic / Google / 其他通过 \texttt{pi-ai} & 注册表中任何支持图片的模型都可用。 \\
+\hline
+音频 & OpenAI、Groq、Deepgram、Google & 提供商转录（Whisper/Deepgram/Gemini）。 \\
+\hline
+视频 & Google（Gemini API） & 提供商视频理解。 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{推荐提供商}
+
+
+\textbf{图片}
+
+\begin{itemize}
+  \item 如果支持图片，优先使用你的活动模型。
+  \item 良好的默认值：\texttt{openai/gpt-5.2}、\texttt{anthropic/claude-opus-4-5}、\texttt{google/gemini-3-pro-preview}。
+\end{itemize}
+
+
+\textbf{音频}
+
+\begin{itemize}
+  \item \texttt{openai/gpt-4o-mini-transcribe}、\texttt{groq/whisper-large-v3-turbo} 或 \texttt{deepgram/nova-3}。
+  \item CLI 回退：\texttt{whisper-cli}（whisper-cpp）或 \texttt{whisper}。
+  \item Deepgram 设置：\href{/providers/deepgram}{Deepgram（音频转录）}。
+\end{itemize}
+
+
+\textbf{视频}
+
+\begin{itemize}
+  \item \texttt{google/gemini-3-flash-preview}（快速）、\texttt{google/gemini-3-pro-preview}（更丰富）。
+  \item CLI 回退：\texttt{gemini} CLI（支持对视频/音频使用 \texttt{read\_file}）。
+\end{itemize}
+
+
+\subsection{附件策略}
+
+
+每能力的 \texttt{attachments} 控制处理哪些附件：
+
+\begin{itemize}
+  \item \texttt{mode}：\texttt{first}（默认）或 \texttt{all}
+  \item \texttt{maxAttachments}：限制处理数量（默认 \textbf{1}）
+  \item \texttt{prefer}：\texttt{first}、\texttt{last}、\texttt{path}、\texttt{url}
+\end{itemize}
+
+
+当 \texttt{mode: "all"} 时，输出标记为 \texttt{[Image 1/2]}、\texttt{[Audio 2/2]} 等。
+
+\subsection{配置示例}
+
+
+\subsubsection{1) 共享模型列表 + 覆盖}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      models: [
+        { provider: "openai", model: "gpt-5.2", capabilities: ["image"] },
+        {
+          provider: "google",
+          model: "gemini-3-flash-preview",
+          capabilities: ["image", "audio", "video"],
+        },
+        {
+          type: "cli",
+          command: "gemini",
+          args: [
+            "-m",
+            "gemini-3-flash",
+            "--allowed-tools",
+            "read_file",
+            "Read the media at {{MediaPath}} and describe it in <= {{MaxChars}} characters.",
+          ],
+          capabilities: ["image", "video"],
+        },
+      ],
+      audio: {
+        attachments: { mode: "all", maxAttachments: 2 },
+      },
+      video: {
+        maxChars: 500,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{2) 仅音频 + 视频（图片关闭）}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [
+          { provider: "openai", model: "gpt-4o-mini-transcribe" },
+          {
+            type: "cli",
+            command: "whisper",
+            args: ["--model", "base", "{{MediaPath}}"],
+          },
+        ],
+      },
+      video: {
+        enabled: true,
+        maxChars: 500,
+        models: [
+          { provider: "google", model: "gemini-3-flash-preview" },
+          {
+            type: "cli",
+            command: "gemini",
+            args: [
+              "-m",
+              "gemini-3-flash",
+              "--allowed-tools",
+              "read_file",
+              "Read the media at {{MediaPath}} and describe it in <= {{MaxChars}} characters.",
+            ],
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{3) 可选图片理解}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      image: {
+        enabled: true,
+        maxBytes: 10485760,
+        maxChars: 500,
+        models: [
+          { provider: "openai", model: "gpt-5.2" },
+          { provider: "anthropic", model: "claude-opus-4-5" },
+          {
+            type: "cli",
+            command: "gemini",
+            args: [
+              "-m",
+              "gemini-3-flash",
+              "--allowed-tools",
+              "read_file",
+              "Read the media at {{MediaPath}} and describe it in <= {{MaxChars}} characters.",
+            ],
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{4) 多模态单条目（显式能力）}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      image: {
+        models: [
+          {
+            provider: "google",
+            model: "gemini-3-pro-preview",
+            capabilities: ["image", "video", "audio"],
+          },
+        ],
+      },
+      audio: {
+        models: [
+          {
+            provider: "google",
+            model: "gemini-3-pro-preview",
+            capabilities: ["image", "video", "audio"],
+          },
+        ],
+      },
+      video: {
+        models: [
+          {
+            provider: "google",
+            model: "gemini-3-pro-preview",
+            capabilities: ["image", "video", "audio"],
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{状态输出}
+
+
+当媒体理解运行时，\texttt{/status} 包含一行简短摘要：
+
+\begin{lstlisting}
+📎 Media: image ok (openai/gpt-5.2) · audio skipped (maxBytes)
+\end{lstlisting}
+
+
+这显示每能力的结果以及适用时选择的提供商/模型。
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 理解是\textbf{尽力而为}的。错误不会阻止回复。
+  \item 即使理解被禁用，附件仍然传递给模型。
+  \item 使用 \texttt{scope} 限制理解运行的位置（例如仅私信）。
+\end{itemize}
+
+
+\subsection{相关文档}
+
+
+\begin{itemize}
+  \item \href{/gateway/configuration}{配置}
+  \item \href{/nodes/images}{图片和媒体支持}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: nodes/talk.md ===
+\section{Talk 模式}
+
+
+Talk 模式是一个连续的语音对话循环：
+
+\begin{enumerate}
+  \item 监听语音
+  \item 将转录文本发送到模型（main 会话，chat.send）
+  \item 等待响应
+  \item 通过 ElevenLabs 朗读（流式播放）
+\end{enumerate}
+
+
+\subsection{行为（macOS）}
+
+
+\begin{itemize}
+  \item Talk 模式启用时显示\textbf{常驻悬浮窗}。
+  \item \textbf{监听 → 思考 → 朗读}阶段转换。
+  \item \textbf{短暂停顿}（静音窗口）后，当前转录文本被发送。
+  \item 回复被\textbf{写入 WebChat}（与打字相同）。
+  \item \textbf{语音中断}（默认开启）：如果用户在助手朗读时开始说话，我们会停止播放并记录中断时间戳供下一个提示使用。
+\end{itemize}
+
+
+\subsection{回复中的语音指令}
+
+
+助手可以在回复前添加\textbf{单行 JSON} 来控制语音：
+
+\begin{lstlisting}[language=json]
+{ "voice": "<voice-id>", "once": true }
+\end{lstlisting}
+
+
+规则：
+
+\begin{itemize}
+  \item 仅适用于第一个非空行。
+  \item 未知键会被忽略。
+  \item \texttt{once: true} 仅适用于当前回复。
+  \item 没有 \texttt{once} 时，该语音成为 Talk 模式的新默认值。
+  \item JSON 行在 TTS 播放前会被移除。
+\end{itemize}
+
+
+支持的键：
+
+\begin{itemize}
+  \item \texttt{voice} / \texttt{voice\_id} / \texttt{voiceId}
+  \item \texttt{model} / \texttt{model\_id} / \texttt{modelId}
+  \item \texttt{speed}、\texttt{rate}（WPM）、\texttt{stability}、\texttt{similarity}、\texttt{style}、\texttt{speakerBoost}
+  \item \texttt{seed}、\texttt{normalize}、\texttt{lang}、\texttt{output\_format}、\texttt{latency\_tier}
+  \item \texttt{once}
+\end{itemize}
+
+
+\subsection{配置（\textasciitilde{}/.openclaw/openclaw.json）}
+
+
+\begin{lstlisting}[language=json]
+{
+  talk: {
+    voiceId: "elevenlabs_voice_id",
+    modelId: "eleven_v3",
+    outputFormat: "mp3_44100_128",
+    apiKey: "elevenlabs_api_key",
+    interruptOnSpeech: true,
+  },
+}
+\end{lstlisting}
+
+
+默认值：
+
+\begin{itemize}
+  \item \texttt{interruptOnSpeech}：true
+  \item \texttt{voiceId}：回退到 \texttt{ELEVENLABS\_VOICE\_ID} / \texttt{SAG\_VOICE\_ID}（或当 API 密钥可用时使用第一个 ElevenLabs 语音）
+  \item \texttt{modelId}：未设置时默认为 \texttt{eleven\_v3}
+  \item \texttt{apiKey}：回退到 \texttt{ELEVENLABS\_API\_KEY}（或 Gateway 网关 shell profile（如果可用））
+  \item \texttt{outputFormat}：macOS/iOS 上默认为 \texttt{pcm\_44100}，Android 上默认为 \texttt{pcm\_24000}（设置 \texttt{mp3\_*} 以强制 MP3 流式传输）
+\end{itemize}
+
+
+\subsection{macOS UI}
+
+
+\begin{itemize}
+  \item 菜单栏切换：\textbf{Talk}
+  \item 配置标签页：\textbf{Talk Mode} 组（voice id + 中断开关）
+  \item 悬浮窗：
+  \item \textbf{监听}：云朵随麦克风电平脉动
+  \item \textbf{思考}：下沉动画
+  \item \textbf{朗读}：辐射圆环
+  \item 点击云朵：停止朗读
+  \item 点击 X：退出 Talk 模式
+\end{itemize}
+
+
+\subsection{注意事项}
+
+
+\begin{itemize}
+  \item 需要语音 + 麦克风权限。
+  \item 使用 \texttt{chat.send} 针对会话键 \texttt{main}。
+  \item TTS 使用带有 \texttt{ELEVENLABS\_API\_KEY} 的 ElevenLabs 流式 API，并在 macOS/iOS/Android 上进行增量播放以降低延迟。
+  \item \texttt{eleven\_v3} 的 \texttt{stability} 验证为 \texttt{0.0}、\texttt{0.5} 或 \texttt{1.0}；其他模型接受 \texttt{0..1}。
+  \item 设置时 \texttt{latency\_tier} 验证为 \texttt{0..4}。
+  \item Android 支持 \texttt{pcm\_16000}、\texttt{pcm\_22050}、\texttt{pcm\_24000} 和 \texttt{pcm\_44100} 输出格式，用于低延迟 AudioTrack 流式传输。
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: nodes/troubleshooting.md ===
+\section{节点故障排查}
+
+
+该页面是英文文档的中文占位版本，完整内容请先参考英文版：\href{/nodes/troubleshooting}{Node Troubleshooting}。
+
+
+\clearpage
+
+% === 源文件: nodes/voicewake.md ===
+\section{语音唤醒（全局唤醒词）}
+
+
+OpenClaw 将\textbf{唤醒词作为单一全局列表}，由 \textbf{Gateway 网关}拥有。
+
+\begin{itemize}
+  \item \textbf{没有}每节点的自定义唤醒词。
+  \item \textbf{任何节点/应用 UI 都可以编辑}列表；更改由 Gateway 网关持久化并广播给所有人。
+  \item 每个设备仍保留自己的\textbf{语音唤醒启用/禁用}开关（本地用户体验 + 权限不同）。
+\end{itemize}
+
+
+\subsection{存储（Gateway 网关主机）}
+
+
+唤醒词存储在 Gateway 网关机器上：
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/.openclaw/settings/voicewake.json}
+\end{itemize}
+
+
+结构：
+
+\begin{lstlisting}[language=json]
+{ "triggers": ["openclaw", "claude", "computer"], "updatedAtMs": 1730000000000 }
+\end{lstlisting}
+
+
+\subsection{协议}
+
+
+\subsubsection{方法}
+
+
+\begin{itemize}
+  \item \texttt{voicewake.get} → \texttt{\{ triggers: string[] \}}
+  \item \texttt{voicewake.set}，参数 \texttt{\{ triggers: string[] \}} → \texttt{\{ triggers: string[] \}}
+\end{itemize}
+
+
+注意事项：
+
+\begin{itemize}
+  \item 触发词会被规范化（修剪空格、删除空值）。空列表回退到默认值。
+  \item 为安全起见会强制执行限制（数量/长度上限）。
+\end{itemize}
+
+
+\subsubsection{事件}
+
+
+\begin{itemize}
+  \item \texttt{voicewake.changed} 载荷 \texttt{\{ triggers: string[] \}}
+\end{itemize}
+
+
+接收者：
+
+\begin{itemize}
+  \item 所有 WebSocket 客户端（macOS 应用、WebChat 等）
+  \item 所有已连接的节点（iOS/Android），以及节点连接时作为初始"当前状态"推送。
+\end{itemize}
+
+
+\subsection{客户端行为}
+
+
+\subsubsection{macOS 应用}
+
+
+\begin{itemize}
+  \item 使用全局列表来控制 \texttt{VoiceWakeRuntime} 触发器。
+  \item 在语音唤醒设置中编辑"触发词"会调用 \texttt{voicewake.set}，然后依赖广播保持其他客户端同步。
+\end{itemize}
+
+
+\subsubsection{iOS 节点}
+
+
+\begin{itemize}
+  \item 使用全局列表进行 \texttt{VoiceWakeManager} 触发检测。
+  \item 在设置中编辑唤醒词会调用 \texttt{voicewake.set}（通过 Gateway 网关 WS），同时保持本地唤醒词检测的响应性。
+\end{itemize}
+
+
+\subsubsection{Android 节点}
+
+
+\begin{itemize}
+  \item 在设置中暴露唤醒词编辑器。
+  \item 通过 Gateway 网关 WS 调用 \texttt{voicewake.set}，使编辑在所有地方同步。
+\end{itemize}
+
+
+
+\clearpage
