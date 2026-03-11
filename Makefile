@@ -1,7 +1,7 @@
 # OpenClaw 中文文档 — LaTeX 编译 Makefile
 # 使用 xelatex（ctex + xeCJK 需要 XeLaTeX 引擎）
 
-MAIN    = main
+MAIN    = openclaw-book-zh
 TEX     = xelatex
 FLAGS   = -interaction=nonstopmode -halt-on-error -file-line-error
 SOURCES = $(MAIN).tex $(wildcard chapters/*.tex)
