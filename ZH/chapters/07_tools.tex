@@ -5079,7 +5079,7 @@ metadata:
   {
     "openclaw":
       {
-        "emoji": "♊️",
+        "emoji": "♊",
         "requires": { "bins": ["gemini"] },
         "install":
           [
@@ -5206,7 +5206,7 @@ OpenClaw 在\textbf{会话开始时}对有资格的 Skills 进行快照，并在
 当 Skills 有资格时，OpenClaw 将可用 Skills 的紧凑 XML 列表注入到系统提示词中（通过 \texttt{pi-coding-agent} 中的 \texttt{formatSkillsForPrompt}）。成本是确定性的：
 
 \begin{itemize}
-  \item \textbf{基础开销（仅当 ≥1 个 Skills 时）：} 195 字符。
+  \item \textbf{基础开销（仅当 $\geq$1 个 Skills 时）：} 195 字符。
   \item \textbf{每个 Skills：} 97 字符 + XML 转义的 `\texttt{、}\texttt{ 和 }` 值的长度。
 \end{itemize}
 
@@ -5222,7 +5222,7 @@ total = 195 + Σ (97 + len(name_escaped) + len(description_escaped) + len(locati
 
 \begin{itemize}
   \item XML 转义将 \texttt{\& < > " '} 扩展为实体（\texttt{\&amp;}、\texttt{\&lt;} 等），增加长度。
-  \item Token 数量因模型分词器而异。粗略的 OpenAI 风格估计是 \textasciitilde{}4 字符/token，所以\textbf{每个 Skills 97 字符 ≈ 24 token} 加上你的实际字段长度。
+  \item Token 数量因模型分词器而异。粗略的 OpenAI 风格估计是 \textasciitilde{}4 字符/token，所以\textbf{每个 Skills 97 字符 $\approx$ 24 token} 加上你的实际字段长度。
 \end{itemize}
 
 

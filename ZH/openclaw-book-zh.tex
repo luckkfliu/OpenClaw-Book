@@ -4,8 +4,20 @@
 \usepackage[UTF8]{ctex}
 \usepackage{xeCJK}
 
+% === Emoji 支持 ===
+% 使用 Noto Emoji 字体（黑白版）渲染 emoji 符号。
+% 需要安装 Noto Emoji 字体：brew install --cask font-noto-emoji
+% 如需彩色 emoji，可切换到 LuaLaTeX + Noto Color Emoji / Apple Color Emoji。
+\usepackage{fontspec}
+\newfontfamily\emojifont{Noto Emoji}
+\newcommand{\emoji}[1]{{\emojifont #1}}
+
 % === 页面布局 ===
 \usepackage[margin=2.5cm,headheight=14.5pt]{geometry}
+
+% === 数学符号 ===
+\usepackage{amsmath}
+\usepackage{amssymb}
 
 % === 代码高亮 ===
 \usepackage{listings}

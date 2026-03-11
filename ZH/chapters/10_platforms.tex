@@ -24,7 +24,7 @@
 \subsection{连接操作手册}
 
 
-Android 节点应用 ⇄（mDNS/NSD + WebSocket）⇄ \textbf{Gateway 网关}
+Android 节点应用 $\rightleftarrows$（mDNS/NSD + WebSocket）$\rightleftarrows$ \textbf{Gateway 网关}
 
 Android 直接连接到 Gateway 网关 WebSocket（默认 \texttt{ws://:18789}）并使用 Gateway 网关拥有的配对。
 
@@ -56,7 +56,7 @@ openclaw gateway --port 18789 --verbose
 \end{itemize}
 
 
-对于仅 tailnet 设置（推荐用于维也纳 ⇄ 伦敦），将 Gateway 网关绑定到 tailnet IP：
+对于仅 tailnet 设置（推荐用于维也纳 $\rightleftarrows$ 伦敦），将 Gateway 网关绑定到 tailnet IP：
 
 \begin{itemize}
   \item 在 Gateway 网关主机的 \texttt{\textasciitilde{}/.openclaw/openclaw.json} 中设置 \texttt{gateway.bind: "tailnet"}。
@@ -76,7 +76,7 @@ dns-sd -B _openclaw-gw._tcp local.
 
 更多调试说明：\href{/gateway/bonjour}{Bonjour}。
 
-\paragraph{通过 unicast DNS-SD 的 Tailnet（维也纳 ⇄ 伦敦）发现}
+\paragraph{通过 unicast DNS-SD 的 Tailnet（维也纳 $\rightleftarrows$ 伦敦）发现}
 
 
 Android NSD/mDNS 发现无法跨网络。如果你的 Android 节点和 Gateway 网关在不同网络但通过 Tailscale 连接，请改用 Wide-Area Bonjour / unicast DNS-SD：
@@ -1572,12 +1572,12 @@ sudo install -m 644 -o root -g wheel /tmp/bot.molt.plist /Library/Preferences/Lo
 
 
 \begin{itemize}
-  \item \texttt{exec} → 💻
-  \item \texttt{read} → 📄
-  \item \texttt{write} → ✍️
-  \item \texttt{edit} → 📝
-  \item \texttt{attach} → 📎
-  \item 默认 → 🛠️
+  \item \texttt{exec} → \emoji{💻}
+  \item \texttt{read} → \emoji{📄}
+  \item \texttt{write} → \emoji{✍}
+  \item \texttt{edit} → \emoji{📝}
+  \item \texttt{attach} → \emoji{📎}
+  \item 默认 → \emoji{🛠}
 \end{itemize}
 
 
@@ -1622,7 +1622,7 @@ sudo install -m 644 -o root -g wheel /tmp/bot.molt.plist /Library/Preferences/Lo
 
 
 \begin{itemize}
-  \item 设置 ▸ 调试 ▸ "图标覆盖" 选择器：
+  \item 设置 $\triangleright$ 调试 $\triangleright$ "图标覆盖" 选择器：
   \item \texttt{系统（自动）}（默认）
   \item \texttt{工作中：main}（按工具类型）
   \item \texttt{工作中：other}（按工具类型）
@@ -1864,7 +1864,7 @@ SPARKLE_PRIVATE_KEY_FILE=/path/to/ed25519-private-key scripts/make_appcast.sh di
 \clearpage
 
 % === 源文件: platforms/mac/remote.md ===
-\section{远程 OpenClaw（macOS ⇄ 远程主机）}
+\section{远程 OpenClaw（macOS $\rightleftarrows$ 远程主机）}
 
 
 此流程让 macOS 应用作为运行在另一台主机（桌面/服务器）上的 OpenClaw Gateway 网关的完整远程控制。这是应用的 \textbf{Remote over SSH}（远程运行）功能。所有功能——健康检查、语音唤醒转发和 Web Chat——都重用来自 \_Settings → General\_ 的相同远程 SSH 配置。
@@ -3140,17 +3140,17 @@ tar -czvf openclaw-backup.tar.gz ~/.openclaw ~/.openclaw/workspace
 \hline
 Pi 型号 & 内存 & 是否可用？ & 说明 \\
 \hline
-\textbf{Pi 5} & 4GB/8GB & ✅ 最佳 & 最快，推荐 \\
+\textbf{Pi 5} & 4GB/8GB & \emoji{✅} 最佳 & 最快，推荐 \\
 \hline
-\textbf{Pi 4} & 4GB & ✅ 良好 & 大多数用户的最佳选择 \\
+\textbf{Pi 4} & 4GB & \emoji{✅} 良好 & 大多数用户的最佳选择 \\
 \hline
-\textbf{Pi 4} & 2GB & ✅ 可以 & 可用，添加交换空间 \\
+\textbf{Pi 4} & 2GB & \emoji{✅} 可以 & 可用，添加交换空间 \\
 \hline
-\textbf{Pi 4} & 1GB & ⚠️ 紧张 & 使用交换空间可行，最小配置 \\
+\textbf{Pi 4} & 1GB & \emoji{⚠} 紧张 & 使用交换空间可行，最小配置 \\
 \hline
-\textbf{Pi 3B+} & 1GB & ⚠️ 慢 & 可用但较慢 \\
+\textbf{Pi 3B+} & 1GB & \emoji{⚠} 慢 & 可用但较慢 \\
 \hline
-\textbf{Pi Zero 2 W} & 512MB & ❌ & 不推荐 \\
+\textbf{Pi Zero 2 W} & 512MB & \emoji{❌} & 不推荐 \\
 \hline
 \end{tabular}
 \end{table}
@@ -3180,7 +3180,7 @@ Pi 型号 & 内存 & 是否可用？ & 说明 \\
 \begin{enumerate}
   \item 下载 \href{https://www.raspberrypi.com/software/}{Raspberry Pi Imager}
   \item 选择系统：\textbf{Raspberry Pi OS Lite (64-bit)}
-  \item 点击齿轮图标（⚙️）预配置：
+  \item 点击齿轮图标（\emoji{⚙}）预配置：
 \end{enumerate}
 
 \begin{itemize}
@@ -3406,15 +3406,15 @@ htop
 \hline
 工具 & ARM64 状态 & 说明 \\
 \hline
-Node.js & ✅ & 运行良好 \\
+Node.js & \emoji{✅} & 运行良好 \\
 \hline
-WhatsApp (Baileys) & ✅ & 纯 JS，无问题 \\
+WhatsApp (Baileys) & \emoji{✅} & 纯 JS，无问题 \\
 \hline
-Telegram & ✅ & 纯 JS，无问题 \\
+Telegram & \emoji{✅} & 纯 JS，无问题 \\
 \hline
-gog (Gmail CLI) & ⚠️ & 检查是否有 ARM 版本 \\
+gog (Gmail CLI) & \emoji{⚠} & 检查是否有 ARM 版本 \\
 \hline
-Chromium (browser) & ✅ & \texttt{sudo apt install chromium-browser} \\
+Chromium (browser) & \emoji{✅} & \texttt{sudo apt install chromium-browser} \\
 \hline
 \end{tabular}
 \end{table}
