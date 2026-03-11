@@ -13,7 +13,7 @@
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{|l|l|}
+\begin{tabular}{|l|p{0.7\textwidth}|}
 \hline
 项目 & 值 \\
 \hline
@@ -175,7 +175,8 @@ openclaw config set gateway.mode "local"
   "defaults": {
     "model": "<provider>/Kimi-K2.5"
   },
-  "gateway":    "mode": "local"
+  "gateway": {
+    "mode": "local"
   }
 }
 \end{lstlisting}
@@ -186,7 +187,7 @@ openclaw config set gateway.mode "local"
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{|l|l|}
+\begin{tabular}{|l|p{0.7\textwidth}|}
 \hline
 字段 & 说明 \\
 \hline
@@ -334,7 +335,7 @@ openclaw agent --agent main --session-id test "你好"
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{|l|l|}
+\begin{tabular}{|l|p{0.7\textwidth}|}
 \hline
 字段 & 说明 \\
 \hline
@@ -901,17 +902,23 @@ npx clawhub
 
 安装后的文件变化：
 
-\begin{lstlisting}
-workspace/
-+-- .clawhub/
-|   +-- lock.json              # <- 新增/更新：记录已安装 Skill 版本
-+-- skills/
-    +-- <skill-name>/          # <- 新增：Skill 目录
-        +-- .clawhub/origin.json   # 安装来源追踪
-        +-- _meta.json             # 作者、版本元数据
-        +-- SKILL.md               # Skill 定义
-        +-- scripts/               # 附带脚本（如有）
-\end{lstlisting}
+% [Auto-converted from ASCII art to TikZ]
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+  \node[dirtree] {
+    workspace/\\
+    +-- .clawhub/\\
+    |   +-- lock.json              \# <- 新增/更新：记录已安装 Skill 版本\\
+    +-- skills/\\
+    +-- <skill-name>/          \# <- 新增：Skill 目录\\
+    +-- .clawhub/origin.json   \# 安装来源追踪\\
+    +-- \_meta.json             \# 作者、版本元数据\\
+    +-- SKILL.md               \# Skill 定义\\
+    +-- scripts/               \# 附带脚本（如有）\\
+  };
+\end{tikzpicture}
+\end{figure}
 
 \begin{quote}
 通过 ClawHub 安装的 Skills 位于 \texttt{workspace/skills/} 下（工作空间级，优先级最高），并通过 \texttt{.clawhub/lock.json} 锁定版本。
@@ -939,7 +946,7 @@ openclaw plugins install some-plugin --pin
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{|l|l|}
+\begin{tabular}{|l|p{0.7\textwidth}|}
 \hline
 命令 & 说明 \\
 \hline
@@ -985,7 +992,7 @@ mkdir -p ~/.openclaw/workspace/skills/my-skill
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{|l|l|}
+\begin{tabular}{|l|p{0.7\textwidth}|}
 \hline
 Skill & 功能 \\
 \hline
@@ -1044,13 +1051,19 @@ AI/模型 & \texttt{gemini}, \texttt{openai-image-gen}, \texttt{openai-whisper},
 \subsection{层级结构}
 
 
-\begin{lstlisting}
-OpenClaw 实例
-+-- Agent（智能体）
-    +-- Session 1（会话1）
-    +-- Session 2（会话2）
-    +-- Session N（会话N）
-\end{lstlisting}
+% [Auto-converted from ASCII art to TikZ]
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+  \node[dirtree] {
+    OpenClaw 实例\\
+    +-- Agent（智能体）\\
+    +-- Session 1（会话1）\\
+    +-- Session 2（会话2）\\
+    +-- Session N（会话N）\\
+  };
+\end{tikzpicture}
+\end{figure}
 
 \textbf{核心概念}：
 
@@ -1147,7 +1160,7 @@ echo '{}' > ~/.openclaw/agents/main/sessions/sessions.json
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{|l|l|}
+\begin{tabular}{|l|p{0.7\textwidth}|}
 \hline
 参数 & 说明 \\
 \hline

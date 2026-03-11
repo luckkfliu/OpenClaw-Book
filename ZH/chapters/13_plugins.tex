@@ -558,3 +558,69 @@ openclaw directory peers list --channel zalouser --query "name"
 
 
 \clearpage
+% === 源文件: plugins/community.md ===
+\section{Community plugins}
+
+
+This page tracks high-quality \textbf{community-maintained plugins} for OpenClaw.
+
+We accept PRs that add community plugins here when they meet the quality bar.
+
+\subsection{Required for listing}
+
+
+\begin{itemize}
+  \item Plugin package is published on npmjs (installable via \texttt{openclaw plugins install }).
+  \item Source code is hosted on GitHub (public repository).
+  \item Repository includes setup/use docs and an issue tracker.
+  \item Plugin has a clear maintenance signal (active maintainer, recent updates, or responsive issue handling).
+\end{itemize}
+
+
+\subsection{How to submit}
+
+
+Open a PR that adds your plugin to this page with:
+
+\begin{itemize}
+  \item Plugin name
+  \item npm package name
+  \item GitHub repository URL
+  \item One-line description
+  \item Install command
+\end{itemize}
+
+
+\subsection{Review bar}
+
+
+We prefer plugins that are useful, documented, and safe to operate.
+Low-effort wrappers, unclear ownership, or unmaintained packages may be declined.
+
+\subsection{Candidate format}
+
+
+Use this format when adding entries:
+
+\begin{itemize}
+  \item \textbf{Plugin Name} — short description
+\end{itemize}
+
+npm: \texttt{@scope/package}
+repo: \texttt{https://github.com/org/repo}
+install: \texttt{openclaw plugins install @scope/package}
+
+\subsection{Listed plugins}
+
+
+\begin{itemize}
+  \item \textbf{WeChat} — Connect OpenClaw to WeChat personal accounts via WeChatPadPro (iPad protocol). Supports text, image, and file exchange with keyword-triggered conversations.
+\end{itemize}
+
+npm: \texttt{@icesword760/openclaw-wechat}
+repo: \texttt{https://github.com/icesword0760/openclaw-wechat}
+install: \texttt{openclaw plugins install @icesword760/openclaw-wechat}
+
+
+\clearpage
+

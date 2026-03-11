@@ -1,0 +1,110 @@
+\chapter{Diagnostics}
+
+% === Source file: diagnostics/flags.md ===
+\section{Diagnostics Flags}
+
+
+Diagnostics flags let you enable targeted debug logs without turning on verbose logging everywhere. Flags are opt-in and have no effect unless a subsystem checks them.
+
+\subsection{How it works}
+
+
+\begin{itemize}
+  \item Flags are strings (case-insensitive).
+  \item You can enable flags in config or via an env override.
+  \item Wildcards are supported:
+  \item \texttt{telegram.*} matches \texttt{telegram.http}
+  \item \texttt{*} enables all flags
+\end{itemize}
+
+
+\subsection{Enable via config}
+
+
+\begin{lstlisting}[language=json]
+{
+  "diagnostics": {
+    "flags": ["telegram.http"]
+  }
+}
+\end{lstlisting}
+
+
+Multiple flags:
+
+\begin{lstlisting}[language=json]
+{
+  "diagnostics": {
+    "flags": ["telegram.http", "gateway.*"]
+  }
+}
+\end{lstlisting}
+
+
+Restart the gateway after changing flags.
+
+\subsection{Env override (one-off)}
+
+
+\begin{lstlisting}[language=bash]
+OPENCLAW_DIAGNOSTICS=telegram.http,telegram.payload
+\end{lstlisting}
+
+
+Disable all flags:
+
+\begin{lstlisting}[language=bash]
+OPENCLAW_DIAGNOSTICS=0
+\end{lstlisting}
+
+
+\subsection{Where logs go}
+
+
+Flags emit logs into the standard diagnostics log file. By default:
+
+\begin{lstlisting}
+/tmp/openclaw/openclaw-YYYY-MM-DD.log
+\end{lstlisting}
+
+
+If you set \texttt{logging.file}, use that path instead. Logs are JSONL (one JSON object per line). Redaction still applies based on \texttt{logging.redactSensitive}.
+
+\subsection{Extract logs}
+
+
+Pick the latest log file:
+
+\begin{lstlisting}[language=bash]
+ls -t /tmp/openclaw/openclaw-*.log | head -n 1
+\end{lstlisting}
+
+
+Filter for Telegram HTTP diagnostics:
+
+\begin{lstlisting}[language=bash]
+rg "telegram http error" /tmp/openclaw/openclaw-*.log
+\end{lstlisting}
+
+
+Or tail while reproducing:
+
+\begin{lstlisting}[language=bash]
+tail -f /tmp/openclaw/openclaw-$(date +%F).log | rg "telegram http error"
+\end{lstlisting}
+
+
+For remote gateways, you can also use \texttt{openclaw logs --follow} (see \href{/cli/logs}{/cli/logs}).
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item If \texttt{logging.level} is set higher than \texttt{warn}, these logs may be suppressed. Default \texttt{info} is fine.
+  \item Flags are safe to leave enabled; they only affect log volume for the specific subsystem.
+  \item Use \href{/logging}{/logging} to change log destinations, levels, and redaction.
+\end{itemize}
+
+
+
+\clearpage

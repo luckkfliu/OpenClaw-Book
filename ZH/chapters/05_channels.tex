@@ -10146,3 +10146,457 @@ openclaw directory groups list --channel zalouser --query "work"
 
 
 \clearpage
+\section{IRC}
+% === 源文件: channels/irc.md
+
+% === 源文件: channels/irc.md ===
+Use IRC when you want OpenClaw in classic channels (\texttt{\#room}) and direct messages.
+IRC ships as an extension plugin, but it is configured in the main config under \texttt{channels.irc}.
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Enable IRC config in \texttt{\textasciitilde{}/.openclaw/openclaw.json}.
+  \item Set at least:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+{
+  "channels": {
+    "irc": {
+      "enabled": true,
+      "host": "irc.libera.chat",
+      "port": 6697,
+      "tls": true,
+      "nick": "openclaw-bot",
+      "channels": ["#openclaw"]
+    }
+  }
+}
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Start/restart gateway:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway run
+\end{lstlisting}
+
+
+\subsection{Security defaults}
+
+
+\begin{itemize}
+  \item \texttt{channels.irc.dmPolicy} defaults to \texttt{"pairing"}.
+  \item \texttt{channels.irc.groupPolicy} defaults to \texttt{"allowlist"}.
+  \item With \texttt{groupPolicy="allowlist"}, set \texttt{channels.irc.groups} to define allowed channels.
+  \item Use TLS (\texttt{channels.irc.tls=true}) unless you intentionally accept plaintext transport.
+\end{itemize}
+
+
+\subsection{Access control}
+
+
+There are two separate “gates” for IRC channels:
+
+\begin{enumerate}
+  \item \textbf{Channel access} (\texttt{groupPolicy} + \texttt{groups}): whether the bot accepts messages from a channel at all.
+  \item \textbf{Sender access} (\texttt{groupAllowFrom} / per-channel \texttt{groups["\#channel"].allowFrom}): who is allowed to trigger the bot inside that channel.
+\end{enumerate}
+
+
+Config keys:
+
+\begin{itemize}
+  \item DM allowlist (DM sender access): \texttt{channels.irc.allowFrom}
+  \item Group sender allowlist (channel sender access): \texttt{channels.irc.groupAllowFrom}
+  \item Per-channel controls (channel + sender + mention rules): \texttt{channels.irc.groups["\#channel"]}
+  \item \texttt{channels.irc.groupPolicy="open"} allows unconfigured channels (\textbf{still mention-gated by default})
+\end{itemize}
+
+
+Allowlist entries should use stable sender identities (\texttt{nick!user@host}).
+Bare nick matching is mutable and only enabled when \texttt{channels.irc.dangerouslyAllowNameMatching: true}.
+
+\subsubsection{Common gotcha: allowFrom is for DMs, not channels}
+
+
+If you see logs like:
+
+\begin{itemize}
+  \item \texttt{irc: drop group sender alice!ident@host (policy=allowlist)}
+\end{itemize}
+
+
+…it means the sender wasn’t allowed for \textbf{group/channel} messages. Fix it by either:
+
+\begin{itemize}
+  \item setting \texttt{channels.irc.groupAllowFrom} (global for all channels), or
+  \item setting per-channel sender allowlists: \texttt{channels.irc.groups["\#channel"].allowFrom}
+\end{itemize}
+
+
+Example (allow anyone in \texttt{\#tuirc-dev} to talk to the bot):
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    irc: {
+      groupPolicy: "allowlist",
+      groups: {
+        "#tuirc-dev": { allowFrom: ["*"] },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Reply triggering (mentions)}
+
+
+Even if a channel is allowed (via \texttt{groupPolicy} + \texttt{groups}) and the sender is allowed, OpenClaw defaults to \textbf{mention-gating} in group contexts.
+
+That means you may see logs like \texttt{drop channel … (missing-mention)} unless the message includes a mention pattern that matches the bot.
+
+To make the bot reply in an IRC channel \textbf{without needing a mention}, disable mention gating for that channel:
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    irc: {
+      groupPolicy: "allowlist",
+      groups: {
+        "#tuirc-dev": {
+          requireMention: false,
+          allowFrom: ["*"],
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Or to allow \textbf{all} IRC channels (no per-channel allowlist) and still reply without mentions:
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    irc: {
+      groupPolicy: "open",
+      groups: {
+        "*": { requireMention: false, allowFrom: ["*"] },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Security note (recommended for public channels)}
+
+
+If you allow \texttt{allowFrom: ["*"]} in a public channel, anyone can prompt the bot.
+To reduce risk, restrict tools for that channel.
+
+\subsubsection{Same tools for everyone in the channel}
+
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    irc: {
+      groups: {
+        "#tuirc-dev": {
+          allowFrom: ["*"],
+          tools: {
+            deny: ["group:runtime", "group:fs", "gateway", "nodes", "cron", "browser"],
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Different tools per sender (owner gets more power)}
+
+
+Use \texttt{toolsBySender} to apply a stricter policy to \texttt{"*"} and a looser one to your nick:
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    irc: {
+      groups: {
+        "#tuirc-dev": {
+          allowFrom: ["*"],
+          toolsBySender: {
+            "*": {
+              deny: ["group:runtime", "group:fs", "gateway", "nodes", "cron", "browser"],
+            },
+            "id:eigen": {
+              deny: ["gateway", "nodes", "cron"],
+            },
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{toolsBySender} keys should use \texttt{id:} for IRC sender identity values:
+\end{itemize}
+
+\texttt{id:eigen} or \texttt{id:eigen!\textasciitilde{}eigen@174.127.248.171} for stronger matching.
+\begin{itemize}
+  \item Legacy unprefixed keys are still accepted and matched as \texttt{id:} only.
+  \item The first matching sender policy wins; \texttt{"*"} is the wildcard fallback.
+\end{itemize}
+
+
+For more on group access vs mention-gating (and how they interact), see: \href{/channels/groups}{/channels/groups}.
+
+\subsection{NickServ}
+
+
+To identify with NickServ after connect:
+
+\begin{lstlisting}[language=json]
+{
+  "channels": {
+    "irc": {
+      "nickserv": {
+        "enabled": true,
+        "service": "NickServ",
+        "password": "your-nickserv-password"
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+Optional one-time registration on connect:
+
+\begin{lstlisting}[language=json]
+{
+  "channels": {
+    "irc": {
+      "nickserv": {
+        "register": true,
+        "registerEmail": "bot@example.com"
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+Disable \texttt{register} after the nick is registered to avoid repeated REGISTER attempts.
+
+\subsection{Environment variables}
+
+
+Default account supports:
+
+\begin{itemize}
+  \item \texttt{IRC\_HOST}
+  \item \texttt{IRC\_PORT}
+  \item \texttt{IRC\_TLS}
+  \item \texttt{IRC\_NICK}
+  \item \texttt{IRC\_USERNAME}
+  \item \texttt{IRC\_REALNAME}
+  \item \texttt{IRC\_PASSWORD}
+  \item \texttt{IRC\_CHANNELS} (comma-separated)
+  \item \texttt{IRC\_NICKSERV\_PASSWORD}
+  \item \texttt{IRC\_NICKSERV\_REGISTER\_EMAIL}
+\end{itemize}
+
+
+\subsection{Troubleshooting}
+
+
+\begin{itemize}
+  \item If the bot connects but never replies in channels, verify \texttt{channels.irc.groups} \textbf{and} whether mention-gating is dropping messages (\texttt{missing-mention}). If you want it to reply without pings, set \texttt{requireMention:false} for the channel.
+  \item If login fails, verify nick availability and server password.
+  \item If TLS fails on a custom network, verify host/port and certificate setup.
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: channels/synology-chat.md ===
+\section{Synology Chat (plugin)}
+
+
+Status: supported via plugin as a direct-message channel using Synology Chat webhooks.
+The plugin accepts inbound messages from Synology Chat outgoing webhooks and sends replies
+through a Synology Chat incoming webhook.
+
+\subsection{Plugin required}
+
+
+Synology Chat is plugin-based and not part of the default core channel install.
+
+Install from a local checkout:
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install ./extensions/synology-chat
+\end{lstlisting}
+
+
+Details: \href{/tools/plugin}{Plugins}
+
+\subsection{Quick setup}
+
+
+\begin{enumerate}
+  \item Install and enable the Synology Chat plugin.
+  \item In Synology Chat integrations:
+\end{enumerate}
+
+\begin{itemize}
+  \item Create an incoming webhook and copy its URL.
+  \item Create an outgoing webhook with your secret token.
+\end{itemize}
+
+\begin{enumerate}
+  \item Point the outgoing webhook URL to your OpenClaw gateway:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{https://gateway-host/webhook/synology} by default.
+  \item Or your custom \texttt{channels.synology-chat.webhookPath}.
+\end{itemize}
+
+\begin{enumerate}
+  \item Configure \texttt{channels.synology-chat} in OpenClaw.
+  \item Restart gateway and send a DM to the Synology Chat bot.
+\end{enumerate}
+
+
+Minimal config:
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    "synology-chat": {
+      enabled: true,
+      token: "synology-outgoing-token",
+      incomingUrl: "https://nas.example.com/webapi/entry.cgi?api=SYNO.Chat.External&method=incoming&version=2&token=...",
+      webhookPath: "/webhook/synology",
+      dmPolicy: "allowlist",
+      allowedUserIds: ["123456"],
+      rateLimitPerMinute: 30,
+      allowInsecureSsl: false,
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Environment variables}
+
+
+For the default account, you can use env vars:
+
+\begin{itemize}
+  \item \texttt{SYNOLOGY\_CHAT\_TOKEN}
+  \item \texttt{SYNOLOGY\_CHAT\_INCOMING\_URL}
+  \item \texttt{SYNOLOGY\_NAS\_HOST}
+  \item \texttt{SYNOLOGY\_ALLOWED\_USER\_IDS} (comma-separated)
+  \item \texttt{SYNOLOGY\_RATE\_LIMIT}
+  \item \texttt{OPENCLAW\_BOT\_NAME}
+\end{itemize}
+
+
+Config values override env vars.
+
+\subsection{DM policy and access control}
+
+
+\begin{itemize}
+  \item \texttt{dmPolicy: "allowlist"} is the recommended default.
+  \item \texttt{allowedUserIds} accepts a list (or comma-separated string) of Synology user IDs.
+  \item In \texttt{allowlist} mode, an empty \texttt{allowedUserIds} list is treated as misconfiguration and the webhook route will not start (use \texttt{dmPolicy: "open"} for allow-all).
+  \item \texttt{dmPolicy: "open"} allows any sender.
+  \item \texttt{dmPolicy: "disabled"} blocks DMs.
+  \item Pairing approvals work with:
+  \item \texttt{openclaw pairing list synology-chat}
+  \item \texttt{openclaw pairing approve synology-chat }
+\end{itemize}
+
+
+\subsection{Outbound delivery}
+
+
+Use numeric Synology Chat user IDs as targets.
+
+Examples:
+
+\begin{lstlisting}[language=bash]
+openclaw message send --channel synology-chat --target 123456 --text "Hello from OpenClaw"
+openclaw message send --channel synology-chat --target synology-chat:123456 --text "Hello again"
+\end{lstlisting}
+
+
+Media sends are supported by URL-based file delivery.
+
+\subsection{Multi-account}
+
+
+Multiple Synology Chat accounts are supported under \texttt{channels.synology-chat.accounts}.
+Each account can override token, incoming URL, webhook path, DM policy, and limits.
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    "synology-chat": {
+      enabled: true,
+      accounts: {
+        default: {
+          token: "token-a",
+          incomingUrl: "https://nas-a.example.com/...token=...",
+        },
+        alerts: {
+          token: "token-b",
+          incomingUrl: "https://nas-b.example.com/...token=...",
+          webhookPath: "/webhook/synology-alerts",
+          dmPolicy: "allowlist",
+          allowedUserIds: ["987654"],
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Security notes}
+
+
+\begin{itemize}
+  \item Keep \texttt{token} secret and rotate it if leaked.
+  \item Keep \texttt{allowInsecureSsl: false} unless you explicitly trust a self-signed local NAS cert.
+  \item Inbound webhook requests are token-verified and rate-limited per sender.
+  \item Prefer \texttt{dmPolicy: "allowlist"} for production.
+\end{itemize}
+
+
+
+\clearpage
+

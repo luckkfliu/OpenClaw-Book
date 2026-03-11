@@ -110,6 +110,50 @@
     pdfencoding=auto,
 }
 
+% === TikZ 图表 ===
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc, decorations.pathreplacing, shadows}
+
+% --- Architecture layer box style ---
+\tikzstyle{layerbox} = [draw=blue!60, fill=blue!5, very thick, rounded corners=6pt,
+    minimum width=16cm, minimum height=1.8cm, font=\bfseries\large,
+    drop shadow={shadow xshift=0.5ex, shadow yshift=-0.5ex, opacity=0.3}]
+\tikzstyle{component} = [draw=blue!40, fill=white, rounded corners=3pt,
+    minimum width=2.2cm, minimum height=0.9cm, font=\small, align=center,
+    drop shadow={shadow xshift=0.3ex, shadow yshift=-0.3ex, opacity=0.25}]
+\tikzstyle{component-wide} = [component, minimum width=3.2cm]
+\tikzstyle{component-star} = [component, fill=yellow!15, draw=orange!60]
+
+% --- Flow diagram styles ---
+\tikzstyle{flowstep} = [draw=teal!60, fill=teal!8, rounded corners=4pt,
+    minimum width=\textwidth, minimum height=0.8cm, font=\footnotesize, align=left,
+    text width=0.93\textwidth]
+\tikzstyle{flowstep-wide} = [flowstep]
+\tikzstyle{flowarrow} = [-{Stealth[length=3mm]}, thick, draw=teal!60]
+
+% --- Sequence diagram styles ---
+\tikzstyle{seqactor} = [draw=purple!60, fill=purple!8, rounded corners=3pt,
+    minimum width=2.5cm, minimum height=0.8cm, font=\bfseries\small]
+\tikzstyle{seqmsg} = [-{Stealth[length=2.5mm]}, thick, draw=purple!50]
+\tikzstyle{seqmsg-rev} = [{Stealth[length=2.5mm]}-, thick, draw=purple!50]
+
+% --- Directory tree styles ---
+\tikzstyle{dirtree} = [draw=gray!40, fill=gray!3, rounded corners=4pt,
+    font=\ttfamily\scriptsize, align=left, text width=0.93\textwidth,
+    inner sep=8pt]
+
+% --- Memory / hierarchy box styles ---
+\tikzstyle{membox} = [draw=violet!50, fill=violet!5, rounded corners=4pt,
+    minimum height=0.8cm, font=\footnotesize, align=left,
+    text width=0.93\textwidth]
+
+% --- Color definitions for diagrams ---
+\definecolor{tierblue}{RGB}{59, 130, 246}
+\definecolor{tierteal}{RGB}{20, 184, 166}
+\definecolor{tierpurple}{RGB}{139, 92, 246}
+\definecolor{tierorange}{RGB}{249, 115, 22}
+\definecolor{tiergreen}{RGB}{34, 197, 94}
+
 % === 其他包 ===
 \usepackage{graphicx}
 \usepackage{longtable}
@@ -118,12 +162,13 @@
 \usepackage{fancyhdr}
 \usepackage{titlesec}
 
+
 % === 页眉页脚 ===
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\leftmark}
 \fancyhead[R]{\thepage}
-\fancyfoot[C]{OpenClaw 中文文档}
+\fancyfoot[C]{OpenClaw 快速上手指南（精简版）}
 
 % === 标题格式 ===
 \titleformat{\chapter}[display]
@@ -133,11 +178,11 @@
 % === 文档信息 ===
 \title{
     \vspace{2cm}
-    {\Huge\textbf{OpenClaw 中文文档}} \\
+    {\Huge\textbf{OpenClaw 快速上手指南}} \\
     \vspace{0.5cm}
-    {\Large AI 智能体 Gateway 网关} \\
+    {\Large 精简版 · 10 章掌握核心概念与关键配置} \\
     \vspace{0.5cm}
-    {\large 多渠道消息平台的完整技术文档}
+    {\large AI 智能体 Gateway 网关}
     \vspace{2cm}
 }
 \author{OpenClaw 项目组}
@@ -153,26 +198,16 @@
 \tableofcontents
 \clearpage
 
-\input{chapters/00_overview}
-\input{chapters/01_start}
-\input{chapters/02_concepts}
-\input{chapters/03_install}
-\input{chapters/04_gateway}
-\input{chapters/05_channels}
-\input{chapters/06_cli}
-\input{chapters/07_tools}
-\input{chapters/08_providers}
-\input{chapters/09_nodes}
-\input{chapters/10_platforms}
-\input{chapters/11_web}
-\input{chapters/12_automation}
-\input{chapters/13_plugins}
-\input{chapters/14_security}
-\input{chapters/15_reference}
-\input{chapters/16_help}
-\input{chapters/17_debug}
-\input{chapters/18_diagnostics}
-\input{chapters/19_experiments}
-\input{chapters/20_refactor}
+\input{chapters-lite/00-quickstart}
+\input{chapters-lite/01-gateway}
+\input{chapters-lite/02-agent}
+\input{chapters-lite/03-channel}
+\input{chapters-lite/04-binding}
+\input{chapters-lite/05-session}
+\input{chapters-lite/06-plugin}
+\input{chapters-lite/07-skill}
+\input{chapters-lite/08-memory}
+\input{chapters-lite/09-sandbox}
+\input{chapters-lite/10-deployment}
 
 \end{document}

@@ -1,0 +1,110 @@
+\chapter{Memory（记忆）}
+
+\section{概述}
+
+OpenClaw 记忆是\textbf{智能体工作空间中的纯 Markdown 文件}。模型只"记住"写入磁盘的内容——记忆文件是唯一的事实来源。
+
+配置路径：\texttt{memorySearch.*}
+
+\section{记忆文件}
+
+默认工作空间布局使用两个记忆层：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{文件} & \textbf{用途} & \textbf{加载时机} \\
+\midrule
+\texttt{memory/YYYY-MM-DD.md} & 每日日志（仅追加） & 会话开始时读取今天和昨天 \\
+\texttt{MEMORY.md} & 精心整理的长期记忆 & 仅在主要私人会话中加载 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+位于工作空间下（默认 \texttt{\textasciitilde{}/.openclaw/workspace}）。
+
+\section{何时写入记忆}
+
+\begin{itemize}
+  \item 决策、偏好和持久性事实 → \texttt{MEMORY.md}
+  \item 日常笔记和运行上下文 → \texttt{memory/YYYY-MM-DD.md}
+  \item 用户说"记住这个"时 → 立即写入
+\end{itemize}
+
+\textbf{提示}：如果你想让某些内容持久保存，请\textbf{明确要求}智能体将其写入记忆。
+
+\section{自动记忆刷新}
+
+当会话接近自动压缩时，OpenClaw 触发一个\textbf{静默智能体回合}，提醒模型在上下文压缩前写入持久记忆。
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      compaction: {
+        memoryFlush: {
+          enabled: true,
+          softThresholdTokens: 4000
+        }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+\section{向量记忆搜索}
+
+OpenClaw 在记忆文件上构建小型向量索引，支持语义查询（即使措辞不同也能找到相关笔记）。
+
+\subsection{默认行为}
+
+\begin{itemize}
+  \item 默认启用，监视记忆文件变更
+  \item 自动选择嵌入提供商：本地 → OpenAI → Gemini
+  \item 使用 sqlite-vec 加速向量搜索
+\end{itemize}
+
+\subsection{配置提供商}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      memorySearch: {
+        provider: "openai",
+        remote: { apiKey: "YOUR_OPENAI_API_KEY" }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+支持的提供商：\texttt{openai}、\texttt{gemini}、\texttt{local}（node-llama-cpp）。
+
+\subsection{额外记忆路径}
+
+索引默认工作空间之外的 Markdown 文件：
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      memorySearch: {
+        extraPaths: ["../team-docs", "/srv/shared-notes/overview.md"]
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+\section{全文搜索}
+
+除向量搜索外，OpenClaw 还支持基于 SQLite FTS5 的全文搜索，可与向量搜索结合使用以提高召回率。
+
+\section{记忆搜索工具}
+
+记忆搜索由活动的记忆插件提供（默认：\texttt{memory-core}）。禁用方式：
+
+\begin{lstlisting}[language=json]
+{ plugins: { slots: { memory: "none" } } }
+\end{lstlisting}

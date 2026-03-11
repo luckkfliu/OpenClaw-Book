@@ -1,13 +1,12 @@
 \documentclass[a4paper,12pt,openany]{book}
 
-% === 中文支持 ===
-\usepackage[UTF8]{ctex}
-\usepackage{xeCJK}
+% === Unicode Support (XeLaTeX) ===
+\usepackage{fontspec}
 
-% === 页面布局 ===
+% === Page Layout ===
 \usepackage[margin=2.5cm,headheight=14.5pt]{geometry}
 
-% === 代码高亮 ===
+% === Code Highlighting ===
 \usepackage{listings}
 \usepackage{xcolor}
 
@@ -40,7 +39,7 @@
 }
 \lstset{style=mystyle}
 
-% 定义常见语言
+% Define common languages
 \lstdefinelanguage{json}{
     basicstyle=\ttfamily\small,
     string=[s]{"}{"},
@@ -99,7 +98,7 @@
     string=[b]",
 }
 
-% === 超链接 ===
+% === Hyperlinks ===
 \usepackage{hyperref}
 \hypersetup{
     colorlinks=true,
@@ -110,7 +109,7 @@
     pdfencoding=auto,
 }
 
-% === 其他包 ===
+% === Other Packages ===
 \usepackage{graphicx}
 \usepackage{longtable}
 \usepackage{booktabs}
@@ -118,38 +117,38 @@
 \usepackage{fancyhdr}
 \usepackage{titlesec}
 
-% === 页眉页脚 ===
+% === Header and Footer ===
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\leftmark}
 \fancyhead[R]{\thepage}
-\fancyfoot[C]{OpenClaw 中文文档}
+\fancyfoot[C]{OpenClaw Documentation}
 
-% === 标题格式 ===
+% === Title Format ===
 \titleformat{\chapter}[display]
   {\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
 \titlespacing*{\chapter}{0pt}{-20pt}{40pt}
 
-% === 文档信息 ===
+% === Document Info ===
 \title{
     \vspace{2cm}
-    {\Huge\textbf{OpenClaw 中文文档}} \\
+    {\Huge\textbf{OpenClaw Documentation}} \\
     \vspace{0.5cm}
-    {\Large AI 智能体 Gateway 网关} \\
+    {\Large AI Agent Gateway} \\
     \vspace{0.5cm}
-    {\large 多渠道消息平台的完整技术文档}
+    {\large Complete Technical Documentation for Multi-Channel Messaging Platform}
     \vspace{2cm}
 }
-\author{OpenClaw 项目组}
+\author{OpenClaw Project Team}
 \date{\today}
 
 \begin{document}
 
-% === 封面 ===
+% === Cover ===
 \maketitle
 \thispagestyle{empty}
 
-% === 目录 ===
+% === Table of Contents ===
 \tableofcontents
 \clearpage
 

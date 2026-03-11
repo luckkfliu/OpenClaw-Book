@@ -1,0 +1,5546 @@
+\chapter{Command Line Interface}
+
+% === Source file: cli/acp.md ===
+\section{acp}
+
+
+Run the \href{https://agentclientprotocol.com/}{Agent Client Protocol (ACP)} bridge that talks to a OpenClaw Gateway.
+
+This command speaks ACP over stdio for IDEs and forwards prompts to the Gateway
+over WebSocket. It keeps ACP sessions mapped to Gateway session keys.
+
+\subsection{Usage}
+
+
+\begin{lstlisting}[language=bash]
+openclaw acp
+
+# Remote Gateway
+openclaw acp --url wss://gateway-host:18789 --token <token>
+
+# Remote Gateway (token from file)
+openclaw acp --url wss://gateway-host:18789 --token-file ~/.openclaw/gateway.token
+
+# Attach to an existing session key
+openclaw acp --session agent:main:main
+
+# Attach by label (must already exist)
+openclaw acp --session-label "support inbox"
+
+# Reset the session key before the first prompt
+openclaw acp --session agent:main:main --reset-session
+\end{lstlisting}
+
+
+\subsection{ACP client (debug)}
+
+
+Use the built-in ACP client to sanity-check the bridge without an IDE.
+It spawns the ACP bridge and lets you type prompts interactively.
+
+\begin{lstlisting}[language=bash]
+openclaw acp client
+
+# Point the spawned bridge at a remote Gateway
+openclaw acp client --server-args --url wss://gateway-host:18789 --token-file ~/.openclaw/gateway.token
+
+# Override the server command (default: openclaw)
+openclaw acp client --server "node" --server-args openclaw.mjs acp --url ws://127.0.0.1:19001
+\end{lstlisting}
+
+
+Permission model (client debug mode):
+
+\begin{itemize}
+  \item Auto-approval is allowlist-based and only applies to trusted core tool IDs.
+  \item \texttt{read} auto-approval is scoped to the current working directory (\texttt{--cwd} when set).
+  \item Unknown/non-core tool names, out-of-scope reads, and dangerous tools always require explicit prompt approval.
+  \item Server-provided \texttt{toolCall.kind} is treated as untrusted metadata (not an authorization source).
+\end{itemize}
+
+
+\subsection{How to use this}
+
+
+Use ACP when an IDE (or other client) speaks Agent Client Protocol and you want
+it to drive a OpenClaw Gateway session.
+
+\begin{enumerate}
+  \item Ensure the Gateway is running (local or remote).
+  \item Configure the Gateway target (config or flags).
+  \item Point your IDE to run \texttt{openclaw acp} over stdio.
+\end{enumerate}
+
+
+Example config (persisted):
+
+\begin{lstlisting}[language=bash]
+openclaw config set gateway.remote.url wss://gateway-host:18789
+openclaw config set gateway.remote.token <token>
+\end{lstlisting}
+
+
+Example direct run (no config write):
+
+\begin{lstlisting}[language=bash]
+openclaw acp --url wss://gateway-host:18789 --token <token>
+# preferred for local process safety
+openclaw acp --url wss://gateway-host:18789 --token-file ~/.openclaw/gateway.token
+\end{lstlisting}
+
+
+\subsection{Selecting agents}
+
+
+ACP does not pick agents directly. It routes by the Gateway session key.
+
+Use agent-scoped session keys to target a specific agent:
+
+\begin{lstlisting}[language=bash]
+openclaw acp --session agent:main:main
+openclaw acp --session agent:design:main
+openclaw acp --session agent:qa:bug-123
+\end{lstlisting}
+
+
+Each ACP session maps to a single Gateway session key. One agent can have many
+sessions; ACP defaults to an isolated \texttt{acp:} session unless you override
+the key or label.
+
+\subsection{Zed editor setup}
+
+
+Add a custom ACP agent in \texttt{\textasciitilde{}/.config/zed/settings.json} (or use Zed’s Settings UI):
+
+\begin{lstlisting}[language=json]
+{
+  "agent_servers": {
+    "OpenClaw ACP": {
+      "type": "custom",
+      "command": "openclaw",
+      "args": ["acp"],
+      "env": {}
+    }
+  }
+}
+\end{lstlisting}
+
+
+To target a specific Gateway or agent:
+
+\begin{lstlisting}[language=json]
+{
+  "agent_servers": {
+    "OpenClaw ACP": {
+      "type": "custom",
+      "command": "openclaw",
+      "args": [
+        "acp",
+        "--url",
+        "wss://gateway-host:18789",
+        "--token",
+        "<token>",
+        "--session",
+        "agent:design:main"
+      ],
+      "env": {}
+    }
+  }
+}
+\end{lstlisting}
+
+
+In Zed, open the Agent panel and select “OpenClaw ACP” to start a thread.
+
+\subsection{Session mapping}
+
+
+By default, ACP sessions get an isolated Gateway session key with an \texttt{acp:} prefix.
+To reuse a known session, pass a session key or label:
+
+\begin{itemize}
+  \item \texttt{--session }: use a specific Gateway session key.
+  \item \texttt{--session-label }: resolve an existing session by label.
+  \item \texttt{--reset-session}: mint a fresh session id for that key (same key, new transcript).
+\end{itemize}
+
+
+If your ACP client supports metadata, you can override per session:
+
+\begin{lstlisting}[language=json]
+{
+  "_meta": {
+    "sessionKey": "agent:main:main",
+    "sessionLabel": "support inbox",
+    "resetSession": true
+  }
+}
+\end{lstlisting}
+
+
+Learn more about session keys at \href{/concepts/session}{/concepts/session}.
+
+\subsection{Options}
+
+
+\begin{itemize}
+  \item \texttt{--url }: Gateway WebSocket URL (defaults to gateway.remote.url when configured).
+  \item \texttt{--token }: Gateway auth token.
+  \item \texttt{--token-file }: read Gateway auth token from file.
+  \item \texttt{--password }: Gateway auth password.
+  \item \texttt{--password-file }: read Gateway auth password from file.
+  \item \texttt{--session }: default session key.
+  \item \texttt{--session-label }: default session label to resolve.
+  \item \texttt{--require-existing}: fail if the session key/label does not exist.
+  \item \texttt{--reset-session}: reset the session key before first use.
+  \item \texttt{--no-prefix-cwd}: do not prefix prompts with the working directory.
+  \item \texttt{--verbose, -v}: verbose logging to stderr.
+\end{itemize}
+
+
+Security note:
+
+\begin{itemize}
+  \item \texttt{--token} and \texttt{--password} can be visible in local process listings on some systems.
+  \item Prefer \texttt{--token-file}/\texttt{--password-file} or environment variables (\texttt{OPENCLAW\_GATEWAY\_TOKEN}, \texttt{OPENCLAW\_GATEWAY\_PASSWORD}).
+  \item ACP runtime backend child processes receive \texttt{OPENCLAW\_SHELL=acp}, which can be used for context-specific shell/profile rules.
+  \item \texttt{openclaw acp client} sets \texttt{OPENCLAW\_SHELL=acp-client} on the spawned bridge process.
+\end{itemize}
+
+
+\subsubsection{acp client options}
+
+
+\begin{itemize}
+  \item \texttt{--cwd }: working directory for the ACP session.
+  \item \texttt{--server }: ACP server command (default: \texttt{openclaw}).
+  \item \texttt{--server-args }: extra arguments passed to the ACP server.
+  \item \texttt{--server-verbose}: enable verbose logging on the ACP server.
+  \item \texttt{--verbose, -v}: verbose client logging.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/agent.md ===
+\section{openclaw agent}
+
+
+Run an agent turn via the Gateway (use \texttt{--local} for embedded).
+Use \texttt{--agent } to target a configured agent directly.
+
+Related:
+
+\begin{itemize}
+  \item Agent send tool: \href{/tools/agent-send}{Agent send}
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw agent --to +15555550123 --message "status update" --deliver
+openclaw agent --agent ops --message "Summarize logs"
+openclaw agent --session-id 1234 --message "Summarize inbox" --thinking medium
+openclaw agent --agent ops --message "Generate report" --deliver --reply-channel slack --reply-to "#reports"
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/agents.md ===
+\section{openclaw agents}
+
+
+Manage isolated agents (workspaces + auth + routing).
+
+Related:
+
+\begin{itemize}
+  \item Multi-agent routing: \href{/concepts/multi-agent}{Multi-Agent Routing}
+  \item Agent workspace: \href{/concepts/agent-workspace}{Agent workspace}
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw agents list
+openclaw agents add work --workspace ~/.openclaw/workspace-work
+openclaw agents bindings
+openclaw agents bind --agent work --bind telegram:ops
+openclaw agents unbind --agent work --bind telegram:ops
+openclaw agents set-identity --workspace ~/.openclaw/workspace --from-identity
+openclaw agents set-identity --agent main --avatar avatars/openclaw.png
+openclaw agents delete work
+\end{lstlisting}
+
+
+\subsection{Routing bindings}
+
+
+Use routing bindings to pin inbound channel traffic to a specific agent.
+
+List bindings:
+
+\begin{lstlisting}[language=bash]
+openclaw agents bindings
+openclaw agents bindings --agent work
+openclaw agents bindings --json
+\end{lstlisting}
+
+
+Add bindings:
+
+\begin{lstlisting}[language=bash]
+openclaw agents bind --agent work --bind telegram:ops --bind discord:guild-a
+\end{lstlisting}
+
+
+If you omit \texttt{accountId} (\texttt{--bind }), OpenClaw resolves it from channel defaults and plugin setup hooks when available.
+
+\subsubsection{Binding scope behavior}
+
+
+\begin{itemize}
+  \item A binding without \texttt{accountId} matches the channel default account only.
+  \item \texttt{accountId: "*"} is the channel-wide fallback (all accounts) and is less specific than an explicit account binding.
+  \item If the same agent already has a matching channel binding without \texttt{accountId}, and you later bind with an explicit or resolved \texttt{accountId}, OpenClaw upgrades that existing binding in place instead of adding a duplicate.
+\end{itemize}
+
+
+Example:
+
+\begin{lstlisting}[language=bash]
+# initial channel-only binding
+openclaw agents bind --agent work --bind telegram
+
+# later upgrade to account-scoped binding
+openclaw agents bind --agent work --bind telegram:ops
+\end{lstlisting}
+
+
+After the upgrade, routing for that binding is scoped to \texttt{telegram:ops}. If you also want default-account routing, add it explicitly (for example \texttt{--bind telegram:default}).
+
+Remove bindings:
+
+\begin{lstlisting}[language=bash]
+openclaw agents unbind --agent work --bind telegram:ops
+openclaw agents unbind --agent work --all
+\end{lstlisting}
+
+
+\subsection{Identity files}
+
+
+Each agent workspace can include an \texttt{IDENTITY.md} at the workspace root:
+
+\begin{itemize}
+  \item Example path: \texttt{\textasciitilde{}/.openclaw/workspace/IDENTITY.md}
+  \item \texttt{set-identity --from-identity} reads from the workspace root (or an explicit \texttt{--identity-file})
+\end{itemize}
+
+
+Avatar paths resolve relative to the workspace root.
+
+\subsection{Set identity}
+
+
+\texttt{set-identity} writes fields into \texttt{agents.list[].identity}:
+
+\begin{itemize}
+  \item \texttt{name}
+  \item \texttt{theme}
+  \item \texttt{emoji}
+  \item \texttt{avatar} (workspace-relative path, http(s) URL, or data URI)
+\end{itemize}
+
+
+Load from \texttt{IDENTITY.md}:
+
+\begin{lstlisting}[language=bash]
+openclaw agents set-identity --workspace ~/.openclaw/workspace --from-identity
+\end{lstlisting}
+
+
+Override fields explicitly:
+
+\begin{lstlisting}[language=bash]
+openclaw agents set-identity --agent main --name "OpenClaw" --emoji "🦞" --avatar avatars/openclaw.png
+\end{lstlisting}
+
+
+Config sample:
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [
+      {
+        id: "main",
+        identity: {
+          name: "OpenClaw",
+          theme: "space lobster",
+          emoji: "🦞",
+          avatar: "avatars/openclaw.png",
+        },
+      },
+    ],
+  },
+}
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/approvals.md ===
+\section{openclaw approvals}
+
+
+Manage exec approvals for the \textbf{local host}, \textbf{gateway host}, or a \textbf{node host}.
+By default, commands target the local approvals file on disk. Use \texttt{--gateway} to target the gateway, or \texttt{--node} to target a specific node.
+
+Related:
+
+\begin{itemize}
+  \item Exec approvals: \href{/tools/exec-approvals}{Exec approvals}
+  \item Nodes: \href{/nodes}{Nodes}
+\end{itemize}
+
+
+\subsection{Common commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw approvals get
+openclaw approvals get --node <id|name|ip>
+openclaw approvals get --gateway
+\end{lstlisting}
+
+
+\subsection{Replace approvals from a file}
+
+
+\begin{lstlisting}[language=bash]
+openclaw approvals set --file ./exec-approvals.json
+openclaw approvals set --node <id|name|ip> --file ./exec-approvals.json
+openclaw approvals set --gateway --file ./exec-approvals.json
+\end{lstlisting}
+
+
+\subsection{Allowlist helpers}
+
+
+\begin{lstlisting}[language=bash]
+openclaw approvals allowlist add "~/Projects/**/bin/rg"
+openclaw approvals allowlist add --agent main --node <id|name|ip> "/usr/bin/uptime"
+openclaw approvals allowlist add --agent "*" "/usr/bin/uname"
+
+openclaw approvals allowlist remove "~/Projects/**/bin/rg"
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item \texttt{--node} uses the same resolver as \texttt{openclaw nodes} (id, name, ip, or id prefix).
+  \item \texttt{--agent} defaults to \texttt{"*"}, which applies to all agents.
+  \item The node host must advertise \texttt{system.execApprovals.get/set} (macOS app or headless node host).
+  \item Approvals files are stored per host at \texttt{\textasciitilde{}/.openclaw/exec-approvals.json}.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/browser.md ===
+\section{openclaw browser}
+
+
+Manage OpenClaw’s browser control server and run browser actions (tabs, snapshots, screenshots, navigation, clicks, typing).
+
+Related:
+
+\begin{itemize}
+  \item Browser tool + API: \href{/tools/browser}{Browser tool}
+  \item Chrome extension relay: \href{/tools/chrome-extension}{Chrome extension}
+\end{itemize}
+
+
+\subsection{Common flags}
+
+
+\begin{itemize}
+  \item \texttt{--url }: Gateway WebSocket URL (defaults to config).
+  \item \texttt{--token }: Gateway token (if required).
+  \item \texttt{--timeout }: request timeout (ms).
+  \item \texttt{--browser-profile }: choose a browser profile (default from config).
+  \item \texttt{--json}: machine-readable output (where supported).
+\end{itemize}
+
+
+\subsection{Quick start (local)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw browser --browser-profile chrome tabs
+openclaw browser --browser-profile openclaw start
+openclaw browser --browser-profile openclaw open https://example.com
+openclaw browser --browser-profile openclaw snapshot
+\end{lstlisting}
+
+
+\subsection{Profiles}
+
+
+Profiles are named browser routing configs. In practice:
+
+\begin{itemize}
+  \item \texttt{openclaw}: launches/attaches to a dedicated OpenClaw-managed Chrome instance (isolated user data dir).
+  \item \texttt{chrome}: controls your existing Chrome tab(s) via the Chrome extension relay.
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+openclaw browser profiles
+openclaw browser create-profile --name work --color "#FF5A36"
+openclaw browser delete-profile --name work
+\end{lstlisting}
+
+
+Use a specific profile:
+
+\begin{lstlisting}[language=bash]
+openclaw browser --browser-profile work tabs
+\end{lstlisting}
+
+
+\subsection{Tabs}
+
+
+\begin{lstlisting}[language=bash]
+openclaw browser tabs
+openclaw browser open https://docs.openclaw.ai
+openclaw browser focus <targetId>
+openclaw browser close <targetId>
+\end{lstlisting}
+
+
+\subsection{Snapshot / screenshot / actions}
+
+
+Snapshot:
+
+\begin{lstlisting}[language=bash]
+openclaw browser snapshot
+\end{lstlisting}
+
+
+Screenshot:
+
+\begin{lstlisting}[language=bash]
+openclaw browser screenshot
+\end{lstlisting}
+
+
+Navigate/click/type (ref-based UI automation):
+
+\begin{lstlisting}[language=bash]
+openclaw browser navigate https://example.com
+openclaw browser click <ref>
+openclaw browser type <ref> "hello"
+\end{lstlisting}
+
+
+\subsection{Chrome extension relay (attach via toolbar button)}
+
+
+This mode lets the agent control an existing Chrome tab that you attach manually (it does not auto-attach).
+
+Install the unpacked extension to a stable path:
+
+\begin{lstlisting}[language=bash]
+openclaw browser extension install
+openclaw browser extension path
+\end{lstlisting}
+
+
+Then Chrome → \texttt{chrome://extensions} → enable “Developer mode” → “Load unpacked” → select the printed folder.
+
+Full guide: \href{/tools/chrome-extension}{Chrome extension}
+
+\subsection{Remote browser control (node host proxy)}
+
+
+If the Gateway runs on a different machine than the browser, run a \textbf{node host} on the machine that has Chrome/Brave/Edge/Chromium. The Gateway will proxy browser actions to that node (no separate browser control server required).
+
+Use \texttt{gateway.nodes.browser.mode} to control auto-routing and \texttt{gateway.nodes.browser.node} to pin a specific node if multiple are connected.
+
+Security + remote setup: \href{/tools/browser}{Browser tool}, \href{/gateway/remote}{Remote access}, \href{/gateway/tailscale}{Tailscale}, \href{/gateway/security}{Security}
+
+
+\clearpage
+
+% === Source file: cli/channels.md ===
+\section{openclaw channels}
+
+
+Manage chat channel accounts and their runtime status on the Gateway.
+
+Related docs:
+
+\begin{itemize}
+  \item Channel guides: \href{/channels/index}{Channels}
+  \item Gateway configuration: \href{/gateway/configuration}{Configuration}
+\end{itemize}
+
+
+\subsection{Common commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw channels list
+openclaw channels status
+openclaw channels capabilities
+openclaw channels capabilities --channel discord --target channel:123
+openclaw channels resolve --channel slack "#general" "@jane"
+openclaw channels logs --channel all
+\end{lstlisting}
+
+
+\subsection{Add / remove accounts}
+
+
+\begin{lstlisting}[language=bash]
+openclaw channels add --channel telegram --token <bot-token>
+openclaw channels remove --channel telegram --delete
+\end{lstlisting}
+
+
+Tip: \texttt{openclaw channels add --help} shows per-channel flags (token, app token, signal-cli paths, etc).
+
+When you run \texttt{openclaw channels add} without flags, the interactive wizard can prompt:
+
+\begin{itemize}
+  \item account ids per selected channel
+  \item optional display names for those accounts
+  \item \texttt{Bind configured channel accounts to agents now?}
+\end{itemize}
+
+
+If you confirm bind now, the wizard asks which agent should own each configured channel account and writes account-scoped routing bindings.
+
+You can also manage the same routing rules later with \texttt{openclaw agents bindings}, \texttt{openclaw agents bind}, and \texttt{openclaw agents unbind} (see \href{/cli/agents}{agents}).
+
+When you add a non-default account to a channel that is still using single-account top-level settings (no \texttt{channels..accounts} entries yet), OpenClaw moves account-scoped single-account top-level values into \texttt{channels..accounts.default}, then writes the new account. This preserves the original account behavior while moving to the multi-account shape.
+
+Routing behavior stays consistent:
+
+\begin{itemize}
+  \item Existing channel-only bindings (no \texttt{accountId}) continue to match the default account.
+  \item \texttt{channels add} does not auto-create or rewrite bindings in non-interactive mode.
+  \item Interactive setup can optionally add account-scoped bindings.
+\end{itemize}
+
+
+If your config was already in a mixed state (named accounts present, missing \texttt{default}, and top-level single-account values still set), run \texttt{openclaw doctor --fix} to move account-scoped values into \texttt{accounts.default}.
+
+\subsection{Login / logout (interactive)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw channels login --channel whatsapp
+openclaw channels logout --channel whatsapp
+\end{lstlisting}
+
+
+\subsection{Troubleshooting}
+
+
+\begin{itemize}
+  \item Run \texttt{openclaw status --deep} for a broad probe.
+  \item Use \texttt{openclaw doctor} for guided fixes.
+  \item \texttt{openclaw channels list} prints \texttt{Claude: HTTP 403 ... user:profile} → usage snapshot needs the \texttt{user:profile} scope. Use \texttt{--no-usage}, or provide a claude.ai session key (\texttt{CLAUDE\_WEB\_SESSION\_KEY} / \texttt{CLAUDE\_WEB\_COOKIE}), or re-auth via Claude Code CLI.
+\end{itemize}
+
+
+\subsection{Capabilities probe}
+
+
+Fetch provider capability hints (intents/scopes where available) plus static feature support:
+
+\begin{lstlisting}[language=bash]
+openclaw channels capabilities
+openclaw channels capabilities --channel discord --target channel:123
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{--channel} is optional; omit it to list every channel (including extensions).
+  \item \texttt{--target} accepts \texttt{channel:} or a raw numeric channel id and only applies to Discord.
+  \item Probes are provider-specific: Discord intents + optional channel permissions; Slack bot + user scopes; Telegram bot flags + webhook; Signal daemon version; MS Teams app token + Graph roles/scopes (annotated where known). Channels without probes report \texttt{Probe: unavailable}.
+\end{itemize}
+
+
+\subsection{Resolve names to IDs}
+
+
+Resolve channel/user names to IDs using the provider directory:
+
+\begin{lstlisting}[language=bash]
+openclaw channels resolve --channel slack "#general" "@jane"
+openclaw channels resolve --channel discord "My Server/#support" "@someone"
+openclaw channels resolve --channel matrix "Project Room"
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Use \texttt{--kind user|group|auto} to force the target type.
+  \item Resolution prefers active matches when multiple entries share the same name.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/clawbot.md ===
+\section{openclaw clawbot}
+
+
+Legacy alias namespace kept for backwards compatibility.
+
+Current supported alias:
+
+\begin{itemize}
+  \item \texttt{openclaw clawbot qr} (same behavior as \href{/cli/qr}{\texttt{openclaw qr}})
+\end{itemize}
+
+
+\subsection{Migration}
+
+
+Prefer modern top-level commands directly:
+
+\begin{itemize}
+  \item \texttt{openclaw clawbot qr} -> \texttt{openclaw qr}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/completion.md ===
+\section{openclaw completion}
+
+
+Generate shell completion scripts and optionally install them into your shell profile.
+
+\subsection{Usage}
+
+
+\begin{lstlisting}[language=bash]
+openclaw completion
+openclaw completion --shell zsh
+openclaw completion --install
+openclaw completion --shell fish --install
+openclaw completion --write-state
+openclaw completion --shell bash --write-state
+\end{lstlisting}
+
+
+\subsection{Options}
+
+
+\begin{itemize}
+  \item \texttt{-s, --shell }: shell target (\texttt{zsh}, \texttt{bash}, \texttt{powershell}, \texttt{fish}; default: \texttt{zsh})
+  \item \texttt{-i, --install}: install completion by adding a source line to your shell profile
+  \item \texttt{--write-state}: write completion script(s) to \texttt{\$OPENCLAW\_STATE\_DIR/completions} without printing to stdout
+  \item \texttt{-y, --yes}: skip install confirmation prompts
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item \texttt{--install} writes a small "OpenClaw Completion" block into your shell profile and points it at the cached script.
+  \item Without \texttt{--install} or \texttt{--write-state}, the command prints the script to stdout.
+  \item Completion generation eagerly loads command trees so nested subcommands are included.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/config.md ===
+\section{openclaw config}
+
+
+Config helpers: get/set/unset/validate values by path and print the active
+config file. Run without a subcommand to open
+the configure wizard (same as \texttt{openclaw configure}).
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw config file
+openclaw config get browser.executablePath
+openclaw config set browser.executablePath "/usr/bin/google-chrome"
+openclaw config set agents.defaults.heartbeat.every "2h"
+openclaw config set agents.list[0].tools.exec.node "node-id-or-name"
+openclaw config unset tools.web.search.apiKey
+openclaw config validate
+openclaw config validate --json
+\end{lstlisting}
+
+
+\subsection{Paths}
+
+
+Paths use dot or bracket notation:
+
+\begin{lstlisting}[language=bash]
+openclaw config get agents.defaults.workspace
+openclaw config get agents.list[0].id
+\end{lstlisting}
+
+
+Use the agent list index to target a specific agent:
+
+\begin{lstlisting}[language=bash]
+openclaw config get agents.list
+openclaw config set agents.list[1].tools.exec.node "node-id-or-name"
+\end{lstlisting}
+
+
+\subsection{Values}
+
+
+Values are parsed as JSON5 when possible; otherwise they are treated as strings.
+Use \texttt{--strict-json} to require JSON5 parsing. \texttt{--json} remains supported as a legacy alias.
+
+\begin{lstlisting}[language=bash]
+openclaw config set agents.defaults.heartbeat.every "0m"
+openclaw config set gateway.port 19001 --strict-json
+openclaw config set channels.whatsapp.groups '["*"]' --strict-json
+\end{lstlisting}
+
+
+\subsection{Subcommands}
+
+
+\begin{itemize}
+  \item \texttt{config file}: Print the active config file path (resolved from \texttt{OPENCLAW\_CONFIG\_PATH} or default location).
+\end{itemize}
+
+
+Restart the gateway after edits.
+
+\subsection{Validate}
+
+
+Validate the current config against the active schema without starting the
+gateway.
+
+\begin{lstlisting}[language=bash]
+openclaw config validate
+openclaw config validate --json
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/configure.md ===
+\section{openclaw configure}
+
+
+Interactive prompt to set up credentials, devices, and agent defaults.
+
+Note: The \textbf{Model} section now includes a multi-select for the
+\texttt{agents.defaults.models} allowlist (what shows up in \texttt{/model} and the model picker).
+
+Tip: \texttt{openclaw config} without a subcommand opens the same wizard. Use
+\texttt{openclaw config get|set|unset} for non-interactive edits.
+
+Related:
+
+\begin{itemize}
+  \item Gateway configuration reference: \href{/gateway/configuration}{Configuration}
+  \item Config CLI: \href{/cli/config}{Config}
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item Choosing where the Gateway runs always updates \texttt{gateway.mode}. You can select "Continue" without other sections if that is all you need.
+  \item Channel-oriented services (Slack/Discord/Matrix/Microsoft Teams) prompt for channel/room allowlists during setup. You can enter names or IDs; the wizard resolves names to IDs when possible.
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw configure
+openclaw configure --section model --section channels
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/cron.md ===
+\section{openclaw cron}
+
+
+Manage cron jobs for the Gateway scheduler.
+
+Related:
+
+\begin{itemize}
+  \item Cron jobs: \href{/automation/cron-jobs}{Cron jobs}
+\end{itemize}
+
+
+Tip: run \texttt{openclaw cron --help} for the full command surface.
+
+Note: isolated \texttt{cron add} jobs default to \texttt{--announce} delivery. Use \texttt{--no-deliver} to keep
+output internal. \texttt{--deliver} remains as a deprecated alias for \texttt{--announce}.
+
+Note: one-shot (\texttt{--at}) jobs delete after success by default. Use \texttt{--keep-after-run} to keep them.
+
+Note: recurring jobs now use exponential retry backoff after consecutive errors (30s → 1m → 5m → 15m → 60m), then return to normal schedule after the next successful run.
+
+Note: retention/pruning is controlled in config:
+
+\begin{itemize}
+  \item \texttt{cron.sessionRetention} (default \texttt{24h}) prunes completed isolated run sessions.
+  \item \texttt{cron.runLog.maxBytes} + \texttt{cron.runLog.keepLines} prune \texttt{\textasciitilde{}/.openclaw/cron/runs/.jsonl}.
+\end{itemize}
+
+
+\subsection{Common edits}
+
+
+Update delivery settings without changing the message:
+
+\begin{lstlisting}[language=bash]
+openclaw cron edit <job-id> --announce --channel telegram --to "123456789"
+\end{lstlisting}
+
+
+Disable delivery for an isolated job:
+
+\begin{lstlisting}[language=bash]
+openclaw cron edit <job-id> --no-deliver
+\end{lstlisting}
+
+
+Announce to a specific channel:
+
+\begin{lstlisting}[language=bash]
+openclaw cron edit <job-id> --announce --channel slack --to "channel:C1234567890"
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/daemon.md ===
+\section{openclaw daemon}
+
+
+Legacy alias for Gateway service management commands.
+
+\texttt{openclaw daemon ...} maps to the same service control surface as \texttt{openclaw gateway ...} service commands.
+
+\subsection{Usage}
+
+
+\begin{lstlisting}[language=bash]
+openclaw daemon status
+openclaw daemon install
+openclaw daemon start
+openclaw daemon stop
+openclaw daemon restart
+openclaw daemon uninstall
+\end{lstlisting}
+
+
+\subsection{Subcommands}
+
+
+\begin{itemize}
+  \item \texttt{status}: show service install state and probe Gateway health
+  \item \texttt{install}: install service (\texttt{launchd}/\texttt{systemd}/\texttt{schtasks})
+  \item \texttt{uninstall}: remove service
+  \item \texttt{start}: start service
+  \item \texttt{stop}: stop service
+  \item \texttt{restart}: restart service
+\end{itemize}
+
+
+\subsection{Common options}
+
+
+\begin{itemize}
+  \item \texttt{status}: \texttt{--url}, \texttt{--token}, \texttt{--password}, \texttt{--timeout}, \texttt{--no-probe}, \texttt{--deep}, \texttt{--json}
+  \item \texttt{install}: \texttt{--port}, \texttt{--runtime }, \texttt{--token}, \texttt{--force}, \texttt{--json}
+  \item lifecycle (\texttt{uninstall|start|stop|restart}): \texttt{--json}
+\end{itemize}
+
+
+\subsection{Prefer}
+
+
+Use \href{/cli/gateway}{\texttt{openclaw gateway}} for current docs and examples.
+
+
+\clearpage
+
+% === Source file: cli/dashboard.md ===
+\section{openclaw dashboard}
+
+
+Open the Control UI using your current auth.
+
+\begin{lstlisting}[language=bash]
+openclaw dashboard
+openclaw dashboard --no-open
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/devices.md ===
+\section{openclaw devices}
+
+
+Manage device pairing requests and device-scoped tokens.
+
+\subsection{Commands}
+
+
+\subsubsection{openclaw devices list}
+
+
+List pending pairing requests and paired devices.
+
+\begin{lstlisting}
+openclaw devices list
+openclaw devices list --json
+\end{lstlisting}
+
+
+\subsubsection{openclaw devices remove }
+
+
+Remove one paired device entry.
+
+\begin{lstlisting}
+openclaw devices remove <deviceId>
+openclaw devices remove <deviceId> --json
+\end{lstlisting}
+
+
+\subsubsection{openclaw devices clear --yes [--pending]}
+
+
+Clear paired devices in bulk.
+
+\begin{lstlisting}
+openclaw devices clear --yes
+openclaw devices clear --yes --pending
+openclaw devices clear --yes --pending --json
+\end{lstlisting}
+
+
+\subsubsection{openclaw devices approve [requestId] [--latest]}
+
+
+Approve a pending device pairing request. If \texttt{requestId} is omitted, OpenClaw
+automatically approves the most recent pending request.
+
+\begin{lstlisting}
+openclaw devices approve
+openclaw devices approve <requestId>
+openclaw devices approve --latest
+\end{lstlisting}
+
+
+\subsubsection{openclaw devices reject }
+
+
+Reject a pending device pairing request.
+
+\begin{lstlisting}
+openclaw devices reject <requestId>
+\end{lstlisting}
+
+
+\subsubsection{openclaw devices rotate --device  --role  [--scope ]}
+
+
+Rotate a device token for a specific role (optionally updating scopes).
+
+\begin{lstlisting}
+openclaw devices rotate --device <deviceId> --role operator --scope operator.read --scope operator.write
+\end{lstlisting}
+
+
+\subsubsection{openclaw devices revoke --device  --role }
+
+
+Revoke a device token for a specific role.
+
+\begin{lstlisting}
+openclaw devices revoke --device <deviceId> --role node
+\end{lstlisting}
+
+
+\subsection{Common options}
+
+
+\begin{itemize}
+  \item \texttt{--url }: Gateway WebSocket URL (defaults to \texttt{gateway.remote.url} when configured).
+  \item \texttt{--token }: Gateway token (if required).
+  \item \texttt{--password }: Gateway password (password auth).
+  \item \texttt{--timeout }: RPC timeout.
+  \item \texttt{--json}: JSON output (recommended for scripting).
+\end{itemize}
+
+
+Note: when you set \texttt{--url}, the CLI does not fall back to config or environment credentials.
+Pass \texttt{--token} or \texttt{--password} explicitly. Missing explicit credentials is an error.
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Token rotation returns a new token (sensitive). Treat it like a secret.
+  \item These commands require \texttt{operator.pairing} (or \texttt{operator.admin}) scope.
+  \item \texttt{devices clear} is intentionally gated by \texttt{--yes}.
+  \item If pairing scope is unavailable on local loopback (and no explicit \texttt{--url} is passed), list/approve can use a local pairing fallback.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/directory.md ===
+\section{openclaw directory}
+
+
+Directory lookups for channels that support it (contacts/peers, groups, and “me”).
+
+\subsection{Common flags}
+
+
+\begin{itemize}
+  \item \texttt{--channel }: channel id/alias (required when multiple channels are configured; auto when only one is configured)
+  \item \texttt{--account }: account id (default: channel default)
+  \item \texttt{--json}: output JSON
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item \texttt{directory} is meant to help you find IDs you can paste into other commands (especially \texttt{openclaw message send --target ...}).
+  \item For many channels, results are config-backed (allowlists / configured groups) rather than a live provider directory.
+  \item Default output is \texttt{id} (and sometimes \texttt{name}) separated by a tab; use \texttt{--json} for scripting.
+\end{itemize}
+
+
+\subsection{Using results with message send}
+
+
+\begin{lstlisting}[language=bash]
+openclaw directory peers list --channel slack --query "U0"
+openclaw message send --channel slack --target user:U012ABCDEF --message "hello"
+\end{lstlisting}
+
+
+\subsection{ID formats (by channel)}
+
+
+\begin{itemize}
+  \item WhatsApp: \texttt{+15551234567} (DM), \texttt{1234567890-1234567890@g.us} (group)
+  \item Telegram: \texttt{@username} or numeric chat id; groups are numeric ids
+  \item Slack: \texttt{user:U…} and \texttt{channel:C…}
+  \item Discord: \texttt{user:} and \texttt{channel:}
+  \item Matrix (plugin): \texttt{user:@user:server}, \texttt{room:!roomId:server}, or \texttt{\#alias:server}
+  \item Microsoft Teams (plugin): \texttt{user:} and \texttt{conversation:}
+  \item Zalo (plugin): user id (Bot API)
+  \item Zalo Personal / \texttt{zalouser} (plugin): thread id (DM/group) from \texttt{zca} (\texttt{me}, \texttt{friend list}, \texttt{group list})
+\end{itemize}
+
+
+\subsection{Self (“me”)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw directory self --channel zalouser
+\end{lstlisting}
+
+
+\subsection{Peers (contacts/users)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw directory peers list --channel zalouser
+openclaw directory peers list --channel zalouser --query "name"
+openclaw directory peers list --channel zalouser --limit 50
+\end{lstlisting}
+
+
+\subsection{Groups}
+
+
+\begin{lstlisting}[language=bash]
+openclaw directory groups list --channel zalouser
+openclaw directory groups list --channel zalouser --query "work"
+openclaw directory groups members --channel zalouser --group-id <id>
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/dns.md ===
+\section{openclaw dns}
+
+
+DNS helpers for wide-area discovery (Tailscale + CoreDNS). Currently focused on macOS + Homebrew CoreDNS.
+
+Related:
+
+\begin{itemize}
+  \item Gateway discovery: \href{/gateway/discovery}{Discovery}
+  \item Wide-area discovery config: \href{/gateway/configuration}{Configuration}
+\end{itemize}
+
+
+\subsection{Setup}
+
+
+\begin{lstlisting}[language=bash]
+openclaw dns setup
+openclaw dns setup --apply
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/docs.md ===
+\section{openclaw docs}
+
+
+Search the live docs index.
+
+\begin{lstlisting}[language=bash]
+openclaw docs browser extension
+openclaw docs sandbox allowHostControl
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/doctor.md ===
+\section{openclaw doctor}
+
+
+Health checks + quick fixes for the gateway and channels.
+
+Related:
+
+\begin{itemize}
+  \item Troubleshooting: \href{/gateway/troubleshooting}{Troubleshooting}
+  \item Security audit: \href{/gateway/security}{Security}
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw doctor
+openclaw doctor --repair
+openclaw doctor --deep
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Interactive prompts (like keychain/OAuth fixes) only run when stdin is a TTY and \texttt{--non-interactive} is \textbf{not} set. Headless runs (cron, Telegram, no terminal) will skip prompts.
+  \item \texttt{--fix} (alias for \texttt{--repair}) writes a backup to \texttt{\textasciitilde{}/.openclaw/openclaw.json.bak} and drops unknown config keys, listing each removal.
+  \item State integrity checks now detect orphan transcript files in the sessions directory and can archive them as \texttt{.deleted.} to reclaim space safely.
+  \item Doctor includes a memory-search readiness check and can recommend \texttt{openclaw configure --section model} when embedding credentials are missing.
+  \item If sandbox mode is enabled but Docker is unavailable, doctor reports a high-signal warning with remediation (\texttt{install Docker} or \texttt{openclaw config set agents.defaults.sandbox.mode off}).
+\end{itemize}
+
+
+\subsection{macOS: launchctl env overrides}
+
+
+If you previously ran \texttt{launchctl setenv OPENCLAW\_GATEWAY\_TOKEN ...} (or \texttt{...PASSWORD}), that value overrides your config file and can cause persistent “unauthorized” errors.
+
+\begin{lstlisting}[language=bash]
+launchctl getenv OPENCLAW_GATEWAY_TOKEN
+launchctl getenv OPENCLAW_GATEWAY_PASSWORD
+
+launchctl unsetenv OPENCLAW_GATEWAY_TOKEN
+launchctl unsetenv OPENCLAW_GATEWAY_PASSWORD
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/gateway.md ===
+\section{Gateway CLI}
+
+
+The Gateway is OpenClaw’s WebSocket server (channels, nodes, sessions, hooks).
+
+Subcommands in this page live under \texttt{openclaw gateway …}.
+
+Related docs:
+
+\begin{itemize}
+  \item \href{/gateway/bonjour}{/gateway/bonjour}
+  \item \href{/gateway/discovery}{/gateway/discovery}
+  \item \href{/gateway/configuration}{/gateway/configuration}
+\end{itemize}
+
+
+\subsection{Run the Gateway}
+
+
+Run a local Gateway process:
+
+\begin{lstlisting}[language=bash]
+openclaw gateway
+\end{lstlisting}
+
+
+Foreground alias:
+
+\begin{lstlisting}[language=bash]
+openclaw gateway run
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item By default, the Gateway refuses to start unless \texttt{gateway.mode=local} is set in \texttt{\textasciitilde{}/.openclaw/openclaw.json}. Use \texttt{--allow-unconfigured} for ad-hoc/dev runs.
+  \item Binding beyond loopback without auth is blocked (safety guardrail).
+  \item \texttt{SIGUSR1} triggers an in-process restart when authorized (\texttt{commands.restart} is enabled by default; set \texttt{commands.restart: false} to block manual restart, while gateway tool/config apply/update remain allowed).
+  \item \texttt{SIGINT}/\texttt{SIGTERM} handlers stop the gateway process, but they don’t restore any custom terminal state. If you wrap the CLI with a TUI or raw-mode input, restore the terminal before exit.
+\end{itemize}
+
+
+\subsubsection{Options}
+
+
+\begin{itemize}
+  \item \texttt{--port }: WebSocket port (default comes from config/env; usually \texttt{18789}).
+  \item \texttt{--bind }: listener bind mode.
+  \item \texttt{--auth }: auth mode override.
+  \item \texttt{--token }: token override (also sets \texttt{OPENCLAW\_GATEWAY\_TOKEN} for the process).
+  \item \texttt{--password }: password override (also sets \texttt{OPENCLAW\_GATEWAY\_PASSWORD} for the process).
+  \item \texttt{--tailscale }: expose the Gateway via Tailscale.
+  \item \texttt{--tailscale-reset-on-exit}: reset Tailscale serve/funnel config on shutdown.
+  \item \texttt{--allow-unconfigured}: allow gateway start without \texttt{gateway.mode=local} in config.
+  \item \texttt{--dev}: create a dev config + workspace if missing (skips BOOTSTRAP.md).
+  \item \texttt{--reset}: reset dev config + credentials + sessions + workspace (requires \texttt{--dev}).
+  \item \texttt{--force}: kill any existing listener on the selected port before starting.
+  \item \texttt{--verbose}: verbose logs.
+  \item \texttt{--claude-cli-logs}: only show claude-cli logs in the console (and enable its stdout/stderr).
+  \item \texttt{--ws-log }: websocket log style (default \texttt{auto}).
+  \item \texttt{--compact}: alias for \texttt{--ws-log compact}.
+  \item \texttt{--raw-stream}: log raw model stream events to jsonl.
+  \item \texttt{--raw-stream-path }: raw stream jsonl path.
+\end{itemize}
+
+
+\subsection{Query a running Gateway}
+
+
+All query commands use WebSocket RPC.
+
+Output modes:
+
+\begin{itemize}
+  \item Default: human-readable (colored in TTY).
+  \item \texttt{--json}: machine-readable JSON (no styling/spinner).
+  \item \texttt{--no-color} (or \texttt{NO\_COLOR=1}): disable ANSI while keeping human layout.
+\end{itemize}
+
+
+Shared options (where supported):
+
+\begin{itemize}
+  \item \texttt{--url }: Gateway WebSocket URL.
+  \item \texttt{--token }: Gateway token.
+  \item \texttt{--password }: Gateway password.
+  \item \texttt{--timeout }: timeout/budget (varies per command).
+  \item \texttt{--expect-final}: wait for a “final” response (agent calls).
+\end{itemize}
+
+
+Note: when you set \texttt{--url}, the CLI does not fall back to config or environment credentials.
+Pass \texttt{--token} or \texttt{--password} explicitly. Missing explicit credentials is an error.
+
+\subsubsection{gateway health}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway health --url ws://127.0.0.1:18789
+\end{lstlisting}
+
+
+\subsubsection{gateway status}
+
+
+\texttt{gateway status} shows the Gateway service (launchd/systemd/schtasks) plus an optional RPC probe.
+
+\begin{lstlisting}[language=bash]
+openclaw gateway status
+openclaw gateway status --json
+\end{lstlisting}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--url }: override the probe URL.
+  \item \texttt{--token }: token auth for the probe.
+  \item \texttt{--password }: password auth for the probe.
+  \item \texttt{--timeout }: probe timeout (default \texttt{10000}).
+  \item \texttt{--no-probe}: skip the RPC probe (service-only view).
+  \item \texttt{--deep}: scan system-level services too.
+\end{itemize}
+
+
+\subsubsection{gateway probe}
+
+
+\texttt{gateway probe} is the “debug everything” command. It always probes:
+
+\begin{itemize}
+  \item your configured remote gateway (if set), and
+  \item localhost (loopback) \textbf{even if remote is configured}.
+\end{itemize}
+
+
+If multiple gateways are reachable, it prints all of them. Multiple gateways are supported when you use isolated profiles/ports (e.g., a rescue bot), but most installs still run a single gateway.
+
+\begin{lstlisting}[language=bash]
+openclaw gateway probe
+openclaw gateway probe --json
+\end{lstlisting}
+
+
+\paragraph{Remote over SSH (Mac app parity)}
+
+
+The macOS app “Remote over SSH” mode uses a local port-forward so the remote gateway (which may be bound to loopback only) becomes reachable at \texttt{ws://127.0.0.1:}.
+
+CLI equivalent:
+
+\begin{lstlisting}[language=bash]
+openclaw gateway probe --ssh user@gateway-host
+\end{lstlisting}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--ssh }: \texttt{user@host} or \texttt{user@host:port} (port defaults to \texttt{22}).
+  \item \texttt{--ssh-identity }: identity file.
+  \item \texttt{--ssh-auto}: pick the first discovered gateway host as SSH target (LAN/WAB only).
+\end{itemize}
+
+
+Config (optional, used as defaults):
+
+\begin{itemize}
+  \item \texttt{gateway.remote.sshTarget}
+  \item \texttt{gateway.remote.sshIdentity}
+\end{itemize}
+
+
+\subsubsection{gateway call }
+
+
+Low-level RPC helper.
+
+\begin{lstlisting}[language=bash]
+openclaw gateway call status
+openclaw gateway call logs.tail --params '{"sinceMs": 60000}'
+\end{lstlisting}
+
+
+\subsection{Manage the Gateway service}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway install
+openclaw gateway start
+openclaw gateway stop
+openclaw gateway restart
+openclaw gateway uninstall
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{gateway install} supports \texttt{--port}, \texttt{--runtime}, \texttt{--token}, \texttt{--force}, \texttt{--json}.
+  \item Lifecycle commands accept \texttt{--json} for scripting.
+\end{itemize}
+
+
+\subsection{Discover gateways (Bonjour)}
+
+
+\texttt{gateway discover} scans for Gateway beacons (\texttt{\_openclaw-gw.\_tcp}).
+
+\begin{itemize}
+  \item Multicast DNS-SD: \texttt{local.}
+  \item Unicast DNS-SD (Wide-Area Bonjour): choose a domain (example: \texttt{openclaw.internal.}) and set up split DNS + a DNS server; see \href{/gateway/bonjour}{/gateway/bonjour}
+\end{itemize}
+
+
+Only gateways with Bonjour discovery enabled (default) advertise the beacon.
+
+Wide-Area discovery records include (TXT):
+
+\begin{itemize}
+  \item \texttt{role} (gateway role hint)
+  \item \texttt{transport} (transport hint, e.g. \texttt{gateway})
+  \item \texttt{gatewayPort} (WebSocket port, usually \texttt{18789})
+  \item \texttt{sshPort} (SSH port; defaults to \texttt{22} if not present)
+  \item \texttt{tailnetDns} (MagicDNS hostname, when available)
+  \item \texttt{gatewayTls} / \texttt{gatewayTlsSha256} (TLS enabled + cert fingerprint)
+  \item \texttt{cliPath} (optional hint for remote installs)
+\end{itemize}
+
+
+\subsubsection{gateway discover}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway discover
+\end{lstlisting}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--timeout }: per-command timeout (browse/resolve); default \texttt{2000}.
+  \item \texttt{--json}: machine-readable output (also disables styling/spinner).
+\end{itemize}
+
+
+Examples:
+
+\begin{lstlisting}[language=bash]
+openclaw gateway discover --timeout 4000
+openclaw gateway discover --json | jq '.beacons[].wsUrl'
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/health.md ===
+\section{openclaw health}
+
+
+Fetch health from the running Gateway.
+
+\begin{lstlisting}[language=bash]
+openclaw health
+openclaw health --json
+openclaw health --verbose
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{--verbose} runs live probes and prints per-account timings when multiple accounts are configured.
+  \item Output includes per-agent session stores when multiple agents are configured.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/hooks.md ===
+\section{openclaw hooks}
+
+
+Manage agent hooks (event-driven automations for commands like \texttt{/new}, \texttt{/reset}, and gateway startup).
+
+Related:
+
+\begin{itemize}
+  \item Hooks: \href{/automation/hooks}{Hooks}
+  \item Plugin hooks: \href{/tools/plugin\#plugin-hooks}{Plugins}
+\end{itemize}
+
+
+\subsection{List All Hooks}
+
+
+\begin{lstlisting}[language=bash]
+openclaw hooks list
+\end{lstlisting}
+
+
+List all discovered hooks from workspace, managed, and bundled directories.
+
+\textbf{Options:}
+
+\begin{itemize}
+  \item \texttt{--eligible}: Show only eligible hooks (requirements met)
+  \item \texttt{--json}: Output as JSON
+  \item \texttt{-v, --verbose}: Show detailed information including missing requirements
+\end{itemize}
+
+
+\textbf{Example output:}
+
+\begin{lstlisting}
+Hooks (4/4 ready)
+
+Ready:
+  🚀 boot-md ✓ - Run BOOT.md on gateway startup
+  📎 bootstrap-extra-files ✓ - Inject extra workspace bootstrap files during agent bootstrap
+  📝 command-logger ✓ - Log all command events to a centralized audit file
+  💾 session-memory ✓ - Save session context to memory when /new command is issued
+\end{lstlisting}
+
+
+\textbf{Example (verbose):}
+
+\begin{lstlisting}[language=bash]
+openclaw hooks list --verbose
+\end{lstlisting}
+
+
+Shows missing requirements for ineligible hooks.
+
+\textbf{Example (JSON):}
+
+\begin{lstlisting}[language=bash]
+openclaw hooks list --json
+\end{lstlisting}
+
+
+Returns structured JSON for programmatic use.
+
+\subsection{Get Hook Information}
+
+
+\begin{lstlisting}[language=bash]
+openclaw hooks info <name>
+\end{lstlisting}
+
+
+Show detailed information about a specific hook.
+
+\textbf{Arguments:}
+
+\begin{itemize}
+  \item `\texttt{: Hook name (e.g., }session-memory`)
+\end{itemize}
+
+
+\textbf{Options:}
+
+\begin{itemize}
+  \item \texttt{--json}: Output as JSON
+\end{itemize}
+
+
+\textbf{Example:}
+
+\begin{lstlisting}[language=bash]
+openclaw hooks info session-memory
+\end{lstlisting}
+
+
+\textbf{Output:}
+
+\begin{lstlisting}
+💾 session-memory ✓ Ready
+
+Save session context to memory when /new command is issued
+
+Details:
+  Source: openclaw-bundled
+  Path: /path/to/openclaw/hooks/bundled/session-memory/HOOK.md
+  Handler: /path/to/openclaw/hooks/bundled/session-memory/handler.ts
+  Homepage: https://docs.openclaw.ai/automation/hooks#session-memory
+  Events: command:new
+
+Requirements:
+  Config: ✓ workspace.dir
+\end{lstlisting}
+
+
+\subsection{Check Hooks Eligibility}
+
+
+\begin{lstlisting}[language=bash]
+openclaw hooks check
+\end{lstlisting}
+
+
+Show summary of hook eligibility status (how many are ready vs. not ready).
+
+\textbf{Options:}
+
+\begin{itemize}
+  \item \texttt{--json}: Output as JSON
+\end{itemize}
+
+
+\textbf{Example output:}
+
+\begin{lstlisting}
+Hooks Status
+
+Total hooks: 4
+Ready: 4
+Not ready: 0
+\end{lstlisting}
+
+
+\subsection{Enable a Hook}
+
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable <name>
+\end{lstlisting}
+
+
+Enable a specific hook by adding it to your config (\texttt{\textasciitilde{}/.openclaw/config.json}).
+
+\textbf{Note:} Hooks managed by plugins show \texttt{plugin:} in \texttt{openclaw hooks list} and
+can’t be enabled/disabled here. Enable/disable the plugin instead.
+
+\textbf{Arguments:}
+
+\begin{itemize}
+  \item `\texttt{: Hook name (e.g., }session-memory`)
+\end{itemize}
+
+
+\textbf{Example:}
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable session-memory
+\end{lstlisting}
+
+
+\textbf{Output:}
+
+\begin{lstlisting}
+✓ Enabled hook: 💾 session-memory
+\end{lstlisting}
+
+
+\textbf{What it does:}
+
+\begin{itemize}
+  \item Checks if hook exists and is eligible
+  \item Updates \texttt{hooks.internal.entries..enabled = true} in your config
+  \item Saves config to disk
+\end{itemize}
+
+
+\textbf{After enabling:}
+
+\begin{itemize}
+  \item Restart the gateway so hooks reload (menu bar app restart on macOS, or restart your gateway process in dev).
+\end{itemize}
+
+
+\subsection{Disable a Hook}
+
+
+\begin{lstlisting}[language=bash]
+openclaw hooks disable <name>
+\end{lstlisting}
+
+
+Disable a specific hook by updating your config.
+
+\textbf{Arguments:}
+
+\begin{itemize}
+  \item `\texttt{: Hook name (e.g., }command-logger`)
+\end{itemize}
+
+
+\textbf{Example:}
+
+\begin{lstlisting}[language=bash]
+openclaw hooks disable command-logger
+\end{lstlisting}
+
+
+\textbf{Output:}
+
+\begin{lstlisting}
+⏸ Disabled hook: 📝 command-logger
+\end{lstlisting}
+
+
+\textbf{After disabling:}
+
+\begin{itemize}
+  \item Restart the gateway so hooks reload
+\end{itemize}
+
+
+\subsection{Install Hooks}
+
+
+\begin{lstlisting}[language=bash]
+openclaw hooks install <path-or-spec>
+openclaw hooks install <npm-spec> --pin
+\end{lstlisting}
+
+
+Install a hook pack from a local folder/archive or npm.
+
+Npm specs are \textbf{registry-only} (package name + optional version/tag). Git/URL/file
+specs are rejected. Dependency installs run with \texttt{--ignore-scripts} for safety.
+
+\textbf{What it does:}
+
+\begin{itemize}
+  \item Copies the hook pack into \texttt{\textasciitilde{}/.openclaw/hooks/}
+  \item Enables the installed hooks in \texttt{hooks.internal.entries.*}
+  \item Records the install under \texttt{hooks.internal.installs}
+\end{itemize}
+
+
+\textbf{Options:}
+
+\begin{itemize}
+  \item \texttt{-l, --link}: Link a local directory instead of copying (adds it to \texttt{hooks.internal.load.extraDirs})
+  \item \texttt{--pin}: Record npm installs as exact resolved \texttt{name@version} in \texttt{hooks.internal.installs}
+\end{itemize}
+
+
+\textbf{Supported archives:} \texttt{.zip}, \texttt{.tgz}, \texttt{.tar.gz}, \texttt{.tar}
+
+\textbf{Examples:}
+
+\begin{lstlisting}[language=bash]
+# Local directory
+openclaw hooks install ./my-hook-pack
+
+# Local archive
+openclaw hooks install ./my-hook-pack.zip
+
+# NPM package
+openclaw hooks install @openclaw/my-hook-pack
+
+# Link a local directory without copying
+openclaw hooks install -l ./my-hook-pack
+\end{lstlisting}
+
+
+\subsection{Update Hooks}
+
+
+\begin{lstlisting}[language=bash]
+openclaw hooks update <id>
+openclaw hooks update --all
+\end{lstlisting}
+
+
+Update installed hook packs (npm installs only).
+
+\textbf{Options:}
+
+\begin{itemize}
+  \item \texttt{--all}: Update all tracked hook packs
+  \item \texttt{--dry-run}: Show what would change without writing
+\end{itemize}
+
+
+When a stored integrity hash exists and the fetched artifact hash changes,
+OpenClaw prints a warning and asks for confirmation before proceeding. Use
+global \texttt{--yes} to bypass prompts in CI/non-interactive runs.
+
+\subsection{Bundled Hooks}
+
+
+\subsubsection{session-memory}
+
+
+Saves session context to memory when you issue \texttt{/new}.
+
+\textbf{Enable:}
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable session-memory
+\end{lstlisting}
+
+
+\textbf{Output:} \texttt{\textasciitilde{}/.openclaw/workspace/memory/YYYY-MM-DD-slug.md}
+
+\textbf{See:} \href{/automation/hooks\#session-memory}{session-memory documentation}
+
+\subsubsection{bootstrap-extra-files}
+
+
+Injects additional bootstrap files (for example monorepo-local \texttt{AGENTS.md} / \texttt{TOOLS.md}) during \texttt{agent:bootstrap}.
+
+\textbf{Enable:}
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable bootstrap-extra-files
+\end{lstlisting}
+
+
+\textbf{See:} \href{/automation/hooks\#bootstrap-extra-files}{bootstrap-extra-files documentation}
+
+\subsubsection{command-logger}
+
+
+Logs all command events to a centralized audit file.
+
+\textbf{Enable:}
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable command-logger
+\end{lstlisting}
+
+
+\textbf{Output:} \texttt{\textasciitilde{}/.openclaw/logs/commands.log}
+
+\textbf{View logs:}
+
+\begin{lstlisting}[language=bash]
+# Recent commands
+tail -n 20 ~/.openclaw/logs/commands.log
+
+# Pretty-print
+cat ~/.openclaw/logs/commands.log | jq .
+
+# Filter by action
+grep '"action":"new"' ~/.openclaw/logs/commands.log | jq .
+\end{lstlisting}
+
+
+\textbf{See:} \href{/automation/hooks\#command-logger}{command-logger documentation}
+
+\subsubsection{boot-md}
+
+
+Runs \texttt{BOOT.md} when the gateway starts (after channels start).
+
+\textbf{Events}: \texttt{gateway:startup}
+
+\textbf{Enable}:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable boot-md
+\end{lstlisting}
+
+
+\textbf{See:} \href{/automation/hooks\#boot-md}{boot-md documentation}
+
+
+\clearpage
+
+% === Source file: cli/index.md ===
+\section{CLI reference}
+
+
+This page describes the current CLI behavior. If commands change, update this doc.
+
+\subsection{Command pages}
+
+
+\begin{itemize}
+  \item \href{/cli/setup}{\texttt{setup}}
+  \item \href{/cli/onboard}{\texttt{onboard}}
+  \item \href{/cli/configure}{\texttt{configure}}
+  \item \href{/cli/config}{\texttt{config}}
+  \item \href{/cli/completion}{\texttt{completion}}
+  \item \href{/cli/doctor}{\texttt{doctor}}
+  \item \href{/cli/dashboard}{\texttt{dashboard}}
+  \item \href{/cli/reset}{\texttt{reset}}
+  \item \href{/cli/uninstall}{\texttt{uninstall}}
+  \item \href{/cli/update}{\texttt{update}}
+  \item \href{/cli/message}{\texttt{message}}
+  \item \href{/cli/agent}{\texttt{agent}}
+  \item \href{/cli/agents}{\texttt{agents}}
+  \item \href{/cli/acp}{\texttt{acp}}
+  \item \href{/cli/status}{\texttt{status}}
+  \item \href{/cli/health}{\texttt{health}}
+  \item \href{/cli/sessions}{\texttt{sessions}}
+  \item \href{/cli/gateway}{\texttt{gateway}}
+  \item \href{/cli/logs}{\texttt{logs}}
+  \item \href{/cli/system}{\texttt{system}}
+  \item \href{/cli/models}{\texttt{models}}
+  \item \href{/cli/memory}{\texttt{memory}}
+  \item \href{/cli/directory}{\texttt{directory}}
+  \item \href{/cli/nodes}{\texttt{nodes}}
+  \item \href{/cli/devices}{\texttt{devices}}
+  \item \href{/cli/node}{\texttt{node}}
+  \item \href{/cli/approvals}{\texttt{approvals}}
+  \item \href{/cli/sandbox}{\texttt{sandbox}}
+  \item \href{/cli/tui}{\texttt{tui}}
+  \item \href{/cli/browser}{\texttt{browser}}
+  \item \href{/cli/cron}{\texttt{cron}}
+  \item \href{/cli/dns}{\texttt{dns}}
+  \item \href{/cli/docs}{\texttt{docs}}
+  \item \href{/cli/hooks}{\texttt{hooks}}
+  \item \href{/cli/webhooks}{\texttt{webhooks}}
+  \item \href{/cli/pairing}{\texttt{pairing}}
+  \item \href{/cli/qr}{\texttt{qr}}
+  \item \href{/cli/plugins}{\texttt{plugins}} (plugin commands)
+  \item \href{/cli/channels}{\texttt{channels}}
+  \item \href{/cli/security}{\texttt{security}}
+  \item \href{/cli/secrets}{\texttt{secrets}}
+  \item \href{/cli/skills}{\texttt{skills}}
+  \item \href{/cli/daemon}{\texttt{daemon}} (legacy alias for gateway service commands)
+  \item \href{/cli/clawbot}{\texttt{clawbot}} (legacy alias namespace)
+  \item \href{/cli/voicecall}{\texttt{voicecall}} (plugin; if installed)
+\end{itemize}
+
+
+\subsection{Global flags}
+
+
+\begin{itemize}
+  \item \texttt{--dev}: isolate state under \texttt{\textasciitilde{}/.openclaw-dev} and shift default ports.
+  \item \texttt{--profile }: isolate state under \texttt{\textasciitilde{}/.openclaw-}.
+  \item \texttt{--no-color}: disable ANSI colors.
+  \item \texttt{--update}: shorthand for \texttt{openclaw update} (source installs only).
+  \item \texttt{-V}, \texttt{--version}, \texttt{-v}: print version and exit.
+\end{itemize}
+
+
+\subsection{Output styling}
+
+
+\begin{itemize}
+  \item ANSI colors and progress indicators only render in TTY sessions.
+  \item OSC-8 hyperlinks render as clickable links in supported terminals; otherwise we fall back to plain URLs.
+  \item \texttt{--json} (and \texttt{--plain} where supported) disables styling for clean output.
+  \item \texttt{--no-color} disables ANSI styling; \texttt{NO\_COLOR=1} is also respected.
+  \item Long-running commands show a progress indicator (OSC 9;4 when supported).
+\end{itemize}
+
+
+\subsection{Color palette}
+
+
+OpenClaw uses a lobster palette for CLI output.
+
+\begin{itemize}
+  \item \texttt{accent} (\#FF5A2D): headings, labels, primary highlights.
+  \item \texttt{accentBright} (\#FF7A3D): command names, emphasis.
+  \item \texttt{accentDim} (\#D14A22): secondary highlight text.
+  \item \texttt{info} (\#FF8A5B): informational values.
+  \item \texttt{success} (\#2FBF71): success states.
+  \item \texttt{warn} (\#FFB020): warnings, fallbacks, attention.
+  \item \texttt{error} (\#E23D2D): errors, failures.
+  \item \texttt{muted} (\#8B7F77): de-emphasis, metadata.
+\end{itemize}
+
+
+Palette source of truth: \texttt{src/terminal/palette.ts} (aka “lobster seam”).
+
+\subsection{Command tree}
+
+
+\begin{lstlisting}
+openclaw [--dev] [--profile <name>] <command>
+  setup
+  onboard
+  configure
+  config
+    get
+    set
+    unset
+  completion
+  doctor
+  dashboard
+  security
+    audit
+  secrets
+    reload
+    migrate
+  reset
+  uninstall
+  update
+  channels
+    list
+    status
+    logs
+    add
+    remove
+    login
+    logout
+  directory
+  skills
+    list
+    info
+    check
+  plugins
+    list
+    info
+    install
+    enable
+    disable
+    doctor
+  memory
+    status
+    index
+    search
+  message
+  agent
+  agents
+    list
+    add
+    delete
+  acp
+  status
+  health
+  sessions
+  gateway
+    call
+    health
+    status
+    probe
+    discover
+    install
+    uninstall
+    start
+    stop
+    restart
+    run
+  daemon
+    status
+    install
+    uninstall
+    start
+    stop
+    restart
+  logs
+  system
+    event
+    heartbeat last|enable|disable
+    presence
+  models
+    list
+    status
+    set
+    set-image
+    aliases list|add|remove
+    fallbacks list|add|remove|clear
+    image-fallbacks list|add|remove|clear
+    scan
+    auth add|setup-token|paste-token
+    auth order get|set|clear
+  sandbox
+    list
+    recreate
+    explain
+  cron
+    status
+    list
+    add
+    edit
+    rm
+    enable
+    disable
+    runs
+    run
+  nodes
+  devices
+  node
+    run
+    status
+    install
+    uninstall
+    start
+    stop
+    restart
+  approvals
+    get
+    set
+    allowlist add|remove
+  browser
+    status
+    start
+    stop
+    reset-profile
+    tabs
+    open
+    focus
+    close
+    profiles
+    create-profile
+    delete-profile
+    screenshot
+    snapshot
+    navigate
+    resize
+    click
+    type
+    press
+    hover
+    drag
+    select
+    upload
+    fill
+    dialog
+    wait
+    evaluate
+    console
+    pdf
+  hooks
+    list
+    info
+    check
+    enable
+    disable
+    install
+    update
+  webhooks
+    gmail setup|run
+  pairing
+    list
+    approve
+  qr
+  clawbot
+    qr
+  docs
+  dns
+    setup
+  tui
+\end{lstlisting}
+
+
+Note: plugins can add additional top-level commands (for example \texttt{openclaw voicecall}).
+
+\subsection{Security}
+
+
+\begin{itemize}
+  \item \texttt{openclaw security audit} — audit config + local state for common security foot-guns.
+  \item \texttt{openclaw security audit --deep} — best-effort live Gateway probe.
+  \item \texttt{openclaw security audit --fix} — tighten safe defaults and chmod state/config.
+\end{itemize}
+
+
+\subsection{Secrets}
+
+
+\begin{itemize}
+  \item \texttt{openclaw secrets reload} — re-resolve refs and atomically swap the runtime snapshot.
+  \item \texttt{openclaw secrets audit} — scan for plaintext residues, unresolved refs, and precedence drift.
+  \item \texttt{openclaw secrets configure} — interactive helper for provider setup + SecretRef mapping + preflight/apply.
+  \item \texttt{openclaw secrets apply --from } — apply a previously generated plan (\texttt{--dry-run} supported).
+\end{itemize}
+
+
+\subsection{Plugins}
+
+
+Manage extensions and their config:
+
+\begin{itemize}
+  \item \texttt{openclaw plugins list} — discover plugins (use \texttt{--json} for machine output).
+  \item \texttt{openclaw plugins info } — show details for a plugin.
+  \item \texttt{openclaw plugins install } — install a plugin (or add a plugin path to \texttt{plugins.load.paths}).
+  \item \texttt{openclaw plugins enable } / \texttt{disable } — toggle \texttt{plugins.entries..enabled}.
+  \item \texttt{openclaw plugins doctor} — report plugin load errors.
+\end{itemize}
+
+
+Most plugin changes require a gateway restart. See \href{/tools/plugin}{/plugin}.
+
+\subsection{Memory}
+
+
+Vector search over \texttt{MEMORY.md} + \texttt{memory/*.md}:
+
+\begin{itemize}
+  \item \texttt{openclaw memory status} — show index stats.
+  \item \texttt{openclaw memory index} — reindex memory files.
+  \item \texttt{openclaw memory search ""} (or \texttt{--query ""}) — semantic search over memory.
+\end{itemize}
+
+
+\subsection{Chat slash commands}
+
+
+Chat messages support \texttt{/...} commands (text and native). See \href{/tools/slash-commands}{/tools/slash-commands}.
+
+Highlights:
+
+\begin{itemize}
+  \item \texttt{/status} for quick diagnostics.
+  \item \texttt{/config} for persisted config changes.
+  \item \texttt{/debug} for runtime-only config overrides (memory, not disk; requires \texttt{commands.debug: true}).
+\end{itemize}
+
+
+\subsection{Setup + onboarding}
+
+
+\subsubsection{setup}
+
+
+Initialize config + workspace.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--workspace }: agent workspace path (default \texttt{\textasciitilde{}/.openclaw/workspace}).
+  \item \texttt{--wizard}: run the onboarding wizard.
+  \item \texttt{--non-interactive}: run wizard without prompts.
+  \item \texttt{--mode }: wizard mode.
+  \item \texttt{--remote-url }: remote Gateway URL.
+  \item \texttt{--remote-token }: remote Gateway token.
+\end{itemize}
+
+
+Wizard auto-runs when any wizard flags are present (\texttt{--non-interactive}, \texttt{--mode}, \texttt{--remote-url}, \texttt{--remote-token}).
+
+\subsubsection{onboard}
+
+
+Interactive wizard to set up gateway, workspace, and skills.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--workspace }
+  \item \texttt{--reset} (reset config + credentials + sessions before wizard)
+  \item \texttt{--reset-scope } (default \texttt{config+creds+sessions}; use \texttt{full} to also remove workspace)
+  \item \texttt{--non-interactive}
+  \item \texttt{--mode }
+  \item \texttt{--flow } (manual is an alias for advanced)
+  \item \texttt{--auth-choice }
+  \item \texttt{--token-provider } (non-interactive; used with \texttt{--auth-choice token})
+  \item \texttt{--token } (non-interactive; used with \texttt{--auth-choice token})
+  \item \texttt{--token-profile-id } (non-interactive; default: \texttt{:manual})
+  \item \texttt{--token-expires-in } (non-interactive; e.g. \texttt{365d}, \texttt{12h})
+  \item \texttt{--secret-input-mode } (default \texttt{plaintext}; use \texttt{ref} to store provider default env refs instead of plaintext keys)
+  \item \texttt{--anthropic-api-key }
+  \item \texttt{--openai-api-key }
+  \item \texttt{--mistral-api-key }
+  \item \texttt{--openrouter-api-key }
+  \item \texttt{--ai-gateway-api-key }
+  \item \texttt{--moonshot-api-key }
+  \item \texttt{--kimi-code-api-key }
+  \item \texttt{--gemini-api-key }
+  \item \texttt{--zai-api-key }
+  \item \texttt{--minimax-api-key }
+  \item \texttt{--opencode-zen-api-key }
+  \item \texttt{--custom-base-url } (non-interactive; used with \texttt{--auth-choice custom-api-key})
+  \item \texttt{--custom-model-id } (non-interactive; used with \texttt{--auth-choice custom-api-key})
+  \item \texttt{--custom-api-key } (non-interactive; optional; used with \texttt{--auth-choice custom-api-key}; falls back to \texttt{CUSTOM\_API\_KEY} when omitted)
+  \item \texttt{--custom-provider-id } (non-interactive; optional custom provider id)
+  \item \texttt{--custom-compatibility } (non-interactive; optional; default \texttt{openai})
+  \item \texttt{--gateway-port }
+  \item \texttt{--gateway-bind }
+  \item \texttt{--gateway-auth }
+  \item \texttt{--gateway-token }
+  \item \texttt{--gateway-password }
+  \item \texttt{--remote-url }
+  \item \texttt{--remote-token }
+  \item \texttt{--tailscale }
+  \item \texttt{--tailscale-reset-on-exit}
+  \item \texttt{--install-daemon}
+  \item \texttt{--no-install-daemon} (alias: \texttt{--skip-daemon})
+  \item \texttt{--daemon-runtime }
+  \item \texttt{--skip-channels}
+  \item \texttt{--skip-skills}
+  \item \texttt{--skip-health}
+  \item \texttt{--skip-ui}
+  \item \texttt{--node-manager } (pnpm recommended; bun not recommended for Gateway runtime)
+  \item \texttt{--json}
+\end{itemize}
+
+
+\subsubsection{configure}
+
+
+Interactive configuration wizard (models, channels, skills, gateway).
+
+\subsubsection{config}
+
+
+Non-interactive config helpers (get/set/unset/file/validate). Running \texttt{openclaw config} with no
+subcommand launches the wizard.
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{config get }: print a config value (dot/bracket path).
+  \item \texttt{config set  }: set a value (JSON5 or raw string).
+  \item \texttt{config unset }: remove a value.
+  \item \texttt{config file}: print the active config file path.
+  \item \texttt{config validate}: validate the current config against the schema without starting the gateway.
+  \item \texttt{config validate --json}: emit machine-readable JSON output.
+\end{itemize}
+
+
+\subsubsection{doctor}
+
+
+Health checks + quick fixes (config + gateway + legacy services).
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--no-workspace-suggestions}: disable workspace memory hints.
+  \item \texttt{--yes}: accept defaults without prompting (headless).
+  \item \texttt{--non-interactive}: skip prompts; apply safe migrations only.
+  \item \texttt{--deep}: scan system services for extra gateway installs.
+\end{itemize}
+
+
+\subsection{Channel helpers}
+
+
+\subsubsection{channels}
+
+
+Manage chat channel accounts (WhatsApp/Telegram/Discord/Google Chat/Slack/Mattermost (plugin)/Signal/iMessage/MS Teams).
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{channels list}: show configured channels and auth profiles.
+  \item \texttt{channels status}: check gateway reachability and channel health (\texttt{--probe} runs extra checks; use \texttt{openclaw health} or \texttt{openclaw status --deep} for gateway health probes).
+  \item Tip: \texttt{channels status} prints warnings with suggested fixes when it can detect common misconfigurations (then points you to \texttt{openclaw doctor}).
+  \item \texttt{channels logs}: show recent channel logs from the gateway log file.
+  \item \texttt{channels add}: wizard-style setup when no flags are passed; flags switch to non-interactive mode.
+  \item When adding a non-default account to a channel still using single-account top-level config, OpenClaw moves account-scoped values into \texttt{channels..accounts.default} before writing the new account.
+  \item Non-interactive \texttt{channels add} does not auto-create/upgrade bindings; channel-only bindings continue to match the default account.
+  \item \texttt{channels remove}: disable by default; pass \texttt{--delete} to remove config entries without prompts.
+  \item \texttt{channels login}: interactive channel login (WhatsApp Web only).
+  \item \texttt{channels logout}: log out of a channel session (if supported).
+\end{itemize}
+
+
+Common options:
+
+\begin{itemize}
+  \item \texttt{--channel }: \texttt{whatsapp|telegram|discord|googlechat|slack|mattermost|signal|imessage|msteams}
+  \item \texttt{--account }: channel account id (default \texttt{default})
+  \item \texttt{--name }: display name for the account
+\end{itemize}
+
+
+\texttt{channels login} options:
+
+\begin{itemize}
+  \item \texttt{--channel } (default \texttt{whatsapp}; supports \texttt{whatsapp}/\texttt{web})
+  \item \texttt{--account }
+  \item \texttt{--verbose}
+\end{itemize}
+
+
+\texttt{channels logout} options:
+
+\begin{itemize}
+  \item \texttt{--channel } (default \texttt{whatsapp})
+  \item \texttt{--account }
+\end{itemize}
+
+
+\texttt{channels list} options:
+
+\begin{itemize}
+  \item \texttt{--no-usage}: skip model provider usage/quota snapshots (OAuth/API-backed only).
+  \item \texttt{--json}: output JSON (includes usage unless \texttt{--no-usage} is set).
+\end{itemize}
+
+
+\texttt{channels logs} options:
+
+\begin{itemize}
+  \item \texttt{--channel } (default \texttt{all})
+  \item \texttt{--lines } (default \texttt{200})
+  \item \texttt{--json}
+\end{itemize}
+
+
+More detail: \href{/concepts/oauth}{/concepts/oauth}
+
+Examples:
+
+\begin{lstlisting}[language=bash]
+openclaw channels add --channel telegram --account alerts --name "Alerts Bot" --token $TELEGRAM_BOT_TOKEN
+openclaw channels add --channel discord --account work --name "Work Bot" --token $DISCORD_BOT_TOKEN
+openclaw channels remove --channel discord --account work --delete
+openclaw channels status --probe
+openclaw status --deep
+\end{lstlisting}
+
+
+\subsubsection{skills}
+
+
+List and inspect available skills plus readiness info.
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{skills list}: list skills (default when no subcommand).
+  \item \texttt{skills info }: show details for one skill.
+  \item \texttt{skills check}: summary of ready vs missing requirements.
+\end{itemize}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--eligible}: show only ready skills.
+  \item \texttt{--json}: output JSON (no styling).
+  \item \texttt{-v}, \texttt{--verbose}: include missing requirements detail.
+\end{itemize}
+
+
+Tip: use \texttt{npx clawhub} to search, install, and sync skills.
+
+\subsubsection{pairing}
+
+
+Approve DM pairing requests across channels.
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{pairing list [channel] [--channel ] [--account ] [--json]}
+  \item \texttt{pairing approve   [--account ] [--notify]}
+  \item \texttt{pairing approve --channel  [--account ]  [--notify]}
+\end{itemize}
+
+
+\subsubsection{devices}
+
+
+Manage gateway device pairing entries and per-role device tokens.
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{devices list [--json]}
+  \item \texttt{devices approve [requestId] [--latest]}
+  \item \texttt{devices reject }
+  \item \texttt{devices remove }
+  \item \texttt{devices clear --yes [--pending]}
+  \item \texttt{devices rotate --device  --role  [--scope ]}
+  \item \texttt{devices revoke --device  --role }
+\end{itemize}
+
+
+\subsubsection{webhooks gmail}
+
+
+Gmail Pub/Sub hook setup + runner. See \href{/automation/gmail-pubsub}{/automation/gmail-pubsub}.
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{webhooks gmail setup} (requires \texttt{--account }; supports \texttt{--project}, \texttt{--topic}, \texttt{--subscription}, \texttt{--label}, \texttt{--hook-url}, \texttt{--hook-token}, \texttt{--push-token}, \texttt{--bind}, \texttt{--port}, \texttt{--path}, \texttt{--include-body}, \texttt{--max-bytes}, \texttt{--renew-minutes}, \texttt{--tailscale}, \texttt{--tailscale-path}, \texttt{--tailscale-target}, \texttt{--push-endpoint}, \texttt{--json})
+  \item \texttt{webhooks gmail run} (runtime overrides for the same flags)
+\end{itemize}
+
+
+\subsubsection{dns setup}
+
+
+Wide-area discovery DNS helper (CoreDNS + Tailscale). See \href{/gateway/discovery}{/gateway/discovery}.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--apply}: install/update CoreDNS config (requires sudo; macOS only).
+\end{itemize}
+
+
+\subsection{Messaging + agent}
+
+
+\subsubsection{message}
+
+
+Unified outbound messaging + channel actions.
+
+See: \href{/cli/message}{/cli/message}
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{message send|poll|react|reactions|read|edit|delete|pin|unpin|pins|permissions|search|timeout|kick|ban}
+  \item \texttt{message thread }
+  \item \texttt{message emoji }
+  \item \texttt{message sticker }
+  \item \texttt{message role }
+  \item \texttt{message channel }
+  \item \texttt{message member info}
+  \item \texttt{message voice status}
+  \item \texttt{message event }
+\end{itemize}
+
+
+Examples:
+
+\begin{itemize}
+  \item \texttt{openclaw message send --target +15555550123 --message "Hi"}
+  \item \texttt{openclaw message poll --channel discord --target channel:123 --poll-question "Snack?" --poll-option Pizza --poll-option Sushi}
+\end{itemize}
+
+
+\subsubsection{agent}
+
+
+Run one agent turn via the Gateway (or \texttt{--local} embedded).
+
+Required:
+
+\begin{itemize}
+  \item \texttt{--message }
+\end{itemize}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--to } (for session key and optional delivery)
+  \item \texttt{--session-id }
+  \item \texttt{--thinking } (GPT-5.2 + Codex models only)
+  \item \texttt{--verbose }
+  \item \texttt{--channel }
+  \item \texttt{--local}
+  \item \texttt{--deliver}
+  \item \texttt{--json}
+  \item \texttt{--timeout }
+\end{itemize}
+
+
+\subsubsection{agents}
+
+
+Manage isolated agents (workspaces + auth + routing).
+
+\paragraph{agents list}
+
+
+List configured agents.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--json}
+  \item \texttt{--bindings}
+\end{itemize}
+
+
+\paragraph{agents add [name]}
+
+
+Add a new isolated agent. Runs the guided wizard unless flags (or \texttt{--non-interactive}) are passed; \texttt{--workspace} is required in non-interactive mode.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--workspace }
+  \item \texttt{--model }
+  \item \texttt{--agent-dir }
+  \item \texttt{--bind } (repeatable)
+  \item \texttt{--non-interactive}
+  \item \texttt{--json}
+\end{itemize}
+
+
+Binding specs use \texttt{channel[:accountId]}. When \texttt{accountId} is omitted, OpenClaw may resolve account scope via channel defaults/plugin hooks; otherwise it is a channel binding without explicit account scope.
+
+\paragraph{agents bindings}
+
+
+List routing bindings.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--agent }
+  \item \texttt{--json}
+\end{itemize}
+
+
+\paragraph{agents bind}
+
+
+Add routing bindings for an agent.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--agent }
+  \item \texttt{--bind } (repeatable)
+  \item \texttt{--json}
+\end{itemize}
+
+
+\paragraph{agents unbind}
+
+
+Remove routing bindings for an agent.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--agent }
+  \item \texttt{--bind } (repeatable)
+  \item \texttt{--all}
+  \item \texttt{--json}
+\end{itemize}
+
+
+\paragraph{agents delete }
+
+
+Delete an agent and prune its workspace + state.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--force}
+  \item \texttt{--json}
+\end{itemize}
+
+
+\subsubsection{acp}
+
+
+Run the ACP bridge that connects IDEs to the Gateway.
+
+See \href{/cli/acp}{\texttt{acp}} for full options and examples.
+
+\subsubsection{status}
+
+
+Show linked session health and recent recipients.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--json}
+  \item \texttt{--all} (full diagnosis; read-only, pasteable)
+  \item \texttt{--deep} (probe channels)
+  \item \texttt{--usage} (show model provider usage/quota)
+  \item \texttt{--timeout }
+  \item \texttt{--verbose}
+  \item \texttt{--debug} (alias for \texttt{--verbose})
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item Overview includes Gateway + node host service status when available.
+\end{itemize}
+
+
+\subsubsection{Usage tracking}
+
+
+OpenClaw can surface provider usage/quota when OAuth/API creds are available.
+
+Surfaces:
+
+\begin{itemize}
+  \item \texttt{/status} (adds a short provider usage line when available)
+  \item \texttt{openclaw status --usage} (prints full provider breakdown)
+  \item macOS menu bar (Usage section under Context)
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item Data comes directly from provider usage endpoints (no estimates).
+  \item Providers: Anthropic, GitHub Copilot, OpenAI Codex OAuth, plus Gemini CLI/Antigravity when those provider plugins are enabled.
+  \item If no matching credentials exist, usage is hidden.
+  \item Details: see \href{/concepts/usage-tracking}{Usage tracking}.
+\end{itemize}
+
+
+\subsubsection{health}
+
+
+Fetch health from the running Gateway.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--json}
+  \item \texttt{--timeout }
+  \item \texttt{--verbose}
+\end{itemize}
+
+
+\subsubsection{sessions}
+
+
+List stored conversation sessions.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--json}
+  \item \texttt{--verbose}
+  \item \texttt{--store }
+  \item \texttt{--active }
+\end{itemize}
+
+
+\subsection{Reset / Uninstall}
+
+
+\subsubsection{reset}
+
+
+Reset local config/state (keeps the CLI installed).
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--scope }
+  \item \texttt{--yes}
+  \item \texttt{--non-interactive}
+  \item \texttt{--dry-run}
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{--non-interactive} requires \texttt{--scope} and \texttt{--yes}.
+\end{itemize}
+
+
+\subsubsection{uninstall}
+
+
+Uninstall the gateway service + local data (CLI remains).
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--service}
+  \item \texttt{--state}
+  \item \texttt{--workspace}
+  \item \texttt{--app}
+  \item \texttt{--all}
+  \item \texttt{--yes}
+  \item \texttt{--non-interactive}
+  \item \texttt{--dry-run}
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{--non-interactive} requires \texttt{--yes} and explicit scopes (or \texttt{--all}).
+\end{itemize}
+
+
+\subsection{Gateway}
+
+
+\subsubsection{gateway}
+
+
+Run the WebSocket Gateway.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--port }
+  \item \texttt{--bind }
+  \item \texttt{--token }
+  \item \texttt{--auth }
+  \item \texttt{--password }
+  \item \texttt{--tailscale }
+  \item \texttt{--tailscale-reset-on-exit}
+  \item \texttt{--allow-unconfigured}
+  \item \texttt{--dev}
+  \item \texttt{--reset} (reset dev config + credentials + sessions + workspace)
+  \item \texttt{--force} (kill existing listener on port)
+  \item \texttt{--verbose}
+  \item \texttt{--claude-cli-logs}
+  \item \texttt{--ws-log }
+  \item \texttt{--compact} (alias for \texttt{--ws-log compact})
+  \item \texttt{--raw-stream}
+  \item \texttt{--raw-stream-path }
+\end{itemize}
+
+
+\subsubsection{gateway service}
+
+
+Manage the Gateway service (launchd/systemd/schtasks).
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{gateway status} (probes the Gateway RPC by default)
+  \item \texttt{gateway install} (service install)
+  \item \texttt{gateway uninstall}
+  \item \texttt{gateway start}
+  \item \texttt{gateway stop}
+  \item \texttt{gateway restart}
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{gateway status} probes the Gateway RPC by default using the service’s resolved port/config (override with \texttt{--url/--token/--password}).
+  \item \texttt{gateway status} supports \texttt{--no-probe}, \texttt{--deep}, and \texttt{--json} for scripting.
+  \item \texttt{gateway status} also surfaces legacy or extra gateway services when it can detect them (\texttt{--deep} adds system-level scans). Profile-named OpenClaw services are treated as first-class and aren't flagged as "extra".
+  \item \texttt{gateway status} prints which config path the CLI uses vs which config the service likely uses (service env), plus the resolved probe target URL.
+  \item \texttt{gateway install|uninstall|start|stop|restart} support \texttt{--json} for scripting (default output stays human-friendly).
+  \item \texttt{gateway install} defaults to Node runtime; bun is \textbf{not recommended} (WhatsApp/Telegram bugs).
+  \item \texttt{gateway install} options: \texttt{--port}, \texttt{--runtime}, \texttt{--token}, \texttt{--force}, \texttt{--json}.
+\end{itemize}
+
+
+\subsubsection{logs}
+
+
+Tail Gateway file logs via RPC.
+
+Notes:
+
+\begin{itemize}
+  \item TTY sessions render a colorized, structured view; non-TTY falls back to plain text.
+  \item \texttt{--json} emits line-delimited JSON (one log event per line).
+\end{itemize}
+
+
+Examples:
+
+\begin{lstlisting}[language=bash]
+openclaw logs --follow
+openclaw logs --limit 200
+openclaw logs --plain
+openclaw logs --json
+openclaw logs --no-color
+\end{lstlisting}
+
+
+\subsubsection{gateway }
+
+
+Gateway CLI helpers (use \texttt{--url}, \texttt{--token}, \texttt{--password}, \texttt{--timeout}, \texttt{--expect-final} for RPC subcommands).
+When you pass \texttt{--url}, the CLI does not auto-apply config or environment credentials.
+Include \texttt{--token} or \texttt{--password} explicitly. Missing explicit credentials is an error.
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{gateway call  [--params ]}
+  \item \texttt{gateway health}
+  \item \texttt{gateway status}
+  \item \texttt{gateway probe}
+  \item \texttt{gateway discover}
+  \item \texttt{gateway install|uninstall|start|stop|restart}
+  \item \texttt{gateway run}
+\end{itemize}
+
+
+Common RPCs:
+
+\begin{itemize}
+  \item \texttt{config.apply} (validate + write config + restart + wake)
+  \item \texttt{config.patch} (merge a partial update + restart + wake)
+  \item \texttt{update.run} (run update + restart + wake)
+\end{itemize}
+
+
+Tip: when calling \texttt{config.set}/\texttt{config.apply}/\texttt{config.patch} directly, pass \texttt{baseHash} from
+\texttt{config.get} if a config already exists.
+
+\subsection{Models}
+
+
+See \href{/concepts/models}{/concepts/models} for fallback behavior and scanning strategy.
+
+Anthropic setup-token (supported):
+
+\begin{lstlisting}[language=bash]
+claude setup-token
+openclaw models auth setup-token --provider anthropic
+openclaw models status
+\end{lstlisting}
+
+
+Policy note: this is technical compatibility. Anthropic has blocked some
+subscription usage outside Claude Code in the past; verify current Anthropic
+terms before relying on setup-token in production.
+
+\subsubsection{models (root)}
+
+
+\texttt{openclaw models} is an alias for \texttt{models status}.
+
+Root options:
+
+\begin{itemize}
+  \item \texttt{--status-json} (alias for \texttt{models status --json})
+  \item \texttt{--status-plain} (alias for \texttt{models status --plain})
+\end{itemize}
+
+
+\subsubsection{models list}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--all}
+  \item \texttt{--local}
+  \item \texttt{--provider }
+  \item \texttt{--json}
+  \item \texttt{--plain}
+\end{itemize}
+
+
+\subsubsection{models status}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--json}
+  \item \texttt{--plain}
+  \item \texttt{--check} (exit 1=expired/missing, 2=expiring)
+  \item \texttt{--probe} (live probe of configured auth profiles)
+  \item \texttt{--probe-provider }
+  \item \texttt{--probe-profile } (repeat or comma-separated)
+  \item \texttt{--probe-timeout }
+  \item \texttt{--probe-concurrency }
+  \item \texttt{--probe-max-tokens }
+\end{itemize}
+
+
+Always includes the auth overview and OAuth expiry status for profiles in the auth store.
+\texttt{--probe} runs live requests (may consume tokens and trigger rate limits).
+
+\subsubsection{models set }
+
+
+Set \texttt{agents.defaults.model.primary}.
+
+\subsubsection{models set-image }
+
+
+Set \texttt{agents.defaults.imageModel.primary}.
+
+\subsubsection{models aliases list|add|remove}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{list}: \texttt{--json}, \texttt{--plain}
+  \item \texttt{add  }
+  \item \texttt{remove }
+\end{itemize}
+
+
+\subsubsection{models fallbacks list|add|remove|clear}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{list}: \texttt{--json}, \texttt{--plain}
+  \item \texttt{add }
+  \item \texttt{remove }
+  \item \texttt{clear}
+\end{itemize}
+
+
+\subsubsection{models image-fallbacks list|add|remove|clear}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{list}: \texttt{--json}, \texttt{--plain}
+  \item \texttt{add }
+  \item \texttt{remove }
+  \item \texttt{clear}
+\end{itemize}
+
+
+\subsubsection{models scan}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--min-params }
+  \item \texttt{--max-age-days }
+  \item \texttt{--provider }
+  \item \texttt{--max-candidates }
+  \item \texttt{--timeout }
+  \item \texttt{--concurrency }
+  \item \texttt{--no-probe}
+  \item \texttt{--yes}
+  \item \texttt{--no-input}
+  \item \texttt{--set-default}
+  \item \texttt{--set-image}
+  \item \texttt{--json}
+\end{itemize}
+
+
+\subsubsection{models auth add|setup-token|paste-token}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{add}: interactive auth helper
+  \item \texttt{setup-token}: \texttt{--provider } (default \texttt{anthropic}), \texttt{--yes}
+  \item \texttt{paste-token}: \texttt{--provider }, \texttt{--profile-id }, \texttt{--expires-in }
+\end{itemize}
+
+
+\subsubsection{models auth order get|set|clear}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{get}: \texttt{--provider }, \texttt{--agent }, \texttt{--json}
+  \item \texttt{set}: \texttt{--provider }, \texttt{--agent }, ``
+  \item \texttt{clear}: \texttt{--provider }, \texttt{--agent }
+\end{itemize}
+
+
+\subsection{System}
+
+
+\subsubsection{system event}
+
+
+Enqueue a system event and optionally trigger a heartbeat (Gateway RPC).
+
+Required:
+
+\begin{itemize}
+  \item \texttt{--text }
+\end{itemize}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--mode }
+  \item \texttt{--json}
+  \item \texttt{--url}, \texttt{--token}, \texttt{--timeout}, \texttt{--expect-final}
+\end{itemize}
+
+
+\subsubsection{system heartbeat last|enable|disable}
+
+
+Heartbeat controls (Gateway RPC).
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--json}
+  \item \texttt{--url}, \texttt{--token}, \texttt{--timeout}, \texttt{--expect-final}
+\end{itemize}
+
+
+\subsubsection{system presence}
+
+
+List system presence entries (Gateway RPC).
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--json}
+  \item \texttt{--url}, \texttt{--token}, \texttt{--timeout}, \texttt{--expect-final}
+\end{itemize}
+
+
+\subsection{Cron}
+
+
+Manage scheduled jobs (Gateway RPC). See \href{/automation/cron-jobs}{/automation/cron-jobs}.
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{cron status [--json]}
+  \item \texttt{cron list [--all] [--json]} (table output by default; use \texttt{--json} for raw)
+  \item \texttt{cron add} (alias: \texttt{create}; requires \texttt{--name} and exactly one of \texttt{--at} | \texttt{--every} | \texttt{--cron}, and exactly one payload of \texttt{--system-event} | \texttt{--message})
+  \item \texttt{cron edit } (patch fields)
+  \item \texttt{cron rm } (aliases: \texttt{remove}, \texttt{delete})
+  \item \texttt{cron enable }
+  \item \texttt{cron disable }
+  \item \texttt{cron runs --id  [--limit ]}
+  \item \texttt{cron run  [--force]}
+\end{itemize}
+
+
+All \texttt{cron} commands accept \texttt{--url}, \texttt{--token}, \texttt{--timeout}, \texttt{--expect-final}.
+
+\subsection{Node host}
+
+
+\texttt{node} runs a \textbf{headless node host} or manages it as a background service. See
+\href{/cli/node}{\texttt{openclaw node}}.
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{node run --host  --port 18789}
+  \item \texttt{node status}
+  \item \texttt{node install [--host ] [--port ] [--tls] [--tls-fingerprint ] [--node-id ] [--display-name ] [--runtime ] [--force]}
+  \item \texttt{node uninstall}
+  \item \texttt{node stop}
+  \item \texttt{node restart}
+\end{itemize}
+
+
+\subsection{Nodes}
+
+
+\texttt{nodes} talks to the Gateway and targets paired nodes. See \href{/nodes}{/nodes}.
+
+Common options:
+
+\begin{itemize}
+  \item \texttt{--url}, \texttt{--token}, \texttt{--timeout}, \texttt{--json}
+\end{itemize}
+
+
+Subcommands:
+
+\begin{itemize}
+  \item \texttt{nodes status [--connected] [--last-connected ]}
+  \item \texttt{nodes describe --node }
+  \item \texttt{nodes list [--connected] [--last-connected ]}
+  \item \texttt{nodes pending}
+  \item \texttt{nodes approve }
+  \item \texttt{nodes reject }
+  \item \texttt{nodes rename --node  --name }
+  \item \texttt{nodes invoke --node  --command  [--params ] [--invoke-timeout ] [--idempotency-key ]}
+  \item \texttt{nodes run --node  [--cwd ] [--env KEY=VAL] [--command-timeout ] [--needs-screen-recording] [--invoke-timeout ] } (mac node or headless node host)
+  \item \texttt{nodes notify --node  [--title ] [--body ] [--sound ] [--priority ] [--delivery ] [--invoke-timeout ]} (mac only)
+\end{itemize}
+
+
+Camera:
+
+\begin{itemize}
+  \item \texttt{nodes camera list --node }
+  \item \texttt{nodes camera snap --node  [--facing front|back|both] [--device-id ] [--max-width ] [--quality <0-1>] [--delay-ms ] [--invoke-timeout ]}
+  \item \texttt{nodes camera clip --node  [--facing front|back] [--device-id ] [--duration ] [--no-audio] [--invoke-timeout ]}
+\end{itemize}
+
+
+Canvas + screen:
+
+\begin{itemize}
+  \item \texttt{nodes canvas snapshot --node  [--format png|jpg|jpeg] [--max-width ] [--quality <0-1>] [--invoke-timeout ]}
+  \item \texttt{nodes canvas present --node  [--target ] [--x ] [--y ] [--width ] [--height ] [--invoke-timeout ]}
+  \item \texttt{nodes canvas hide --node  [--invoke-timeout ]}
+  \item \texttt{nodes canvas navigate  --node  [--invoke-timeout ]}
+  \item \texttt{nodes canvas eval [] --node  [--js ] [--invoke-timeout ]}
+  \item \texttt{nodes canvas a2ui push --node  (--jsonl  | --text ) [--invoke-timeout ]}
+  \item \texttt{nodes canvas a2ui reset --node  [--invoke-timeout ]}
+  \item \texttt{nodes screen record --node  [--screen ] [--duration ] [--fps ] [--no-audio] [--out ] [--invoke-timeout ]}
+\end{itemize}
+
+
+Location:
+
+\begin{itemize}
+  \item \texttt{nodes location get --node  [--max-age ] [--accuracy ] [--location-timeout ] [--invoke-timeout ]}
+\end{itemize}
+
+
+\subsection{Browser}
+
+
+Browser control CLI (dedicated Chrome/Brave/Edge/Chromium). See \href{/cli/browser}{\texttt{openclaw browser}} and the \href{/tools/browser}{Browser tool}.
+
+Common options:
+
+\begin{itemize}
+  \item \texttt{--url}, \texttt{--token}, \texttt{--timeout}, \texttt{--json}
+  \item \texttt{--browser-profile }
+\end{itemize}
+
+
+Manage:
+
+\begin{itemize}
+  \item \texttt{browser status}
+  \item \texttt{browser start}
+  \item \texttt{browser stop}
+  \item \texttt{browser reset-profile}
+  \item \texttt{browser tabs}
+  \item \texttt{browser open }
+  \item \texttt{browser focus }
+  \item \texttt{browser close [targetId]}
+  \item \texttt{browser profiles}
+  \item \texttt{browser create-profile --name  [--color ] [--cdp-url ]}
+  \item \texttt{browser delete-profile --name }
+\end{itemize}
+
+
+Inspect:
+
+\begin{itemize}
+  \item \texttt{browser screenshot [targetId] [--full-page] [--ref ] [--element ] [--type png|jpeg]}
+  \item \texttt{browser snapshot [--format aria|ai] [--target-id ] [--limit ] [--interactive] [--compact] [--depth ] [--selector ] [--out ]}
+\end{itemize}
+
+
+Actions:
+
+\begin{itemize}
+  \item \texttt{browser navigate  [--target-id ]}
+  \item \texttt{browser resize   [--target-id ]}
+  \item \texttt{browser click  [--double] [--button ] [--modifiers ] [--target-id ]}
+  \item \texttt{browser type   [--submit] [--slowly] [--target-id ]}
+  \item \texttt{browser press  [--target-id ]}
+  \item \texttt{browser hover  [--target-id ]}
+  \item \texttt{browser drag   [--target-id ]}
+  \item \texttt{browser select   [--target-id ]}
+  \item \texttt{browser upload  [--ref ] [--input-ref ] [--element ] [--target-id ] [--timeout-ms ]}
+  \item \texttt{browser fill [--fields ] [--fields-file ] [--target-id ]}
+  \item \texttt{browser dialog --accept|--dismiss [--prompt ] [--target-id ] [--timeout-ms ]}
+  \item \texttt{browser wait [--time ] [--text ] [--text-gone ] [--target-id ]}
+  \item \texttt{browser evaluate --fn  [--ref ] [--target-id ]}
+  \item \texttt{browser console [--level ] [--target-id ]}
+  \item \texttt{browser pdf [--target-id ]}
+\end{itemize}
+
+
+\subsection{Docs search}
+
+
+\subsubsection{docs [query...]}
+
+
+Search the live docs index.
+
+\subsection{TUI}
+
+
+\subsubsection{tui}
+
+
+Open the terminal UI connected to the Gateway.
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--url }
+  \item \texttt{--token }
+  \item \texttt{--password }
+  \item \texttt{--session }
+  \item \texttt{--deliver}
+  \item \texttt{--thinking }
+  \item \texttt{--message }
+  \item \texttt{--timeout-ms } (defaults to \texttt{agents.defaults.timeoutSeconds})
+  \item \texttt{--history-limit }
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/logs.md ===
+\section{openclaw logs}
+
+
+Tail Gateway file logs over RPC (works in remote mode).
+
+Related:
+
+\begin{itemize}
+  \item Logging overview: \href{/logging}{Logging}
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw logs
+openclaw logs --follow
+openclaw logs --json
+openclaw logs --limit 500
+openclaw logs --local-time
+openclaw logs --follow --local-time
+\end{lstlisting}
+
+
+Use \texttt{--local-time} to render timestamps in your local timezone.
+
+
+\clearpage
+
+% === Source file: cli/memory.md ===
+\section{openclaw memory}
+
+
+Manage semantic memory indexing and search.
+Provided by the active memory plugin (default: \texttt{memory-core}; set \texttt{plugins.slots.memory = "none"} to disable).
+
+Related:
+
+\begin{itemize}
+  \item Memory concept: \href{/concepts/memory}{Memory}
+  \item Plugins: \href{/tools/plugin}{Plugins}
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw memory status
+openclaw memory status --deep
+openclaw memory status --deep --index
+openclaw memory status --deep --index --verbose
+openclaw memory index
+openclaw memory index --verbose
+openclaw memory search "release checklist"
+openclaw memory search --query "release checklist"
+openclaw memory status --agent main
+openclaw memory index --agent main --verbose
+\end{lstlisting}
+
+
+\subsection{Options}
+
+
+Common:
+
+\begin{itemize}
+  \item \texttt{--agent }: scope to a single agent (default: all configured agents).
+  \item \texttt{--verbose}: emit detailed logs during probes and indexing.
+\end{itemize}
+
+
+\texttt{memory search}:
+
+\begin{itemize}
+  \item Query input: pass either positional \texttt{[query]} or \texttt{--query }.
+  \item If both are provided, \texttt{--query} wins.
+  \item If neither is provided, the command exits with an error.
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{memory status --deep} probes vector + embedding availability.
+  \item \texttt{memory status --deep --index} runs a reindex if the store is dirty.
+  \item \texttt{memory index --verbose} prints per-phase details (provider, model, sources, batch activity).
+  \item \texttt{memory status} includes any extra paths configured via \texttt{memorySearch.extraPaths}.
+  \item If effectively active memory remote API key fields are configured as SecretRefs, the command resolves those values from the active gateway snapshot. If gateway is unavailable, the command fails fast.
+  \item Gateway version skew note: this command path requires a gateway that supports \texttt{secrets.resolve}; older gateways return an unknown-method error.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/message.md ===
+\section{openclaw message}
+
+
+Single outbound command for sending messages and channel actions
+(Discord/Google Chat/Slack/Mattermost (plugin)/Telegram/WhatsApp/Signal/iMessage/MS Teams).
+
+\subsection{Usage}
+
+
+\begin{lstlisting}
+openclaw message <subcommand> [flags]
+\end{lstlisting}
+
+
+Channel selection:
+
+\begin{itemize}
+  \item \texttt{--channel} required if more than one channel is configured.
+  \item If exactly one channel is configured, it becomes the default.
+  \item Values: \texttt{whatsapp|telegram|discord|googlechat|slack|mattermost|signal|imessage|msteams} (Mattermost requires plugin)
+\end{itemize}
+
+
+Target formats (\texttt{--target}):
+
+\begin{itemize}
+  \item WhatsApp: E.164 or group JID
+  \item Telegram: chat id or \texttt{@username}
+  \item Discord: \texttt{channel:} or \texttt{user:} (or \texttt{<@id>} mention; raw numeric ids are treated as channels)
+  \item Google Chat: \texttt{spaces/} or \texttt{users/}
+  \item Slack: \texttt{channel:} or \texttt{user:} (raw channel id is accepted)
+  \item Mattermost (plugin): \texttt{channel:}, \texttt{user:}, or \texttt{@username} (bare ids are treated as channels)
+  \item Signal: \texttt{+E.164}, \texttt{group:}, \texttt{signal:+E.164}, \texttt{signal:group:}, or \texttt{username:}/\texttt{u:}
+  \item iMessage: handle, \texttt{chat\_id:}, \texttt{chat\_guid:}, or \texttt{chat\_identifier:}
+  \item MS Teams: conversation id (\texttt{19:...@thread.tacv2}) or \texttt{conversation:} or \texttt{user:}
+\end{itemize}
+
+
+Name lookup:
+
+\begin{itemize}
+  \item For supported providers (Discord/Slack/etc), channel names like \texttt{Help} or \texttt{\#help} are resolved via the directory cache.
+  \item On cache miss, OpenClaw will attempt a live directory lookup when the provider supports it.
+\end{itemize}
+
+
+\subsection{Common flags}
+
+
+\begin{itemize}
+  \item \texttt{--channel }
+  \item \texttt{--account }
+  \item \texttt{--target } (target channel or user for send/poll/read/etc)
+  \item \texttt{--targets } (repeat; broadcast only)
+  \item \texttt{--json}
+  \item \texttt{--dry-run}
+  \item \texttt{--verbose}
+\end{itemize}
+
+
+\subsection{Actions}
+
+
+\subsubsection{Core}
+
+
+\begin{itemize}
+  \item \texttt{send}
+  \item Channels: WhatsApp/Telegram/Discord/Google Chat/Slack/Mattermost (plugin)/Signal/iMessage/MS Teams
+  \item Required: \texttt{--target}, plus \texttt{--message} or \texttt{--media}
+  \item Optional: \texttt{--media}, \texttt{--reply-to}, \texttt{--thread-id}, \texttt{--gif-playback}
+  \item Telegram only: \texttt{--buttons} (requires \texttt{channels.telegram.capabilities.inlineButtons} to allow it)
+  \item Telegram only: \texttt{--thread-id} (forum topic id)
+  \item Slack only: \texttt{--thread-id} (thread timestamp; \texttt{--reply-to} uses the same field)
+  \item WhatsApp only: \texttt{--gif-playback}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{poll}
+  \item Channels: WhatsApp/Telegram/Discord/Matrix/MS Teams
+  \item Required: \texttt{--target}, \texttt{--poll-question}, \texttt{--poll-option} (repeat)
+  \item Optional: \texttt{--poll-multi}
+  \item Discord only: \texttt{--poll-duration-hours}, \texttt{--silent}, \texttt{--message}
+  \item Telegram only: \texttt{--poll-duration-seconds} (5-600), \texttt{--silent}, \texttt{--poll-anonymous} / \texttt{--poll-public}, \texttt{--thread-id}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{react}
+  \item Channels: Discord/Google Chat/Slack/Telegram/WhatsApp/Signal
+  \item Required: \texttt{--message-id}, \texttt{--target}
+  \item Optional: \texttt{--emoji}, \texttt{--remove}, \texttt{--participant}, \texttt{--from-me}, \texttt{--target-author}, \texttt{--target-author-uuid}
+  \item Note: \texttt{--remove} requires \texttt{--emoji} (omit \texttt{--emoji} to clear own reactions where supported; see /tools/reactions)
+  \item WhatsApp only: \texttt{--participant}, \texttt{--from-me}
+  \item Signal group reactions: \texttt{--target-author} or \texttt{--target-author-uuid} required
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{reactions}
+  \item Channels: Discord/Google Chat/Slack
+  \item Required: \texttt{--message-id}, \texttt{--target}
+  \item Optional: \texttt{--limit}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{read}
+  \item Channels: Discord/Slack
+  \item Required: \texttt{--target}
+  \item Optional: \texttt{--limit}, \texttt{--before}, \texttt{--after}
+  \item Discord only: \texttt{--around}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{edit}
+  \item Channels: Discord/Slack
+  \item Required: \texttt{--message-id}, \texttt{--message}, \texttt{--target}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{delete}
+  \item Channels: Discord/Slack/Telegram
+  \item Required: \texttt{--message-id}, \texttt{--target}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{pin} / \texttt{unpin}
+  \item Channels: Discord/Slack
+  \item Required: \texttt{--message-id}, \texttt{--target}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{pins} (list)
+  \item Channels: Discord/Slack
+  \item Required: \texttt{--target}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{permissions}
+  \item Channels: Discord
+  \item Required: \texttt{--target}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{search}
+  \item Channels: Discord
+  \item Required: \texttt{--guild-id}, \texttt{--query}
+  \item Optional: \texttt{--channel-id}, \texttt{--channel-ids} (repeat), \texttt{--author-id}, \texttt{--author-ids} (repeat), \texttt{--limit}
+\end{itemize}
+
+
+\subsubsection{Threads}
+
+
+\begin{itemize}
+  \item \texttt{thread create}
+  \item Channels: Discord
+  \item Required: \texttt{--thread-name}, \texttt{--target} (channel id)
+  \item Optional: \texttt{--message-id}, \texttt{--message}, \texttt{--auto-archive-min}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{thread list}
+  \item Channels: Discord
+  \item Required: \texttt{--guild-id}
+  \item Optional: \texttt{--channel-id}, \texttt{--include-archived}, \texttt{--before}, \texttt{--limit}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{thread reply}
+  \item Channels: Discord
+  \item Required: \texttt{--target} (thread id), \texttt{--message}
+  \item Optional: \texttt{--media}, \texttt{--reply-to}
+\end{itemize}
+
+
+\subsubsection{Emojis}
+
+
+\begin{itemize}
+  \item \texttt{emoji list}
+  \item Discord: \texttt{--guild-id}
+  \item Slack: no extra flags
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{emoji upload}
+  \item Channels: Discord
+  \item Required: \texttt{--guild-id}, \texttt{--emoji-name}, \texttt{--media}
+  \item Optional: \texttt{--role-ids} (repeat)
+\end{itemize}
+
+
+\subsubsection{Stickers}
+
+
+\begin{itemize}
+  \item \texttt{sticker send}
+  \item Channels: Discord
+  \item Required: \texttt{--target}, \texttt{--sticker-id} (repeat)
+  \item Optional: \texttt{--message}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{sticker upload}
+  \item Channels: Discord
+  \item Required: \texttt{--guild-id}, \texttt{--sticker-name}, \texttt{--sticker-desc}, \texttt{--sticker-tags}, \texttt{--media}
+\end{itemize}
+
+
+\subsubsection{Roles / Channels / Members / Voice}
+
+
+\begin{itemize}
+  \item \texttt{role info} (Discord): \texttt{--guild-id}
+  \item \texttt{role add} / \texttt{role remove} (Discord): \texttt{--guild-id}, \texttt{--user-id}, \texttt{--role-id}
+  \item \texttt{channel info} (Discord): \texttt{--target}
+  \item \texttt{channel list} (Discord): \texttt{--guild-id}
+  \item \texttt{member info} (Discord/Slack): \texttt{--user-id} (+ \texttt{--guild-id} for Discord)
+  \item \texttt{voice status} (Discord): \texttt{--guild-id}, \texttt{--user-id}
+\end{itemize}
+
+
+\subsubsection{Events}
+
+
+\begin{itemize}
+  \item \texttt{event list} (Discord): \texttt{--guild-id}
+  \item \texttt{event create} (Discord): \texttt{--guild-id}, \texttt{--event-name}, \texttt{--start-time}
+  \item Optional: \texttt{--end-time}, \texttt{--desc}, \texttt{--channel-id}, \texttt{--location}, \texttt{--event-type}
+\end{itemize}
+
+
+\subsubsection{Moderation (Discord)}
+
+
+\begin{itemize}
+  \item \texttt{timeout}: \texttt{--guild-id}, \texttt{--user-id} (optional \texttt{--duration-min} or \texttt{--until}; omit both to clear timeout)
+  \item \texttt{kick}: \texttt{--guild-id}, \texttt{--user-id} (+ \texttt{--reason})
+  \item \texttt{ban}: \texttt{--guild-id}, \texttt{--user-id} (+ \texttt{--delete-days}, \texttt{--reason})
+  \item \texttt{timeout} also supports \texttt{--reason}
+\end{itemize}
+
+
+\subsubsection{Broadcast}
+
+
+\begin{itemize}
+  \item \texttt{broadcast}
+  \item Channels: any configured channel; use \texttt{--channel all} to target all providers
+  \item Required: \texttt{--targets} (repeat)
+  \item Optional: \texttt{--message}, \texttt{--media}, \texttt{--dry-run}
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+Send a Discord reply:
+
+\begin{lstlisting}
+openclaw message send --channel discord \
+  --target channel:123 --message "hi" --reply-to 456
+\end{lstlisting}
+
+
+Send a Discord message with components:
+
+\begin{lstlisting}
+openclaw message send --channel discord \
+  --target channel:123 --message "Choose:" \
+  --components '{"text":"Choose a path","blocks":[{"type":"actions","buttons":[{"label":"Approve","style":"success"},{"label":"Decline","style":"danger"}]}]}'
+\end{lstlisting}
+
+
+See \href{/channels/discord\#interactive-components}{Discord components} for the full schema.
+
+Create a Discord poll:
+
+\begin{lstlisting}
+openclaw message poll --channel discord \
+  --target channel:123 \
+  --poll-question "Snack?" \
+  --poll-option Pizza --poll-option Sushi \
+  --poll-multi --poll-duration-hours 48
+\end{lstlisting}
+
+
+Create a Telegram poll (auto-close in 2 minutes):
+
+\begin{lstlisting}
+openclaw message poll --channel telegram \
+  --target @mychat \
+  --poll-question "Lunch?" \
+  --poll-option Pizza --poll-option Sushi \
+  --poll-duration-seconds 120 --silent
+\end{lstlisting}
+
+
+Send a Teams proactive message:
+
+\begin{lstlisting}
+openclaw message send --channel msteams \
+  --target conversation:19:abc@thread.tacv2 --message "hi"
+\end{lstlisting}
+
+
+Create a Teams poll:
+
+\begin{lstlisting}
+openclaw message poll --channel msteams \
+  --target conversation:19:abc@thread.tacv2 \
+  --poll-question "Lunch?" \
+  --poll-option Pizza --poll-option Sushi
+\end{lstlisting}
+
+
+React in Slack:
+
+\begin{lstlisting}
+openclaw message react --channel slack \
+  --target C123 --message-id 456 --emoji "✅"
+\end{lstlisting}
+
+
+React in a Signal group:
+
+\begin{lstlisting}
+openclaw message react --channel signal \
+  --target signal:group:abc123 --message-id 1737630212345 \
+  --emoji "✅" --target-author-uuid 123e4567-e89b-12d3-a456-426614174000
+\end{lstlisting}
+
+
+Send Telegram inline buttons:
+
+\begin{lstlisting}
+openclaw message send --channel telegram --target @mychat --message "Choose:" \
+  --buttons '[ [{"text":"Yes","callback_data":"cmd:yes"}], [{"text":"No","callback_data":"cmd:no"}] ]'
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/models.md ===
+\section{openclaw models}
+
+
+Model discovery, scanning, and configuration (default model, fallbacks, auth profiles).
+
+Related:
+
+\begin{itemize}
+  \item Providers + models: \href{/providers/models}{Models}
+  \item Provider auth setup: \href{/start/getting-started}{Getting started}
+\end{itemize}
+
+
+\subsection{Common commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models status
+openclaw models list
+openclaw models set <model-or-alias>
+openclaw models scan
+\end{lstlisting}
+
+
+\texttt{openclaw models status} shows the resolved default/fallbacks plus an auth overview.
+When provider usage snapshots are available, the OAuth/token status section includes
+provider usage headers.
+Add \texttt{--probe} to run live auth probes against each configured provider profile.
+Probes are real requests (may consume tokens and trigger rate limits).
+Use \texttt{--agent } to inspect a configured agent’s model/auth state. When omitted,
+the command uses \texttt{OPENCLAW\_AGENT\_DIR}/\texttt{PI\_CODING\_AGENT\_DIR} if set, otherwise the
+configured default agent.
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{models set } accepts \texttt{provider/model} or an alias.
+  \item Model refs are parsed by splitting on the \textbf{first} \texttt{/}. If the model ID includes \texttt{/} (OpenRouter-style), include the provider prefix (example: \texttt{openrouter/moonshotai/kimi-k2}).
+  \item If you omit the provider, OpenClaw treats the input as an alias or a model for the \textbf{default provider} (only works when there is no \texttt{/} in the model ID).
+\end{itemize}
+
+
+\subsubsection{models status}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--json}
+  \item \texttt{--plain}
+  \item \texttt{--check} (exit 1=expired/missing, 2=expiring)
+  \item \texttt{--probe} (live probe of configured auth profiles)
+  \item \texttt{--probe-provider } (probe one provider)
+  \item \texttt{--probe-profile } (repeat or comma-separated profile ids)
+  \item \texttt{--probe-timeout }
+  \item \texttt{--probe-concurrency }
+  \item \texttt{--probe-max-tokens }
+  \item \texttt{--agent } (configured agent id; overrides \texttt{OPENCLAW\_AGENT\_DIR}/\texttt{PI\_CODING\_AGENT\_DIR})
+\end{itemize}
+
+
+\subsection{Aliases + fallbacks}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models aliases list
+openclaw models fallbacks list
+\end{lstlisting}
+
+
+\subsection{Auth profiles}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models auth add
+openclaw models auth login --provider <id>
+openclaw models auth setup-token
+openclaw models auth paste-token
+\end{lstlisting}
+
+
+\texttt{models auth login} runs a provider plugin’s auth flow (OAuth/API key). Use
+\texttt{openclaw plugins list} to see which providers are installed.
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{setup-token} prompts for a setup-token value (generate it with \texttt{claude setup-token} on any machine).
+  \item \texttt{paste-token} accepts a token string generated elsewhere or from automation.
+  \item Anthropic policy note: setup-token support is technical compatibility. Anthropic has blocked some subscription usage outside Claude Code in the past, so verify current terms before using it broadly.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/node.md ===
+\section{openclaw node}
+
+
+Run a \textbf{headless node host} that connects to the Gateway WebSocket and exposes
+\texttt{system.run} / \texttt{system.which} on this machine.
+
+\subsection{Why use a node host?}
+
+
+Use a node host when you want agents to \textbf{run commands on other machines} in your
+network without installing a full macOS companion app there.
+
+Common use cases:
+
+\begin{itemize}
+  \item Run commands on remote Linux/Windows boxes (build servers, lab machines, NAS).
+  \item Keep exec \textbf{sandboxed} on the gateway, but delegate approved runs to other hosts.
+  \item Provide a lightweight, headless execution target for automation or CI nodes.
+\end{itemize}
+
+
+Execution is still guarded by \textbf{exec approvals} and per‑agent allowlists on the
+node host, so you can keep command access scoped and explicit.
+
+\subsection{Browser proxy (zero-config)}
+
+
+Node hosts automatically advertise a browser proxy if \texttt{browser.enabled} is not
+disabled on the node. This lets the agent use browser automation on that node
+without extra configuration.
+
+Disable it on the node if needed:
+
+\begin{lstlisting}[language=json]
+{
+  nodeHost: {
+    browserProxy: {
+      enabled: false,
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Run (foreground)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw node run --host <gateway-host> --port 18789
+\end{lstlisting}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--host }: Gateway WebSocket host (default: \texttt{127.0.0.1})
+  \item \texttt{--port }: Gateway WebSocket port (default: \texttt{18789})
+  \item \texttt{--tls}: Use TLS for the gateway connection
+  \item \texttt{--tls-fingerprint }: Expected TLS certificate fingerprint (sha256)
+  \item \texttt{--node-id }: Override node id (clears pairing token)
+  \item \texttt{--display-name }: Override the node display name
+\end{itemize}
+
+
+\subsection{Service (background)}
+
+
+Install a headless node host as a user service.
+
+\begin{lstlisting}[language=bash]
+openclaw node install --host <gateway-host> --port 18789
+\end{lstlisting}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--host }: Gateway WebSocket host (default: \texttt{127.0.0.1})
+  \item \texttt{--port }: Gateway WebSocket port (default: \texttt{18789})
+  \item \texttt{--tls}: Use TLS for the gateway connection
+  \item \texttt{--tls-fingerprint }: Expected TLS certificate fingerprint (sha256)
+  \item \texttt{--node-id }: Override node id (clears pairing token)
+  \item \texttt{--display-name }: Override the node display name
+  \item \texttt{--runtime }: Service runtime (\texttt{node} or \texttt{bun})
+  \item \texttt{--force}: Reinstall/overwrite if already installed
+\end{itemize}
+
+
+Manage the service:
+
+\begin{lstlisting}[language=bash]
+openclaw node status
+openclaw node stop
+openclaw node restart
+openclaw node uninstall
+\end{lstlisting}
+
+
+Use \texttt{openclaw node run} for a foreground node host (no service).
+
+Service commands accept \texttt{--json} for machine-readable output.
+
+\subsection{Pairing}
+
+
+The first connection creates a pending device pairing request (\texttt{role: node}) on the Gateway.
+Approve it via:
+
+\begin{lstlisting}[language=bash]
+openclaw devices list
+openclaw devices approve <requestId>
+\end{lstlisting}
+
+
+The node host stores its node id, token, display name, and gateway connection info in
+\texttt{\textasciitilde{}/.openclaw/node.json}.
+
+\subsection{Exec approvals}
+
+
+\texttt{system.run} is gated by local exec approvals:
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/.openclaw/exec-approvals.json}
+  \item \href{/tools/exec-approvals}{Exec approvals}
+  \item \texttt{openclaw approvals --node } (edit from the Gateway)
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/nodes.md ===
+\section{openclaw nodes}
+
+
+Manage paired nodes (devices) and invoke node capabilities.
+
+Related:
+
+\begin{itemize}
+  \item Nodes overview: \href{/nodes}{Nodes}
+  \item Camera: \href{/nodes/camera}{Camera nodes}
+  \item Images: \href{/nodes/images}{Image nodes}
+\end{itemize}
+
+
+Common options:
+
+\begin{itemize}
+  \item \texttt{--url}, \texttt{--token}, \texttt{--timeout}, \texttt{--json}
+\end{itemize}
+
+
+\subsection{Common commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes list
+openclaw nodes list --connected
+openclaw nodes list --last-connected 24h
+openclaw nodes pending
+openclaw nodes approve <requestId>
+openclaw nodes status
+openclaw nodes status --connected
+openclaw nodes status --last-connected 24h
+\end{lstlisting}
+
+
+\texttt{nodes list} prints pending/paired tables. Paired rows include the most recent connect age (Last Connect).
+Use \texttt{--connected} to only show currently-connected nodes. Use \texttt{--last-connected } to
+filter to nodes that connected within a duration (e.g. \texttt{24h}, \texttt{7d}).
+
+\subsection{Invoke / run}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node <id|name|ip> --command <command> --params <json>
+openclaw nodes run --node <id|name|ip> <command...>
+openclaw nodes run --raw "git status"
+openclaw nodes run --agent main --node <id|name|ip> --raw "git status"
+\end{lstlisting}
+
+
+Invoke flags:
+
+\begin{itemize}
+  \item \texttt{--params }: JSON object string (default \texttt{\{\}}).
+  \item \texttt{--invoke-timeout }: node invoke timeout (default \texttt{15000}).
+  \item \texttt{--idempotency-key }: optional idempotency key.
+\end{itemize}
+
+
+\subsubsection{Exec-style defaults}
+
+
+\texttt{nodes run} mirrors the model’s exec behavior (defaults + approvals):
+
+\begin{itemize}
+  \item Reads \texttt{tools.exec.\textit{} (plus \texttt{agents.list[].tools.exec.}} overrides).
+  \item Uses exec approvals (\texttt{exec.approval.request}) before invoking \texttt{system.run}.
+  \item \texttt{--node} can be omitted when \texttt{tools.exec.node} is set.
+  \item Requires a node that advertises \texttt{system.run} (macOS companion app or headless node host).
+\end{itemize}
+
+
+Flags:
+
+\begin{itemize}
+  \item \texttt{--cwd }: working directory.
+  \item \texttt{--env }: env override (repeatable). Note: node hosts ignore \texttt{PATH} overrides (and \texttt{tools.exec.pathPrepend} is not applied to node hosts).
+  \item \texttt{--command-timeout }: command timeout.
+  \item \texttt{--invoke-timeout }: node invoke timeout (default \texttt{30000}).
+  \item \texttt{--needs-screen-recording}: require screen recording permission.
+  \item \texttt{--raw }: run a shell string (\texttt{/bin/sh -lc} or \texttt{cmd.exe /c}).
+\end{itemize}
+
+In allowlist mode on Windows node hosts, \texttt{cmd.exe /c} shell-wrapper runs require approval
+(allowlist entry alone does not auto-allow the wrapper form).
+\begin{itemize}
+  \item \texttt{--agent }: agent-scoped approvals/allowlists (defaults to configured agent).
+  \item \texttt{--ask }, \texttt{--security }: overrides.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/onboard.md ===
+\section{openclaw onboard}
+
+
+Interactive onboarding wizard (local or remote Gateway setup).
+
+\subsection{Related guides}
+
+
+\begin{itemize}
+  \item CLI onboarding hub: \href{/start/wizard}{Onboarding Wizard (CLI)}
+  \item Onboarding overview: \href{/start/onboarding-overview}{Onboarding Overview}
+  \item CLI onboarding reference: \href{/start/wizard-cli-reference}{CLI Onboarding Reference}
+  \item CLI automation: \href{/start/wizard-cli-automation}{CLI Automation}
+  \item macOS onboarding: \href{/start/onboarding}{Onboarding (macOS App)}
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard
+openclaw onboard --flow quickstart
+openclaw onboard --flow manual
+openclaw onboard --mode remote --remote-url wss://gateway-host:18789
+\end{lstlisting}
+
+
+For plaintext private-network \texttt{ws://} targets (trusted networks only), set
+\texttt{OPENCLAW\_ALLOW\_INSECURE\_PRIVATE\_WS=1} in the onboarding process environment.
+
+Non-interactive custom provider:
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --auth-choice custom-api-key \
+  --custom-base-url "https://llm.example.com/v1" \
+  --custom-model-id "foo-large" \
+  --custom-api-key "$CUSTOM_API_KEY" \
+  --secret-input-mode plaintext \
+  --custom-compatibility openai
+\end{lstlisting}
+
+
+\texttt{--custom-api-key} is optional in non-interactive mode. If omitted, onboarding checks \texttt{CUSTOM\_API\_KEY}.
+
+Store provider keys as refs instead of plaintext:
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --auth-choice openai-api-key \
+  --secret-input-mode ref \
+  --accept-risk
+\end{lstlisting}
+
+
+With \texttt{--secret-input-mode ref}, onboarding writes env-backed refs instead of plaintext key values.
+For auth-profile backed providers this writes \texttt{keyRef} entries; for custom providers this writes \texttt{models.providers..apiKey} as an env ref (for example \texttt{\{ source: "env", provider: "default", id: "CUSTOM\_API\_KEY" \}}).
+
+Non-interactive \texttt{ref} mode contract:
+
+\begin{itemize}
+  \item Set the provider env var in the onboarding process environment (for example \texttt{OPENAI\_API\_KEY}).
+  \item Do not pass inline key flags (for example \texttt{--openai-api-key}) unless that env var is also set.
+  \item If an inline key flag is passed without the required env var, onboarding fails fast with guidance.
+\end{itemize}
+
+
+Interactive onboarding behavior with reference mode:
+
+\begin{itemize}
+  \item Choose \textbf{Use secret reference} when prompted.
+  \item Then choose either:
+  \item Environment variable
+  \item Configured secret provider (\texttt{file} or \texttt{exec})
+  \item Onboarding performs a fast preflight validation before saving the ref.
+  \item If validation fails, onboarding shows the error and lets you retry.
+\end{itemize}
+
+
+Non-interactive Z.AI endpoint choices:
+
+Note: \texttt{--auth-choice zai-api-key} now auto-detects the best Z.AI endpoint for your key (prefers the general API with \texttt{zai/glm-5}).
+If you specifically want the GLM Coding Plan endpoints, pick \texttt{zai-coding-global} or \texttt{zai-coding-cn}.
+
+\begin{lstlisting}[language=bash]
+# Promptless endpoint selection
+openclaw onboard --non-interactive \
+  --auth-choice zai-coding-global \
+  --zai-api-key "$ZAI_API_KEY"
+
+# Other Z.AI endpoint choices:
+# --auth-choice zai-coding-cn
+# --auth-choice zai-global
+# --auth-choice zai-cn
+\end{lstlisting}
+
+
+Non-interactive Mistral example:
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --auth-choice mistral-api-key \
+  --mistral-api-key "$MISTRAL_API_KEY"
+\end{lstlisting}
+
+
+Flow notes:
+
+\begin{itemize}
+  \item \texttt{quickstart}: minimal prompts, auto-generates a gateway token.
+  \item \texttt{manual}: full prompts for port/bind/auth (alias of \texttt{advanced}).
+  \item Local onboarding DM scope behavior: \href{/start/wizard-cli-reference\#outputs-and-internals}{CLI Onboarding Reference}.
+  \item Fastest first chat: \texttt{openclaw dashboard} (Control UI, no channel setup).
+  \item Custom Provider: connect any OpenAI or Anthropic compatible endpoint,
+\end{itemize}
+
+including hosted providers not listed. Use Unknown to auto-detect.
+
+\subsection{Common follow-up commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw configure
+openclaw agents add <name>
+\end{lstlisting}
+
+
+\texttt{--json} does not imply non-interactive mode. Use \texttt{--non-interactive} for scripts.
+
+
+\clearpage
+
+% === Source file: cli/pairing.md ===
+\section{openclaw pairing}
+
+
+Approve or inspect DM pairing requests (for channels that support pairing).
+
+Related:
+
+\begin{itemize}
+  \item Pairing flow: \href{/channels/pairing}{Pairing}
+\end{itemize}
+
+
+\subsection{Commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw pairing list telegram
+openclaw pairing list --channel telegram --account work
+openclaw pairing list telegram --json
+
+openclaw pairing approve telegram <code>
+openclaw pairing approve --channel telegram --account work <code> --notify
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Channel input: pass it positionally (\texttt{pairing list telegram}) or with \texttt{--channel }.
+  \item \texttt{pairing list} supports \texttt{--account } for multi-account channels.
+  \item \texttt{pairing approve} supports \texttt{--account } and \texttt{--notify}.
+  \item If only one pairing-capable channel is configured, \texttt{pairing approve } is allowed.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/plugins.md ===
+\section{openclaw plugins}
+
+
+Manage Gateway plugins/extensions (loaded in-process).
+
+Related:
+
+\begin{itemize}
+  \item Plugin system: \href{/tools/plugin}{Plugins}
+  \item Plugin manifest + schema: \href{/plugins/manifest}{Plugin manifest}
+  \item Security hardening: \href{/gateway/security}{Security}
+\end{itemize}
+
+
+\subsection{Commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins list
+openclaw plugins info <id>
+openclaw plugins enable <id>
+openclaw plugins disable <id>
+openclaw plugins uninstall <id>
+openclaw plugins doctor
+openclaw plugins update <id>
+openclaw plugins update --all
+\end{lstlisting}
+
+
+Bundled plugins ship with OpenClaw but start disabled. Use \texttt{plugins enable} to
+activate them.
+
+All plugins must ship a \texttt{openclaw.plugin.json} file with an inline JSON Schema
+(\texttt{configSchema}, even if empty). Missing/invalid manifests or schemas prevent
+the plugin from loading and fail config validation.
+
+\subsubsection{Install}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install <path-or-spec>
+openclaw plugins install <npm-spec> --pin
+\end{lstlisting}
+
+
+Security note: treat plugin installs like running code. Prefer pinned versions.
+
+Npm specs are \textbf{registry-only} (package name + optional version/tag). Git/URL/file
+specs are rejected. Dependency installs run with \texttt{--ignore-scripts} for safety.
+
+If a bare install spec matches a bundled plugin id (for example \texttt{diffs}), OpenClaw
+installs the bundled plugin directly. To install an npm package with the same
+name, use an explicit scoped spec (for example \texttt{@scope/diffs}).
+
+Supported archives: \texttt{.zip}, \texttt{.tgz}, \texttt{.tar.gz}, \texttt{.tar}.
+
+Use \texttt{--link} to avoid copying a local directory (adds to \texttt{plugins.load.paths}):
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install -l ./my-plugin
+\end{lstlisting}
+
+
+Use \texttt{--pin} on npm installs to save the resolved exact spec (\texttt{name@version}) in
+\texttt{plugins.installs} while keeping the default behavior unpinned.
+
+\subsubsection{Uninstall}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins uninstall <id>
+openclaw plugins uninstall <id> --dry-run
+openclaw plugins uninstall <id> --keep-files
+\end{lstlisting}
+
+
+\texttt{uninstall} removes plugin records from \texttt{plugins.entries}, \texttt{plugins.installs},
+the plugin allowlist, and linked \texttt{plugins.load.paths} entries when applicable.
+For active memory plugins, the memory slot resets to \texttt{memory-core}.
+
+By default, uninstall also removes the plugin install directory under the active
+state dir extensions root (\texttt{\$OPENCLAW\_STATE\_DIR/extensions/}). Use
+\texttt{--keep-files} to keep files on disk.
+
+\texttt{--keep-config} is supported as a deprecated alias for \texttt{--keep-files}.
+
+\subsubsection{Update}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins update <id>
+openclaw plugins update --all
+openclaw plugins update <id> --dry-run
+\end{lstlisting}
+
+
+Updates only apply to plugins installed from npm (tracked in \texttt{plugins.installs}).
+
+When a stored integrity hash exists and the fetched artifact hash changes,
+OpenClaw prints a warning and asks for confirmation before proceeding. Use
+global \texttt{--yes} to bypass prompts in CI/non-interactive runs.
+
+
+\clearpage
+
+% === Source file: cli/qr.md ===
+\section{openclaw qr}
+
+
+Generate an iOS pairing QR and setup code from your current Gateway configuration.
+
+\subsection{Usage}
+
+
+\begin{lstlisting}[language=bash]
+openclaw qr
+openclaw qr --setup-code-only
+openclaw qr --json
+openclaw qr --remote
+openclaw qr --url wss://gateway.example/ws --token '<token>'
+\end{lstlisting}
+
+
+\subsection{Options}
+
+
+\begin{itemize}
+  \item \texttt{--remote}: use \texttt{gateway.remote.url} plus remote token/password from config
+  \item \texttt{--url }: override gateway URL used in payload
+  \item \texttt{--public-url }: override public URL used in payload
+  \item \texttt{--token }: override gateway token for payload
+  \item \texttt{--password }: override gateway password for payload
+  \item \texttt{--setup-code-only}: print only setup code
+  \item \texttt{--no-ascii}: skip ASCII QR rendering
+  \item \texttt{--json}: emit JSON (\texttt{setupCode}, \texttt{gatewayUrl}, \texttt{auth}, \texttt{urlSource})
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item \texttt{--token} and \texttt{--password} are mutually exclusive.
+  \item With \texttt{--remote}, if effectively active remote credentials are configured as SecretRefs and you do not pass \texttt{--token} or \texttt{--password}, the command resolves them from the active gateway snapshot. If gateway is unavailable, the command fails fast.
+  \item Without \texttt{--remote}, local \texttt{gateway.auth.password} SecretRefs are resolved when password auth can win (explicit \texttt{gateway.auth.mode="password"} or inferred password mode with no winning token from auth/env), and no CLI auth override is passed.
+  \item Gateway version skew note: this command path requires a gateway that supports \texttt{secrets.resolve}; older gateways return an unknown-method error.
+  \item After scanning, approve device pairing with:
+  \item \texttt{openclaw devices list}
+  \item \texttt{openclaw devices approve }
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/reset.md ===
+\section{openclaw reset}
+
+
+Reset local config/state (keeps the CLI installed).
+
+\begin{lstlisting}[language=bash]
+openclaw reset
+openclaw reset --dry-run
+openclaw reset --scope config+creds+sessions --yes --non-interactive
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/sandbox.md ===
+\section{Sandbox CLI}
+
+
+Manage Docker-based sandbox containers for isolated agent execution.
+
+\subsection{Overview}
+
+
+OpenClaw can run agents in isolated Docker containers for security. The \texttt{sandbox} commands help you manage these containers, especially after updates or configuration changes.
+
+\subsection{Commands}
+
+
+\subsubsection{openclaw sandbox explain}
+
+
+Inspect the \textbf{effective} sandbox mode/scope/workspace access, sandbox tool policy, and elevated gates (with fix-it config key paths).
+
+\begin{lstlisting}[language=bash]
+openclaw sandbox explain
+openclaw sandbox explain --session agent:main:main
+openclaw sandbox explain --agent work
+openclaw sandbox explain --json
+\end{lstlisting}
+
+
+\subsubsection{openclaw sandbox list}
+
+
+List all sandbox containers with their status and configuration.
+
+\begin{lstlisting}[language=bash]
+openclaw sandbox list
+openclaw sandbox list --browser  # List only browser containers
+openclaw sandbox list --json     # JSON output
+\end{lstlisting}
+
+
+\textbf{Output includes:}
+
+\begin{itemize}
+  \item Container name and status (running/stopped)
+  \item Docker image and whether it matches config
+  \item Age (time since creation)
+  \item Idle time (time since last use)
+  \item Associated session/agent
+\end{itemize}
+
+
+\subsubsection{openclaw sandbox recreate}
+
+
+Remove sandbox containers to force recreation with updated images/config.
+
+\begin{lstlisting}[language=bash]
+openclaw sandbox recreate --all                # Recreate all containers
+openclaw sandbox recreate --session main       # Specific session
+openclaw sandbox recreate --agent mybot        # Specific agent
+openclaw sandbox recreate --browser            # Only browser containers
+openclaw sandbox recreate --all --force        # Skip confirmation
+\end{lstlisting}
+
+
+\textbf{Options:}
+
+\begin{itemize}
+  \item \texttt{--all}: Recreate all sandbox containers
+  \item \texttt{--session }: Recreate container for specific session
+  \item \texttt{--agent }: Recreate containers for specific agent
+  \item \texttt{--browser}: Only recreate browser containers
+  \item \texttt{--force}: Skip confirmation prompt
+\end{itemize}
+
+
+\textbf{Important:} Containers are automatically recreated when the agent is next used.
+
+\subsection{Use Cases}
+
+
+\subsubsection{After updating Docker images}
+
+
+\begin{lstlisting}[language=bash]
+# Pull new image
+docker pull openclaw-sandbox:latest
+docker tag openclaw-sandbox:latest openclaw-sandbox:bookworm-slim
+
+# Update config to use new image
+# Edit config: agents.defaults.sandbox.docker.image (or agents.list[].sandbox.docker.image)
+
+# Recreate containers
+openclaw sandbox recreate --all
+\end{lstlisting}
+
+
+\subsubsection{After changing sandbox configuration}
+
+
+\begin{lstlisting}[language=bash]
+# Edit config: agents.defaults.sandbox.* (or agents.list[].sandbox.*)
+
+# Recreate to apply new config
+openclaw sandbox recreate --all
+\end{lstlisting}
+
+
+\subsubsection{After changing setupCommand}
+
+
+\begin{lstlisting}[language=bash]
+openclaw sandbox recreate --all
+# or just one agent:
+openclaw sandbox recreate --agent family
+\end{lstlisting}
+
+
+\subsubsection{For a specific agent only}
+
+
+\begin{lstlisting}[language=bash]
+# Update only one agent's containers
+openclaw sandbox recreate --agent alfred
+\end{lstlisting}
+
+
+\subsection{Why is this needed?}
+
+
+\textbf{Problem:} When you update sandbox Docker images or configuration:
+
+\begin{itemize}
+  \item Existing containers continue running with old settings
+  \item Containers are only pruned after 24h of inactivity
+  \item Regularly-used agents keep old containers running indefinitely
+\end{itemize}
+
+
+\textbf{Solution:} Use \texttt{openclaw sandbox recreate} to force removal of old containers. They'll be recreated automatically with current settings when next needed.
+
+Tip: prefer \texttt{openclaw sandbox recreate} over manual \texttt{docker rm}. It uses the
+Gateway’s container naming and avoids mismatches when scope/session keys change.
+
+\subsection{Configuration}
+
+
+Sandbox settings live in \texttt{\textasciitilde{}/.openclaw/openclaw.json} under \texttt{agents.defaults.sandbox} (per-agent overrides go in \texttt{agents.list[].sandbox}):
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "defaults": {
+      "sandbox": {
+        "mode": "all", // off, non-main, all
+        "scope": "agent", // session, agent, shared
+        "docker": {
+          "image": "openclaw-sandbox:bookworm-slim",
+          "containerPrefix": "openclaw-sbx-",
+          // ... more Docker options
+        },
+        "prune": {
+          "idleHours": 24, // Auto-prune after 24h idle
+          "maxAgeDays": 7, // Auto-prune after 7 days
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{See Also}
+
+
+\begin{itemize}
+  \item \href{/gateway/sandboxing}{Sandbox Documentation}
+  \item \href{/concepts/agent-workspace}{Agent Configuration}
+  \item \href{/gateway/doctor}{Doctor Command} - Check sandbox setup
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/secrets.md ===
+\section{openclaw secrets}
+
+
+Use \texttt{openclaw secrets} to manage SecretRefs and keep the active runtime snapshot healthy.
+
+Command roles:
+
+\begin{itemize}
+  \item \texttt{reload}: gateway RPC (\texttt{secrets.reload}) that re-resolves refs and swaps runtime snapshot only on full success (no config writes).
+  \item \texttt{audit}: read-only scan of configuration/auth stores and legacy residues for plaintext, unresolved refs, and precedence drift.
+  \item \texttt{configure}: interactive planner for provider setup, target mapping, and preflight (TTY required).
+  \item \texttt{apply}: execute a saved plan (\texttt{--dry-run} for validation only), then scrub targeted plaintext residues.
+\end{itemize}
+
+
+Recommended operator loop:
+
+\begin{lstlisting}[language=bash]
+openclaw secrets audit --check
+openclaw secrets configure
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json --dry-run
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json
+openclaw secrets audit --check
+openclaw secrets reload
+\end{lstlisting}
+
+
+Exit code note for CI/gates:
+
+\begin{itemize}
+  \item \texttt{audit --check} returns \texttt{1} on findings.
+  \item unresolved refs return \texttt{2}.
+\end{itemize}
+
+
+Related:
+
+\begin{itemize}
+  \item Secrets guide: \href{/gateway/secrets}{Secrets Management}
+  \item Credential surface: \href{/reference/secretref-credential-surface}{SecretRef Credential Surface}
+  \item Security guide: \href{/gateway/security}{Security}
+\end{itemize}
+
+
+\subsection{Reload runtime snapshot}
+
+
+Re-resolve secret refs and atomically swap runtime snapshot.
+
+\begin{lstlisting}[language=bash]
+openclaw secrets reload
+openclaw secrets reload --json
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Uses gateway RPC method \texttt{secrets.reload}.
+  \item If resolution fails, gateway keeps last-known-good snapshot and returns an error (no partial activation).
+  \item JSON response includes \texttt{warningCount}.
+\end{itemize}
+
+
+\subsection{Audit}
+
+
+Scan OpenClaw state for:
+
+\begin{itemize}
+  \item plaintext secret storage
+  \item unresolved refs
+  \item precedence drift (\texttt{auth-profiles.json} credentials shadowing \texttt{openclaw.json} refs)
+  \item legacy residues (legacy auth store entries, OAuth reminders)
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+openclaw secrets audit
+openclaw secrets audit --check
+openclaw secrets audit --json
+\end{lstlisting}
+
+
+Exit behavior:
+
+\begin{itemize}
+  \item \texttt{--check} exits non-zero on findings.
+  \item unresolved refs exit with higher-priority non-zero code.
+\end{itemize}
+
+
+Report shape highlights:
+
+\begin{itemize}
+  \item \texttt{status}: \texttt{clean | findings | unresolved}
+  \item \texttt{summary}: \texttt{plaintextCount}, \texttt{unresolvedRefCount}, \texttt{shadowedRefCount}, \texttt{legacyResidueCount}
+  \item finding codes:
+  \item \texttt{PLAINTEXT\_FOUND}
+  \item \texttt{REF\_UNRESOLVED}
+  \item \texttt{REF\_SHADOWED}
+  \item \texttt{LEGACY\_RESIDUE}
+\end{itemize}
+
+
+\subsection{Configure (interactive helper)}
+
+
+Build provider and SecretRef changes interactively, run preflight, and optionally apply:
+
+\begin{lstlisting}[language=bash]
+openclaw secrets configure
+openclaw secrets configure --plan-out /tmp/openclaw-secrets-plan.json
+openclaw secrets configure --apply --yes
+openclaw secrets configure --providers-only
+openclaw secrets configure --skip-provider-setup
+openclaw secrets configure --agent ops
+openclaw secrets configure --json
+\end{lstlisting}
+
+
+Flow:
+
+\begin{itemize}
+  \item Provider setup first (\texttt{add/edit/remove} for \texttt{secrets.providers} aliases).
+  \item Credential mapping second (select fields and assign \texttt{\{source, provider, id\}} refs).
+  \item Preflight and optional apply last.
+\end{itemize}
+
+
+Flags:
+
+\begin{itemize}
+  \item \texttt{--providers-only}: configure \texttt{secrets.providers} only, skip credential mapping.
+  \item \texttt{--skip-provider-setup}: skip provider setup and map credentials to existing providers.
+  \item \texttt{--agent }: scope \texttt{auth-profiles.json} target discovery and writes to one agent store.
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item Requires an interactive TTY.
+  \item You cannot combine \texttt{--providers-only} with \texttt{--skip-provider-setup}.
+  \item \texttt{configure} targets secret-bearing fields in \texttt{openclaw.json} plus \texttt{auth-profiles.json} for the selected agent scope.
+  \item \texttt{configure} supports creating new \texttt{auth-profiles.json} mappings directly in the picker flow.
+  \item Canonical supported surface: \href{/reference/secretref-credential-surface}{SecretRef Credential Surface}.
+  \item It performs preflight resolution before apply.
+  \item Generated plans default to scrub options (\texttt{scrubEnv}, \texttt{scrubAuthProfilesForProviderTargets}, \texttt{scrubLegacyAuthJson} all enabled).
+  \item Apply path is one-way for scrubbed plaintext values.
+  \item Without \texttt{--apply}, CLI still prompts \texttt{Apply this plan now?} after preflight.
+  \item With \texttt{--apply} (and no \texttt{--yes}), CLI prompts an extra irreversible confirmation.
+\end{itemize}
+
+
+Exec provider safety note:
+
+\begin{itemize}
+  \item Homebrew installs often expose symlinked binaries under \texttt{/opt/homebrew/bin/*}.
+  \item Set \texttt{allowSymlinkCommand: true} only when needed for trusted package-manager paths, and pair it with \texttt{trustedDirs} (for example \texttt{["/opt/homebrew"]}).
+  \item On Windows, if ACL verification is unavailable for a provider path, OpenClaw fails closed. For trusted paths only, set \texttt{allowInsecurePath: true} on that provider to bypass path security checks.
+\end{itemize}
+
+
+\subsection{Apply a saved plan}
+
+
+Apply or preflight a plan generated previously:
+
+\begin{lstlisting}[language=bash]
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json --dry-run
+openclaw secrets apply --from /tmp/openclaw-secrets-plan.json --json
+\end{lstlisting}
+
+
+Plan contract details (allowed target paths, validation rules, and failure semantics):
+
+\begin{itemize}
+  \item \href{/gateway/secrets-plan-contract}{Secrets Apply Plan Contract}
+\end{itemize}
+
+
+What \texttt{apply} may update:
+
+\begin{itemize}
+  \item \texttt{openclaw.json} (SecretRef targets + provider upserts/deletes)
+  \item \texttt{auth-profiles.json} (provider-target scrubbing)
+  \item legacy \texttt{auth.json} residues
+  \item \texttt{\textasciitilde{}/.openclaw/.env} known secret keys whose values were migrated
+\end{itemize}
+
+
+\subsection{Why no rollback backups}
+
+
+\texttt{secrets apply} intentionally does not write rollback backups containing old plaintext values.
+
+Safety comes from strict preflight + atomic-ish apply with best-effort in-memory restore on failure.
+
+\subsection{Example}
+
+
+\begin{lstlisting}[language=bash]
+openclaw secrets audit --check
+openclaw secrets configure
+openclaw secrets audit --check
+\end{lstlisting}
+
+
+If \texttt{audit --check} still reports plaintext findings, update the remaining reported target paths and rerun audit.
+
+
+\clearpage
+
+% === Source file: cli/security.md ===
+\section{openclaw security}
+
+
+Security tools (audit + optional fixes).
+
+Related:
+
+\begin{itemize}
+  \item Security guide: \href{/gateway/security}{Security}
+\end{itemize}
+
+
+\subsection{Audit}
+
+
+\begin{lstlisting}[language=bash]
+openclaw security audit
+openclaw security audit --deep
+openclaw security audit --fix
+openclaw security audit --json
+\end{lstlisting}
+
+
+The audit warns when multiple DM senders share the main session and recommends \textbf{secure DM mode}: \texttt{session.dmScope="per-channel-peer"} (or \texttt{per-account-channel-peer} for multi-account channels) for shared inboxes.
+This is for cooperative/shared inbox hardening. A single Gateway shared by mutually untrusted/adversarial operators is not a recommended setup; split trust boundaries with separate gateways (or separate OS users/hosts).
+It also emits \texttt{security.trust\_model.multi\_user\_heuristic} when config suggests likely shared-user ingress (for example open DM/group policy, configured group targets, or wildcard sender rules), and reminds you that OpenClaw is a personal-assistant trust model by default.
+For intentional shared-user setups, the audit guidance is to sandbox all sessions, keep filesystem access workspace-scoped, and keep personal/private identities or credentials off that runtime.
+It also warns when small models (\texttt{<=300B}) are used without sandboxing and with web/browser tools enabled.
+For webhook ingress, it warns when \texttt{hooks.defaultSessionKey} is unset, when request \texttt{sessionKey} overrides are enabled, and when overrides are enabled without \texttt{hooks.allowedSessionKeyPrefixes}.
+It also warns when sandbox Docker settings are configured while sandbox mode is off, when \texttt{gateway.nodes.denyCommands} uses ineffective pattern-like/unknown entries (exact node command-name matching only, not shell-text filtering), when \texttt{gateway.nodes.allowCommands} explicitly enables dangerous node commands, when global \texttt{tools.profile="minimal"} is overridden by agent tool profiles, when open groups expose runtime/filesystem tools without sandbox/workspace guards, and when installed extension plugin tools may be reachable under permissive tool policy.
+It also flags \texttt{gateway.allowRealIpFallback=true} (header-spoofing risk if proxies are misconfigured) and \texttt{discovery.mdns.mode="full"} (metadata leakage via mDNS TXT records).
+It also warns when sandbox browser uses Docker \texttt{bridge} network without \texttt{sandbox.browser.cdpSourceRange}.
+It also flags dangerous sandbox Docker network modes (including \texttt{host} and \texttt{container:*} namespace joins).
+It also warns when existing sandbox browser Docker containers have missing/stale hash labels (for example pre-migration containers missing \texttt{openclaw.browserConfigEpoch}) and recommends \texttt{openclaw sandbox recreate --browser --all}.
+It also warns when npm-based plugin/hook install records are unpinned, missing integrity metadata, or drift from currently installed package versions.
+It warns when channel allowlists rely on mutable names/emails/tags instead of stable IDs (Discord, Slack, Google Chat, MS Teams, Mattermost, IRC scopes where applicable).
+It warns when \texttt{gateway.auth.mode="none"} leaves Gateway HTTP APIs reachable without a shared secret (\texttt{/tools/invoke} plus any enabled \texttt{/v1/*} endpoint).
+Settings prefixed with \texttt{dangerous}/\texttt{dangerously} are explicit break-glass operator overrides; enabling one is not, by itself, a security vulnerability report.
+For the complete dangerous-parameter inventory, see the "Insecure or dangerous flags summary" section in \href{/gateway/security}{Security}.
+
+\subsection{JSON output}
+
+
+Use \texttt{--json} for CI/policy checks:
+
+\begin{lstlisting}[language=bash]
+openclaw security audit --json | jq '.summary'
+openclaw security audit --deep --json | jq '.findings[] | select(.severity=="critical") | .checkId'
+\end{lstlisting}
+
+
+If \texttt{--fix} and \texttt{--json} are combined, output includes both fix actions and final report:
+
+\begin{lstlisting}[language=bash]
+openclaw security audit --fix --json | jq '{fix: .fix.ok, summary: .report.summary}'
+\end{lstlisting}
+
+
+\subsection{What --fix changes}
+
+
+\texttt{--fix} applies safe, deterministic remediations:
+
+\begin{itemize}
+  \item flips common \texttt{groupPolicy="open"} to \texttt{groupPolicy="allowlist"} (including account variants in supported channels)
+  \item sets \texttt{logging.redactSensitive} from \texttt{"off"} to \texttt{"tools"}
+  \item tightens permissions for state/config and common sensitive files (\texttt{credentials/\textit{.json}, \texttt{auth-profiles.json}, \texttt{sessions.json}, session \texttt{}.jsonl})
+\end{itemize}
+
+
+\texttt{--fix} does \textbf{not}:
+
+\begin{itemize}
+  \item rotate tokens/passwords/API keys
+  \item disable tools (\texttt{gateway}, \texttt{cron}, \texttt{exec}, etc.)
+  \item change gateway bind/auth/network exposure choices
+  \item remove or rewrite plugins/skills
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/sessions.md ===
+\section{openclaw sessions}
+
+
+List stored conversation sessions.
+
+\begin{lstlisting}[language=bash]
+openclaw sessions
+openclaw sessions --agent work
+openclaw sessions --all-agents
+openclaw sessions --active 120
+openclaw sessions --json
+\end{lstlisting}
+
+
+Scope selection:
+
+\begin{itemize}
+  \item default: configured default agent store
+  \item \texttt{--agent }: one configured agent store
+  \item \texttt{--all-agents}: aggregate all configured agent stores
+  \item \texttt{--store }: explicit store path (cannot be combined with \texttt{--agent} or \texttt{--all-agents})
+\end{itemize}
+
+
+JSON examples:
+
+\texttt{openclaw sessions --all-agents --json}:
+
+\begin{lstlisting}[language=json]
+{
+  "path": null,
+  "stores": [
+    { "agentId": "main", "path": "/home/user/.openclaw/agents/main/sessions/sessions.json" },
+    { "agentId": "work", "path": "/home/user/.openclaw/agents/work/sessions/sessions.json" }
+  ],
+  "allAgents": true,
+  "count": 2,
+  "activeMinutes": null,
+  "sessions": [
+    { "agentId": "main", "key": "agent:main:main", "model": "gpt-5" },
+    { "agentId": "work", "key": "agent:work:main", "model": "claude-opus-4-5" }
+  ]
+}
+\end{lstlisting}
+
+
+\subsection{Cleanup maintenance}
+
+
+Run maintenance now (instead of waiting for the next write cycle):
+
+\begin{lstlisting}[language=bash]
+openclaw sessions cleanup --dry-run
+openclaw sessions cleanup --agent work --dry-run
+openclaw sessions cleanup --all-agents --dry-run
+openclaw sessions cleanup --enforce
+openclaw sessions cleanup --enforce --active-key "agent:main:telegram:dm:123"
+openclaw sessions cleanup --json
+\end{lstlisting}
+
+
+\texttt{openclaw sessions cleanup} uses \texttt{session.maintenance} settings from config:
+
+\begin{itemize}
+  \item Scope note: \texttt{openclaw sessions cleanup} maintains session stores/transcripts only. It does not prune cron run logs (\texttt{cron/runs/.jsonl}), which are managed by \texttt{cron.runLog.maxBytes} and \texttt{cron.runLog.keepLines} in \href{/automation/cron-jobs\#configuration}{Cron configuration} and explained in \href{/automation/cron-jobs\#maintenance}{Cron maintenance}.
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{--dry-run}: preview how many entries would be pruned/capped without writing.
+  \item In text mode, dry-run prints a per-session action table (\texttt{Action}, \texttt{Key}, \texttt{Age}, \texttt{Model}, \texttt{Flags}) so you can see what would be kept vs removed.
+  \item \texttt{--enforce}: apply maintenance even when \texttt{session.maintenance.mode} is \texttt{warn}.
+  \item \texttt{--active-key }: protect a specific active key from disk-budget eviction.
+  \item \texttt{--agent }: run cleanup for one configured agent store.
+  \item \texttt{--all-agents}: run cleanup for all configured agent stores.
+  \item \texttt{--store }: run against a specific \texttt{sessions.json} file.
+  \item \texttt{--json}: print a JSON summary. With \texttt{--all-agents}, output includes one summary per store.
+\end{itemize}
+
+
+\texttt{openclaw sessions cleanup --all-agents --dry-run --json}:
+
+\begin{lstlisting}[language=json]
+{
+  "allAgents": true,
+  "mode": "warn",
+  "dryRun": true,
+  "stores": [
+    {
+      "agentId": "main",
+      "storePath": "/home/user/.openclaw/agents/main/sessions/sessions.json",
+      "beforeCount": 120,
+      "afterCount": 80,
+      "pruned": 40,
+      "capped": 0
+    },
+    {
+      "agentId": "work",
+      "storePath": "/home/user/.openclaw/agents/work/sessions/sessions.json",
+      "beforeCount": 18,
+      "afterCount": 18,
+      "pruned": 0,
+      "capped": 0
+    }
+  ]
+}
+\end{lstlisting}
+
+
+Related:
+
+\begin{itemize}
+  \item Session config: \href{/gateway/configuration-reference\#session}{Configuration reference}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/setup.md ===
+\section{openclaw setup}
+
+
+Initialize \texttt{\textasciitilde{}/.openclaw/openclaw.json} and the agent workspace.
+
+Related:
+
+\begin{itemize}
+  \item Getting started: \href{/start/getting-started}{Getting started}
+  \item Wizard: \href{/start/onboarding}{Onboarding}
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw setup
+openclaw setup --workspace ~/.openclaw/workspace
+\end{lstlisting}
+
+
+To run the wizard via setup:
+
+\begin{lstlisting}[language=bash]
+openclaw setup --wizard
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/skills.md ===
+\section{openclaw skills}
+
+
+Inspect skills (bundled + workspace + managed overrides) and see what’s eligible vs missing requirements.
+
+Related:
+
+\begin{itemize}
+  \item Skills system: \href{/tools/skills}{Skills}
+  \item Skills config: \href{/tools/skills-config}{Skills config}
+  \item ClawHub installs: \href{/tools/clawhub}{ClawHub}
+\end{itemize}
+
+
+\subsection{Commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw skills list
+openclaw skills list --eligible
+openclaw skills info <name>
+openclaw skills check
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/status.md ===
+\section{openclaw status}
+
+
+Diagnostics for channels + sessions.
+
+\begin{lstlisting}[language=bash]
+openclaw status
+openclaw status --all
+openclaw status --deep
+openclaw status --usage
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{--deep} runs live probes (WhatsApp Web + Telegram + Discord + Google Chat + Slack + Signal).
+  \item Output includes per-agent session stores when multiple agents are configured.
+  \item Overview includes Gateway + node host service install/runtime status when available.
+  \item Overview includes update channel + git SHA (for source checkouts).
+  \item Update info surfaces in the Overview; if an update is available, status prints a hint to run \texttt{openclaw update} (see \href{/install/updating}{Updating}).
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/system.md ===
+\section{openclaw system}
+
+
+System-level helpers for the Gateway: enqueue system events, control heartbeats,
+and view presence.
+
+\subsection{Common commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw system event --text "Check for urgent follow-ups" --mode now
+openclaw system heartbeat enable
+openclaw system heartbeat last
+openclaw system presence
+\end{lstlisting}
+
+
+\subsection{system event}
+
+
+Enqueue a system event on the \textbf{main} session. The next heartbeat will inject
+it as a \texttt{System:} line in the prompt. Use \texttt{--mode now} to trigger the heartbeat
+immediately; \texttt{next-heartbeat} waits for the next scheduled tick.
+
+Flags:
+
+\begin{itemize}
+  \item \texttt{--text }: required system event text.
+  \item \texttt{--mode }: \texttt{now} or \texttt{next-heartbeat} (default).
+  \item \texttt{--json}: machine-readable output.
+\end{itemize}
+
+
+\subsection{system heartbeat last|enable|disable}
+
+
+Heartbeat controls:
+
+\begin{itemize}
+  \item \texttt{last}: show the last heartbeat event.
+  \item \texttt{enable}: turn heartbeats back on (use this if they were disabled).
+  \item \texttt{disable}: pause heartbeats.
+\end{itemize}
+
+
+Flags:
+
+\begin{itemize}
+  \item \texttt{--json}: machine-readable output.
+\end{itemize}
+
+
+\subsection{system presence}
+
+
+List the current system presence entries the Gateway knows about (nodes,
+instances, and similar status lines).
+
+Flags:
+
+\begin{itemize}
+  \item \texttt{--json}: machine-readable output.
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Requires a running Gateway reachable by your current config (local or remote).
+  \item System events are ephemeral and not persisted across restarts.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/tui.md ===
+\section{openclaw tui}
+
+
+Open the terminal UI connected to the Gateway.
+
+Related:
+
+\begin{itemize}
+  \item TUI guide: \href{/web/tui}{TUI}
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+openclaw tui
+openclaw tui --url ws://127.0.0.1:18789 --token <token>
+openclaw tui --session main --deliver
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/uninstall.md ===
+\section{openclaw uninstall}
+
+
+Uninstall the gateway service + local data (CLI remains).
+
+\begin{lstlisting}[language=bash]
+openclaw uninstall
+openclaw uninstall --all --yes
+openclaw uninstall --dry-run
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: cli/update.md ===
+\section{openclaw update}
+
+
+Safely update OpenClaw and switch between stable/beta/dev channels.
+
+If you installed via \textbf{npm/pnpm} (global install, no git metadata), updates happen via the package manager flow in \href{/install/updating}{Updating}.
+
+\subsection{Usage}
+
+
+\begin{lstlisting}[language=bash]
+openclaw update
+openclaw update status
+openclaw update wizard
+openclaw update --channel beta
+openclaw update --channel dev
+openclaw update --tag beta
+openclaw update --dry-run
+openclaw update --no-restart
+openclaw update --json
+openclaw --update
+\end{lstlisting}
+
+
+\subsection{Options}
+
+
+\begin{itemize}
+  \item \texttt{--no-restart}: skip restarting the Gateway service after a successful update.
+  \item \texttt{--channel }: set the update channel (git + npm; persisted in config).
+  \item \texttt{--tag }: override the npm dist-tag or version for this update only.
+  \item \texttt{--dry-run}: preview planned update actions (channel/tag/target/restart flow) without writing config, installing, syncing plugins, or restarting.
+  \item \texttt{--json}: print machine-readable \texttt{UpdateRunResult} JSON.
+  \item \texttt{--timeout }: per-step timeout (default is 1200s).
+\end{itemize}
+
+
+Note: downgrades require confirmation because older versions can break configuration.
+
+\subsection{update status}
+
+
+Show the active update channel + git tag/branch/SHA (for source checkouts), plus update availability.
+
+\begin{lstlisting}[language=bash]
+openclaw update status
+openclaw update status --json
+openclaw update status --timeout 10
+\end{lstlisting}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--json}: print machine-readable status JSON.
+  \item \texttt{--timeout }: timeout for checks (default is 3s).
+\end{itemize}
+
+
+\subsection{update wizard}
+
+
+Interactive flow to pick an update channel and confirm whether to restart the Gateway
+after updating (default is to restart). If you select \texttt{dev} without a git checkout, it
+offers to create one.
+
+\subsection{What it does}
+
+
+When you switch channels explicitly (\texttt{--channel ...}), OpenClaw also keeps the
+install method aligned:
+
+\begin{itemize}
+  \item \texttt{dev} → ensures a git checkout (default: \texttt{\textasciitilde{}/openclaw}, override with \texttt{OPENCLAW\_GIT\_DIR}),
+\end{itemize}
+
+updates it, and installs the global CLI from that checkout.
+\begin{itemize}
+  \item \texttt{stable}/\texttt{beta} → installs from npm using the matching dist-tag.
+\end{itemize}
+
+
+The Gateway core auto-updater (when enabled via config) reuses this same update path.
+
+\subsection{Git checkout flow}
+
+
+Channels:
+
+\begin{itemize}
+  \item \texttt{stable}: checkout the latest non-beta tag, then build + doctor.
+  \item \texttt{beta}: checkout the latest \texttt{-beta} tag, then build + doctor.
+  \item \texttt{dev}: checkout \texttt{main}, then fetch + rebase.
+\end{itemize}
+
+
+High-level:
+
+\begin{enumerate}
+  \item Requires a clean worktree (no uncommitted changes).
+  \item Switches to the selected channel (tag or branch).
+  \item Fetches upstream (dev only).
+  \item Dev only: preflight lint + TypeScript build in a temp worktree; if the tip fails, walks back up to 10 commits to find the newest clean build.
+  \item Rebases onto the selected commit (dev only).
+  \item Installs deps (pnpm preferred; npm fallback).
+  \item Builds + builds the Control UI.
+  \item Runs \texttt{openclaw doctor} as the final “safe update” check.
+  \item Syncs plugins to the active channel (dev uses bundled extensions; stable/beta uses npm) and updates npm-installed plugins.
+\end{enumerate}
+
+
+\subsection{--update shorthand}
+
+
+\texttt{openclaw --update} rewrites to \texttt{openclaw update} (useful for shells and launcher scripts).
+
+\subsection{See also}
+
+
+\begin{itemize}
+  \item \texttt{openclaw doctor} (offers to run update first on git checkouts)
+  \item \href{/install/development-channels}{Development channels}
+  \item \href{/install/updating}{Updating}
+  \item \href{/cli}{CLI reference}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: cli/voicecall.md ===
+\section{openclaw voicecall}
+
+
+\texttt{voicecall} is a plugin-provided command. It only appears if the voice-call plugin is installed and enabled.
+
+Primary doc:
+
+\begin{itemize}
+  \item Voice-call plugin: \href{/plugins/voice-call}{Voice Call}
+\end{itemize}
+
+
+\subsection{Common commands}
+
+
+\begin{lstlisting}[language=bash]
+openclaw voicecall status --call-id <id>
+openclaw voicecall call --to "+15555550123" --message "Hello" --mode notify
+openclaw voicecall continue --call-id <id> --message "Any questions?"
+openclaw voicecall end --call-id <id>
+\end{lstlisting}
+
+
+\subsection{Exposing webhooks (Tailscale)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw voicecall expose --mode serve
+openclaw voicecall expose --mode funnel
+openclaw voicecall expose --mode off
+\end{lstlisting}
+
+
+Security note: only expose the webhook endpoint to networks you trust. Prefer Tailscale Serve over Funnel when possible.
+
+
+\clearpage
+
+% === Source file: cli/webhooks.md ===
+\section{openclaw webhooks}
+
+
+Webhook helpers and integrations (Gmail Pub/Sub, webhook helpers).
+
+Related:
+
+\begin{itemize}
+  \item Webhooks: \href{/automation/webhook}{Webhook}
+  \item Gmail Pub/Sub: \href{/automation/gmail-pubsub}{Gmail Pub/Sub}
+\end{itemize}
+
+
+\subsection{Gmail}
+
+
+\begin{lstlisting}[language=bash]
+openclaw webhooks gmail setup --account you@example.com
+openclaw webhooks gmail run
+\end{lstlisting}
+
+
+See \href{/automation/gmail-pubsub}{Gmail Pub/Sub documentation} for details.
+
+
+\clearpage

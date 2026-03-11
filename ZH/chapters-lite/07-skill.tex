@@ -1,0 +1,109 @@
+\chapter{Skill（技能）}
+
+\section{概述}
+
+Skill（技能）是教智能体如何使用工具的指令包。每个 Skill 是一个包含 \texttt{SKILL.md}（带 YAML frontmatter）的目录，在智能体运行时注入到系统提示中。
+
+配置路径：\texttt{skills.entries.*}
+
+\section{加载位置与优先级}
+
+Skills 从三个位置加载，同名时按优先级覆盖：
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.5cm,
+    box/.style={draw=violet!50, fill=violet!5, rounded corners=3pt, minimum width=10cm, minimum height=0.7cm, font=\small, align=center},
+    arr/.style={-{Stealth[length=2mm]}, thick, draw=violet!40}
+]
+    \node[box] (w) {\texttt{<workspace>/skills}（工作区 Skills） — 最高优先级};
+    \node[box, below=of w] (l) {\texttt{\textasciitilde/.openclaw/skills}（托管/本地 Skills）};
+    \node[box, below=of l] (b) {内置 Skills（随安装包发布） — 最低优先级};
+
+    \draw[arr] (b) -- (l);
+    \draw[arr] (l) -- (w);
+\end{tikzpicture}
+\end{center}
+
+额外 Skills 文件夹可通过 \texttt{skills.load.extraDirs} 配置。
+
+\section{SKILL.md 格式}
+
+\begin{lstlisting}
+---
+name: nano-banana-pro
+description: Generate or edit images via Gemini 3 Pro Image
+metadata:
+  {"openclaw": {"requires": {"bins": ["uv"], "env": ["GEMINI_API_KEY"]}, "primaryEnv": "GEMINI_API_KEY"}}
+---
+
+## Instructions
+
+Use the `nano-banana-pro` tool to generate images...
+\end{lstlisting}
+
+\subsection{Frontmatter 关键字段}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{字段} & \textbf{说明} \\
+\midrule
+\texttt{name} & Skill 名称（必填） \\
+\texttt{description} & 简短描述（必填） \\
+\texttt{user-invocable} & 是否暴露为斜杠命令（默认 true） \\
+\texttt{metadata.openclaw.requires.bins} & 所需二进制文件 \\
+\texttt{metadata.openclaw.requires.env} & 所需环境变量 \\
+\texttt{metadata.openclaw.requires.config} & 所需配置项 \\
+\texttt{metadata.openclaw.primaryEnv} & 关联的 API 密钥变量名 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{门控（加载时过滤）}
+
+OpenClaw 在加载时根据以下条件过滤 Skills：
+
+\begin{itemize}
+  \item \texttt{requires.bins}：二进制文件必须存在于 \texttt{PATH}
+  \item \texttt{requires.env}：环境变量必须存在或在配置中提供
+  \item \texttt{requires.config}：配置项必须为真值
+  \item \texttt{os}：平台限制（\texttt{darwin/linux/win32}）
+\end{itemize}
+
+没有 \texttt{metadata.openclaw} 的 Skill 始终加载（除非在配置中禁用）。
+
+\section{配置覆盖}
+
+\begin{lstlisting}[language=json]
+{
+  skills: {
+    entries: {
+      "nano-banana-pro": {
+        enabled: true,
+        apiKey: "YOUR_API_KEY",
+        env: { CUSTOM_VAR: "value" }
+      },
+      "dangerous-skill": { enabled: false }
+    }
+  }
+}
+\end{lstlisting}
+
+\section{ClawHub（Skills 注册表）}
+
+\begin{lstlisting}[language=bash]
+clawhub install <skill-name>    # Install to workspace
+clawhub update --all            # Update all skills
+clawhub sync --all              # Scan + publish updates
+\end{lstlisting}
+
+浏览 Skills：\href{https://clawhub.com}{https://clawhub.com}
+
+\section{安全注意事项}
+
+\begin{itemize}
+  \item 将第三方 Skills 视为\textbf{不受信任的代码}，启用前请阅读
+  \item 高风险工具优先使用沙箱隔离运行
+  \item \texttt{skills.entries.*.apiKey} 将秘密注入到宿主机进程（非沙箱）
+\end{itemize}

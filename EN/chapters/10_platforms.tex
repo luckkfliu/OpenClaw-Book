@@ -1,0 +1,4056 @@
+\chapter{Platform Support}
+
+% === Source file: platforms/android.md ===
+\section{Android App (Node)}
+
+
+\subsection{Support snapshot}
+
+
+\begin{itemize}
+  \item Role: companion node app (Android does not host the Gateway).
+  \item Gateway required: yes (run it on macOS, Linux, or Windows via WSL2).
+  \item Install: \href{/start/getting-started}{Getting Started} + \href{/channels/pairing}{Pairing}.
+  \item Gateway: \href{/gateway}{Runbook} + \href{/gateway/configuration}{Configuration}.
+  \item Protocols: \href{/gateway/protocol}{Gateway protocol} (nodes + control plane).
+\end{itemize}
+
+
+\subsection{System control}
+
+
+System control (launchd/systemd) lives on the Gateway host. See \href{/gateway}{Gateway}.
+
+\subsection{Connection Runbook}
+
+
+Android node app ⇄ (mDNS/NSD + WebSocket) ⇄ \textbf{Gateway}
+
+Android connects directly to the Gateway WebSocket (default \texttt{ws://:18789}) and uses device pairing (\texttt{role: node}).
+
+\subsubsection{Prerequisites}
+
+
+\begin{itemize}
+  \item You can run the Gateway on the “master” machine.
+  \item Android device/emulator can reach the gateway WebSocket:
+  \item Same LAN with mDNS/NSD, \textbf{or}
+  \item Same Tailscale tailnet using Wide-Area Bonjour / unicast DNS-SD (see below), \textbf{or}
+  \item Manual gateway host/port (fallback)
+  \item You can run the CLI (\texttt{openclaw}) on the gateway machine (or via SSH).
+\end{itemize}
+
+
+\subsubsection{1) Start the Gateway}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway --port 18789 --verbose
+\end{lstlisting}
+
+
+Confirm in logs you see something like:
+
+\begin{itemize}
+  \item \texttt{listening on ws://0.0.0.0:18789}
+\end{itemize}
+
+
+For tailnet-only setups (recommended for Vienna ⇄ London), bind the gateway to the tailnet IP:
+
+\begin{itemize}
+  \item Set \texttt{gateway.bind: "tailnet"} in \texttt{\textasciitilde{}/.openclaw/openclaw.json} on the gateway host.
+  \item Restart the Gateway / macOS menubar app.
+\end{itemize}
+
+
+\subsubsection{2) Verify discovery (optional)}
+
+
+From the gateway machine:
+
+\begin{lstlisting}[language=bash]
+dns-sd -B _openclaw-gw._tcp local.
+\end{lstlisting}
+
+
+More debugging notes: \href{/gateway/bonjour}{Bonjour}.
+
+\paragraph{Tailnet (Vienna ⇄ London) discovery via unicast DNS-SD}
+
+
+Android NSD/mDNS discovery won’t cross networks. If your Android node and the gateway are on different networks but connected via Tailscale, use Wide-Area Bonjour / unicast DNS-SD instead:
+
+\begin{enumerate}
+  \item Set up a DNS-SD zone (example \texttt{openclaw.internal.}) on the gateway host and publish \texttt{\_openclaw-gw.\_tcp} records.
+  \item Configure Tailscale split DNS for your chosen domain pointing at that DNS server.
+\end{enumerate}
+
+
+Details and example CoreDNS config: \href{/gateway/bonjour}{Bonjour}.
+
+\subsubsection{3) Connect from Android}
+
+
+In the Android app:
+
+\begin{itemize}
+  \item The app keeps its gateway connection alive via a \textbf{foreground service} (persistent notification).
+  \item Open the \textbf{Connect} tab.
+  \item Use \textbf{Setup Code} or \textbf{Manual} mode.
+  \item If discovery is blocked, use manual host/port (and TLS/token/password when required) in \textbf{Advanced controls}.
+\end{itemize}
+
+
+After the first successful pairing, Android auto-reconnects on launch:
+
+\begin{itemize}
+  \item Manual endpoint (if enabled), otherwise
+  \item The last discovered gateway (best-effort).
+\end{itemize}
+
+
+\subsubsection{4) Approve pairing (CLI)}
+
+
+On the gateway machine:
+
+\begin{lstlisting}[language=bash]
+openclaw devices list
+openclaw devices approve <requestId>
+openclaw devices reject <requestId>
+\end{lstlisting}
+
+
+Pairing details: \href{/channels/pairing}{Pairing}.
+
+\subsubsection{5) Verify the node is connected}
+
+
+\begin{itemize}
+  \item Via nodes status:
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+  openclaw nodes status
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item Via Gateway:
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+  openclaw gateway call node.list --params "{}"
+\end{lstlisting}
+
+
+\subsubsection{6) Chat + history}
+
+
+The Android Chat tab supports session selection (default \texttt{main}, plus other existing sessions):
+
+\begin{itemize}
+  \item History: \texttt{chat.history}
+  \item Send: \texttt{chat.send}
+  \item Push updates (best-effort): \texttt{chat.subscribe} → \texttt{event:"chat"}
+\end{itemize}
+
+
+\subsubsection{7) Canvas + screen + camera}
+
+
+\paragraph{Gateway Canvas Host (recommended for web content)}
+
+
+If you want the node to show real HTML/CSS/JS that the agent can edit on disk, point the node at the Gateway canvas host.
+
+Note: nodes load canvas from the Gateway HTTP server (same port as \texttt{gateway.port}, default \texttt{18789}).
+
+\begin{enumerate}
+  \item Create \texttt{\textasciitilde{}/.openclaw/workspace/canvas/index.html} on the gateway host.
+\end{enumerate}
+
+
+\begin{enumerate}
+  \item Navigate the node to it (LAN):
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node "<Android Node>" --command canvas.navigate --params '{"url":"http://<gateway-hostname>.local:18789/__openclaw__/canvas/"}'
+\end{lstlisting}
+
+
+Tailnet (optional): if both devices are on Tailscale, use a MagicDNS name or tailnet IP instead of \texttt{.local}, e.g. \texttt{http://:18789/\_\_openclaw\_\_/canvas/}.
+
+This server injects a live-reload client into HTML and reloads on file changes.
+The A2UI host lives at \texttt{http://:18789/\_\_openclaw\_\_/a2ui/}.
+
+Canvas commands (foreground only):
+
+\begin{itemize}
+  \item \texttt{canvas.eval}, \texttt{canvas.snapshot}, \texttt{canvas.navigate} (use \texttt{\{"url":""\}} or \texttt{\{"url":"/"\}} to return to the default scaffold). \texttt{canvas.snapshot} returns \texttt{\{ format, base64 \}} (default \texttt{format="jpeg"}).
+  \item A2UI: \texttt{canvas.a2ui.push}, \texttt{canvas.a2ui.reset} (\texttt{canvas.a2ui.pushJSONL} legacy alias)
+\end{itemize}
+
+
+Camera commands (foreground only; permission-gated):
+
+\begin{itemize}
+  \item \texttt{camera.snap} (jpg)
+  \item \texttt{camera.clip} (mp4)
+\end{itemize}
+
+
+See \href{/nodes/camera}{Camera node} for parameters and CLI helpers.
+
+Screen commands:
+
+\begin{itemize}
+  \item \texttt{screen.record} (mp4; foreground only)
+\end{itemize}
+
+
+\subsubsection{8) Voice + expanded Android command surface}
+
+
+\begin{itemize}
+  \item Voice: Android uses a single mic on/off flow in the Voice tab with transcript capture and TTS playback (ElevenLabs when configured, system TTS fallback).
+  \item Voice wake/talk-mode toggles are currently removed from Android UX/runtime.
+  \item Additional Android command families (availability depends on device + permissions):
+  \item \texttt{device.status}, \texttt{device.info}, \texttt{device.permissions}, \texttt{device.health}
+  \item \texttt{notifications.list}, \texttt{notifications.actions}
+  \item \texttt{photos.latest}
+  \item \texttt{contacts.search}, \texttt{contacts.add}
+  \item \texttt{calendar.events}, \texttt{calendar.add}
+  \item \texttt{motion.activity}, \texttt{motion.pedometer}
+  \item \texttt{app.update}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/digitalocean.md ===
+\section{OpenClaw on DigitalOcean}
+
+
+\subsection{Goal}
+
+
+Run a persistent OpenClaw Gateway on DigitalOcean for \textbf{\$6/month} (or \$4/mo with reserved pricing).
+
+If you want a \$0/month option and don’t mind ARM + provider-specific setup, see the \href{/platforms/oracle}{Oracle Cloud guide}.
+
+\subsection{Cost Comparison (2026)}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+Provider & Plan & Specs & Price/mo & Notes \\
+\hline
+Oracle Cloud & Always Free ARM & up to 4 OCPU, 24GB RAM & \$0 & ARM, limited capacity / signup quirks \\
+\hline
+Hetzner & CX22 & 2 vCPU, 4GB RAM & €3.79 (\textasciitilde{}\$4) & Cheapest paid option \\
+\hline
+DigitalOcean & Basic & 1 vCPU, 1GB RAM & \$6 & Easy UI, good docs \\
+\hline
+Vultr & Cloud Compute & 1 vCPU, 1GB RAM & \$6 & Many locations \\
+\hline
+Linode & Nanode & 1 vCPU, 1GB RAM & \$5 & Now part of Akamai \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\textbf{Picking a provider:}
+
+\begin{itemize}
+  \item DigitalOcean: simplest UX + predictable setup (this guide)
+  \item Hetzner: good price/perf (see \href{/install/hetzner}{Hetzner guide})
+  \item Oracle Cloud: can be \$0/month, but is more finicky and ARM-only (see \href{/platforms/oracle}{Oracle guide})
+\end{itemize}
+
+
+\hrulefill
+
+
+\subsection{Prerequisites}
+
+
+\begin{itemize}
+  \item DigitalOcean account (\href{https://m.do.co/c/signup}{signup with \$200 free credit})
+  \item SSH key pair (or willingness to use password auth)
+  \item \textasciitilde{}20 minutes
+\end{itemize}
+
+
+\subsection{1) Create a Droplet}
+
+
+Use a clean base image (Ubuntu 24.04 LTS). Avoid third-party Marketplace 1-click images unless you have reviewed their startup scripts and firewall defaults.
+
+\begin{enumerate}
+  \item Log into \href{https://cloud.digitalocean.com/}{DigitalOcean}
+  \item Click \textbf{Create → Droplets}
+  \item Choose:
+\end{enumerate}
+
+\begin{itemize}
+  \item \textbf{Region:} Closest to you (or your users)
+  \item \textbf{Image:} Ubuntu 24.04 LTS
+  \item \textbf{Size:} Basic → Regular → \textbf{\$6/mo} (1 vCPU, 1GB RAM, 25GB SSD)
+  \item \textbf{Authentication:} SSH key (recommended) or password
+\end{itemize}
+
+\begin{enumerate}
+  \item Click \textbf{Create Droplet}
+  \item Note the IP address
+\end{enumerate}
+
+
+\subsection{2) Connect via SSH}
+
+
+\begin{lstlisting}[language=bash]
+ssh root@YOUR_DROPLET_IP
+\end{lstlisting}
+
+
+\subsection{3) Install OpenClaw}
+
+
+\begin{lstlisting}[language=bash]
+# Update system
+apt update && apt upgrade -y
+
+# Install Node.js 22
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt install -y nodejs
+
+# Install OpenClaw
+curl -fsSL https://openclaw.ai/install.sh | bash
+
+# Verify
+openclaw --version
+\end{lstlisting}
+
+
+\subsection{4) Run Onboarding}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+
+The wizard will walk you through:
+
+\begin{itemize}
+  \item Model auth (API keys or OAuth)
+  \item Channel setup (Telegram, WhatsApp, Discord, etc.)
+  \item Gateway token (auto-generated)
+  \item Daemon installation (systemd)
+\end{itemize}
+
+
+\subsection{5) Verify the Gateway}
+
+
+\begin{lstlisting}[language=bash]
+# Check status
+openclaw status
+
+# Check service
+systemctl --user status openclaw-gateway.service
+
+# View logs
+journalctl --user -u openclaw-gateway.service -f
+\end{lstlisting}
+
+
+\subsection{6) Access the Dashboard}
+
+
+The gateway binds to loopback by default. To access the Control UI:
+
+\textbf{Option A: SSH Tunnel (recommended)}
+
+\begin{lstlisting}[language=bash]
+# From your local machine
+ssh -L 18789:localhost:18789 root@YOUR_DROPLET_IP
+
+# Then open: http://localhost:18789
+\end{lstlisting}
+
+
+\textbf{Option B: Tailscale Serve (HTTPS, loopback-only)}
+
+\begin{lstlisting}[language=bash]
+# On the droplet
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up
+
+# Configure Gateway to use Tailscale Serve
+openclaw config set gateway.tailscale.mode serve
+openclaw gateway restart
+\end{lstlisting}
+
+
+Open: \texttt{https:///}
+
+Notes:
+
+\begin{itemize}
+  \item Serve keeps the Gateway loopback-only and authenticates Control UI/WebSocket traffic via Tailscale identity headers (tokenless auth assumes trusted gateway host; HTTP APIs still require token/password).
+  \item To require token/password instead, set \texttt{gateway.auth.allowTailscale: false} or use \texttt{gateway.auth.mode: "password"}.
+\end{itemize}
+
+
+\textbf{Option C: Tailnet bind (no Serve)}
+
+\begin{lstlisting}[language=bash]
+openclaw config set gateway.bind tailnet
+openclaw gateway restart
+\end{lstlisting}
+
+
+Open: \texttt{http://:18789} (token required).
+
+\subsection{7) Connect Your Channels}
+
+
+\subsubsection{Telegram}
+
+
+\begin{lstlisting}[language=bash]
+openclaw pairing list telegram
+openclaw pairing approve telegram <CODE>
+\end{lstlisting}
+
+
+\subsubsection{WhatsApp}
+
+
+\begin{lstlisting}[language=bash]
+openclaw channels login whatsapp
+# Scan QR code
+\end{lstlisting}
+
+
+See \href{/channels}{Channels} for other providers.
+
+\hrulefill
+
+
+\subsection{Optimizations for 1GB RAM}
+
+
+The \$6 droplet only has 1GB RAM. To keep things running smoothly:
+
+\subsubsection{Add swap (recommended)}
+
+
+\begin{lstlisting}[language=bash]
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+\end{lstlisting}
+
+
+\subsubsection{Use a lighter model}
+
+
+If you're hitting OOMs, consider:
+
+\begin{itemize}
+  \item Using API-based models (Claude, GPT) instead of local models
+  \item Setting \texttt{agents.defaults.model.primary} to a smaller model
+\end{itemize}
+
+
+\subsubsection{Monitor memory}
+
+
+\begin{lstlisting}[language=bash]
+free -h
+htop
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{Persistence}
+
+
+All state lives in:
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/.openclaw/} — config, credentials, session data
+  \item \texttt{\textasciitilde{}/.openclaw/workspace/} — workspace (SOUL.md, memory, etc.)
+\end{itemize}
+
+
+These survive reboots. Back them up periodically:
+
+\begin{lstlisting}[language=bash]
+tar -czvf openclaw-backup.tar.gz ~/.openclaw ~/.openclaw/workspace
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{Oracle Cloud Free Alternative}
+
+
+Oracle Cloud offers \textbf{Always Free} ARM instances that are significantly more powerful than any paid option here — for \$0/month.
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+What you get & Specs \\
+\hline
+\textbf{4 OCPUs} & ARM Ampere A1 \\
+\hline
+\textbf{24GB RAM} & More than enough \\
+\hline
+\textbf{200GB storage} & Block volume \\
+\hline
+\textbf{Forever free} & No credit card charges \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\textbf{Caveats:}
+
+\begin{itemize}
+  \item Signup can be finicky (retry if it fails)
+  \item ARM architecture — most things work, but some binaries need ARM builds
+\end{itemize}
+
+
+For the full setup guide, see \href{/platforms/oracle}{Oracle Cloud}. For signup tips and troubleshooting the enrollment process, see this \href{https://gist.github.com/rssnyder/51e3cfedd730e7dd5f4a816143b25dbd}{community guide}.
+
+\hrulefill
+
+
+\subsection{Troubleshooting}
+
+
+\subsubsection{Gateway won't start}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway status
+openclaw doctor --non-interactive
+journalctl -u openclaw --no-pager -n 50
+\end{lstlisting}
+
+
+\subsubsection{Port already in use}
+
+
+\begin{lstlisting}[language=bash]
+lsof -i :18789
+kill <PID>
+\end{lstlisting}
+
+
+\subsubsection{Out of memory}
+
+
+\begin{lstlisting}[language=bash]
+# Check memory
+free -h
+
+# Add more swap
+# Or upgrade to $12/mo droplet (2GB RAM)
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{See Also}
+
+
+\begin{itemize}
+  \item \href{/install/hetzner}{Hetzner guide} — cheaper, more powerful
+  \item \href{/install/docker}{Docker install} — containerized setup
+  \item \href{/gateway/tailscale}{Tailscale} — secure remote access
+  \item \href{/gateway/configuration}{Configuration} — full config reference
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/index.md ===
+\section{Platforms}
+
+
+OpenClaw core is written in TypeScript. \textbf{Node is the recommended runtime}.
+Bun is not recommended for the Gateway (WhatsApp/Telegram bugs).
+
+Companion apps exist for macOS (menu bar app) and mobile nodes (iOS/Android). Windows and
+Linux companion apps are planned, but the Gateway is fully supported today.
+Native companion apps for Windows are also planned; the Gateway is recommended via WSL2.
+
+\subsection{Choose your OS}
+
+
+\begin{itemize}
+  \item macOS: \href{/platforms/macos}{macOS}
+  \item iOS: \href{/platforms/ios}{iOS}
+  \item Android: \href{/platforms/android}{Android}
+  \item Windows: \href{/platforms/windows}{Windows}
+  \item Linux: \href{/platforms/linux}{Linux}
+\end{itemize}
+
+
+\subsection{VPS \& hosting}
+
+
+\begin{itemize}
+  \item VPS hub: \href{/vps}{VPS hosting}
+  \item Fly.io: \href{/install/fly}{Fly.io}
+  \item Hetzner (Docker): \href{/install/hetzner}{Hetzner}
+  \item GCP (Compute Engine): \href{/install/gcp}{GCP}
+  \item exe.dev (VM + HTTPS proxy): \href{/install/exe-dev}{exe.dev}
+\end{itemize}
+
+
+\subsection{Common links}
+
+
+\begin{itemize}
+  \item Install guide: \href{/start/getting-started}{Getting Started}
+  \item Gateway runbook: \href{/gateway}{Gateway}
+  \item Gateway configuration: \href{/gateway/configuration}{Configuration}
+  \item Service status: \texttt{openclaw gateway status}
+\end{itemize}
+
+
+\subsection{Gateway service install (CLI)}
+
+
+Use one of these (all supported):
+
+\begin{itemize}
+  \item Wizard (recommended): \texttt{openclaw onboard --install-daemon}
+  \item Direct: \texttt{openclaw gateway install}
+  \item Configure flow: \texttt{openclaw configure} → select \textbf{Gateway service}
+  \item Repair/migrate: \texttt{openclaw doctor} (offers to install or fix the service)
+\end{itemize}
+
+
+The service target depends on OS:
+
+\begin{itemize}
+  \item macOS: LaunchAgent (\texttt{ai.openclaw.gateway} or \texttt{ai.openclaw.}; legacy \texttt{com.openclaw.*})
+  \item Linux/WSL2: systemd user service (\texttt{openclaw-gateway[-].service})
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/ios.md ===
+\section{iOS App (Node)}
+
+
+Availability: internal preview. The iOS app is not publicly distributed yet.
+
+\subsection{What it does}
+
+
+\begin{itemize}
+  \item Connects to a Gateway over WebSocket (LAN or tailnet).
+  \item Exposes node capabilities: Canvas, Screen snapshot, Camera capture, Location, Talk mode, Voice wake.
+  \item Receives \texttt{node.invoke} commands and reports node status events.
+\end{itemize}
+
+
+\subsection{Requirements}
+
+
+\begin{itemize}
+  \item Gateway running on another device (macOS, Linux, or Windows via WSL2).
+  \item Network path:
+  \item Same LAN via Bonjour, \textbf{or}
+  \item Tailnet via unicast DNS-SD (example domain: \texttt{openclaw.internal.}), \textbf{or}
+  \item Manual host/port (fallback).
+\end{itemize}
+
+
+\subsection{Quick start (pair + connect)}
+
+
+\begin{enumerate}
+  \item Start the Gateway:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway --port 18789
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item In the iOS app, open Settings and pick a discovered gateway (or enable Manual Host and enter host/port).
+\end{enumerate}
+
+
+\begin{enumerate}
+  \item Approve the pairing request on the gateway host:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw devices list
+openclaw devices approve <requestId>
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Verify connection:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes status
+openclaw gateway call node.list --params "{}"
+\end{lstlisting}
+
+
+\subsection{Discovery paths}
+
+
+\subsubsection{Bonjour (LAN)}
+
+
+The Gateway advertises \texttt{\_openclaw-gw.\_tcp} on \texttt{local.}. The iOS app lists these automatically.
+
+\subsubsection{Tailnet (cross-network)}
+
+
+If mDNS is blocked, use a unicast DNS-SD zone (choose a domain; example: \texttt{openclaw.internal.}) and Tailscale split DNS.
+See \href{/gateway/bonjour}{Bonjour} for the CoreDNS example.
+
+\subsubsection{Manual host/port}
+
+
+In Settings, enable \textbf{Manual Host} and enter the gateway host + port (default \texttt{18789}).
+
+\subsection{Canvas + A2UI}
+
+
+The iOS node renders a WKWebView canvas. Use \texttt{node.invoke} to drive it:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node "iOS Node" --command canvas.navigate --params '{"url":"http://<gateway-host>:18789/__openclaw__/canvas/"}'
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item The Gateway canvas host serves \texttt{/\_\_openclaw\_\_/canvas/} and \texttt{/\_\_openclaw\_\_/a2ui/}.
+  \item It is served from the Gateway HTTP server (same port as \texttt{gateway.port}, default \texttt{18789}).
+  \item The iOS node auto-navigates to A2UI on connect when a canvas host URL is advertised.
+  \item Return to the built-in scaffold with \texttt{canvas.navigate} and \texttt{\{"url":""\}}.
+\end{itemize}
+
+
+\subsubsection{Canvas eval / snapshot}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node "iOS Node" --command canvas.eval --params '{"javaScript":"(() => { const {ctx} = window.__openclaw; ctx.clearRect(0,0,innerWidth,innerHeight); ctx.lineWidth=6; ctx.strokeStyle=\"#ff2d55\"; ctx.beginPath(); ctx.moveTo(40,40); ctx.lineTo(innerWidth-40, innerHeight-40); ctx.stroke(); return \"ok\"; })()"}'
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node "iOS Node" --command canvas.snapshot --params '{"maxWidth":900,"format":"jpeg"}'
+\end{lstlisting}
+
+
+\subsection{Voice wake + talk mode}
+
+
+\begin{itemize}
+  \item Voice wake and talk mode are available in Settings.
+  \item iOS may suspend background audio; treat voice features as best-effort when the app is not active.
+\end{itemize}
+
+
+\subsection{Common errors}
+
+
+\begin{itemize}
+  \item \texttt{NODE\_BACKGROUND\_UNAVAILABLE}: bring the iOS app to the foreground (canvas/camera/screen commands require it).
+  \item \texttt{A2UI\_HOST\_NOT\_CONFIGURED}: the Gateway did not advertise a canvas host URL; check \texttt{canvasHost} in \href{/gateway/configuration}{Gateway configuration}.
+  \item Pairing prompt never appears: run \texttt{openclaw devices list} and approve manually.
+  \item Reconnect fails after reinstall: the Keychain pairing token was cleared; re-pair the node.
+\end{itemize}
+
+
+\subsection{Related docs}
+
+
+\begin{itemize}
+  \item \href{/channels/pairing}{Pairing}
+  \item \href{/gateway/discovery}{Discovery}
+  \item \href{/gateway/bonjour}{Bonjour}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/linux.md ===
+\section{Linux App}
+
+
+The Gateway is fully supported on Linux. \textbf{Node is the recommended runtime}.
+Bun is not recommended for the Gateway (WhatsApp/Telegram bugs).
+
+Native Linux companion apps are planned. Contributions are welcome if you want to help build one.
+
+\subsection{Beginner quick path (VPS)}
+
+
+\begin{enumerate}
+  \item Install Node 22+
+  \item \texttt{npm i -g openclaw@latest}
+  \item \texttt{openclaw onboard --install-daemon}
+  \item From your laptop: \texttt{ssh -N -L 18789:127.0.0.1:18789 @}
+  \item Open \texttt{http://127.0.0.1:18789/} and paste your token
+\end{enumerate}
+
+
+Step-by-step VPS guide: \href{/install/exe-dev}{exe.dev}
+
+\subsection{Install}
+
+
+\begin{itemize}
+  \item \href{/start/getting-started}{Getting Started}
+  \item \href{/install/updating}{Install \& updates}
+  \item Optional flows: \href{/install/bun}{Bun (experimental)}, \href{/install/nix}{Nix}, \href{/install/docker}{Docker}
+\end{itemize}
+
+
+\subsection{Gateway}
+
+
+\begin{itemize}
+  \item \href{/gateway}{Gateway runbook}
+  \item \href{/gateway/configuration}{Configuration}
+\end{itemize}
+
+
+\subsection{Gateway service install (CLI)}
+
+
+Use one of these:
+
+\begin{lstlisting}
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+
+Or:
+
+\begin{lstlisting}
+openclaw gateway install
+\end{lstlisting}
+
+
+Or:
+
+\begin{lstlisting}
+openclaw configure
+\end{lstlisting}
+
+
+Select \textbf{Gateway service} when prompted.
+
+Repair/migrate:
+
+\begin{lstlisting}
+openclaw doctor
+\end{lstlisting}
+
+
+\subsection{System control (systemd user unit)}
+
+
+OpenClaw installs a systemd \textbf{user} service by default. Use a \textbf{system}
+service for shared or always-on servers. The full unit example and guidance
+live in the \href{/gateway}{Gateway runbook}.
+
+Minimal setup:
+
+Create \texttt{\textasciitilde{}/.config/systemd/user/openclaw-gateway[-].service}:
+
+\begin{lstlisting}
+[Unit]
+Description=OpenClaw Gateway (profile: <profile>, v<version>)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/openclaw gateway --port 18789
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+\end{lstlisting}
+
+
+Enable it:
+
+\begin{lstlisting}
+systemctl --user enable --now openclaw-gateway[-<profile>].service
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/bundled-gateway.md ===
+\section{Gateway on macOS (external launchd)}
+
+
+OpenClaw.app no longer bundles Node/Bun or the Gateway runtime. The macOS app
+expects an \textbf{external} \texttt{openclaw} CLI install, does not spawn the Gateway as a
+child process, and manages a per‑user launchd service to keep the Gateway
+running (or attaches to an existing local Gateway if one is already running).
+
+\subsection{Install the CLI (required for local mode)}
+
+
+You need Node 22+ on the Mac, then install \texttt{openclaw} globally:
+
+\begin{lstlisting}[language=bash]
+npm install -g openclaw@<version>
+\end{lstlisting}
+
+
+The macOS app’s \textbf{Install CLI} button runs the same flow via npm/pnpm (bun not recommended for Gateway runtime).
+
+\subsection{Launchd (Gateway as LaunchAgent)}
+
+
+Label:
+
+\begin{itemize}
+  \item \texttt{ai.openclaw.gateway} (or \texttt{ai.openclaw.}; legacy \texttt{com.openclaw.*} may remain)
+\end{itemize}
+
+
+Plist location (per‑user):
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/Library/LaunchAgents/ai.openclaw.gateway.plist}
+\end{itemize}
+
+(or \texttt{\textasciitilde{}/Library/LaunchAgents/ai.openclaw..plist})
+
+Manager:
+
+\begin{itemize}
+  \item The macOS app owns LaunchAgent install/update in Local mode.
+  \item The CLI can also install it: \texttt{openclaw gateway install}.
+\end{itemize}
+
+
+Behavior:
+
+\begin{itemize}
+  \item “OpenClaw Active” enables/disables the LaunchAgent.
+  \item App quit does \textbf{not} stop the gateway (launchd keeps it alive).
+  \item If a Gateway is already running on the configured port, the app attaches to
+\end{itemize}
+
+it instead of starting a new one.
+
+Logging:
+
+\begin{itemize}
+  \item launchd stdout/err: \texttt{/tmp/openclaw/openclaw-gateway.log}
+\end{itemize}
+
+
+\subsection{Version compatibility}
+
+
+The macOS app checks the gateway version against its own version. If they’re
+incompatible, update the global CLI to match the app version.
+
+\subsection{Smoke check}
+
+
+\begin{lstlisting}[language=bash]
+openclaw --version
+
+OPENCLAW_SKIP_CHANNELS=1 \
+OPENCLAW_SKIP_CANVAS_HOST=1 \
+openclaw gateway --port 18999 --bind loopback
+\end{lstlisting}
+
+
+Then:
+
+\begin{lstlisting}[language=bash]
+openclaw gateway call health --url ws://127.0.0.1:18999 --timeout 3000
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/canvas.md ===
+\section{Canvas (macOS app)}
+
+
+The macOS app embeds an agent‑controlled \textbf{Canvas panel} using \texttt{WKWebView}. It
+is a lightweight visual workspace for HTML/CSS/JS, A2UI, and small interactive
+UI surfaces.
+
+\subsection{Where Canvas lives}
+
+
+Canvas state is stored under Application Support:
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/Library/Application Support/OpenClaw/canvas//...}
+\end{itemize}
+
+
+The Canvas panel serves those files via a \textbf{custom URL scheme}:
+
+\begin{itemize}
+  \item \texttt{openclaw-canvas:///}
+\end{itemize}
+
+
+Examples:
+
+\begin{itemize}
+  \item \texttt{openclaw-canvas://main/} → \texttt{/main/index.html}
+  \item \texttt{openclaw-canvas://main/assets/app.css} → \texttt{/main/assets/app.css}
+  \item \texttt{openclaw-canvas://main/widgets/todo/} → \texttt{/main/widgets/todo/index.html}
+\end{itemize}
+
+
+If no \texttt{index.html} exists at the root, the app shows a \textbf{built‑in scaffold page}.
+
+\subsection{Panel behavior}
+
+
+\begin{itemize}
+  \item Borderless, resizable panel anchored near the menu bar (or mouse cursor).
+  \item Remembers size/position per session.
+  \item Auto‑reloads when local canvas files change.
+  \item Only one Canvas panel is visible at a time (session is switched as needed).
+\end{itemize}
+
+
+Canvas can be disabled from Settings → \textbf{Allow Canvas}. When disabled, canvas
+node commands return \texttt{CANVAS\_DISABLED}.
+
+\subsection{Agent API surface}
+
+
+Canvas is exposed via the \textbf{Gateway WebSocket}, so the agent can:
+
+\begin{itemize}
+  \item show/hide the panel
+  \item navigate to a path or URL
+  \item evaluate JavaScript
+  \item capture a snapshot image
+\end{itemize}
+
+
+CLI examples:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas present --node <id>
+openclaw nodes canvas navigate --node <id> --url "/"
+openclaw nodes canvas eval --node <id> --js "document.title"
+openclaw nodes canvas snapshot --node <id>
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{canvas.navigate} accepts \textbf{local canvas paths}, \texttt{http(s)} URLs, and \texttt{file://} URLs.
+  \item If you pass \texttt{"/"}, the Canvas shows the local scaffold or \texttt{index.html}.
+\end{itemize}
+
+
+\subsection{A2UI in Canvas}
+
+
+A2UI is hosted by the Gateway canvas host and rendered inside the Canvas panel.
+When the Gateway advertises a Canvas host, the macOS app auto‑navigates to the
+A2UI host page on first open.
+
+Default A2UI host URL:
+
+\begin{lstlisting}
+http://<gateway-host>:18789/__openclaw__/a2ui/
+\end{lstlisting}
+
+
+\subsubsection{A2UI commands (v0.8)}
+
+
+Canvas currently accepts \textbf{A2UI v0.8} server→client messages:
+
+\begin{itemize}
+  \item \texttt{beginRendering}
+  \item \texttt{surfaceUpdate}
+  \item \texttt{dataModelUpdate}
+  \item \texttt{deleteSurface}
+\end{itemize}
+
+
+\texttt{createSurface} (v0.9) is not supported.
+
+CLI example:
+
+\begin{lstlisting}[language=bash]
+cat > /tmp/a2ui-v0.8.jsonl <<'EOFA2'
+{"surfaceUpdate":{"surfaceId":"main","components":[{"id":"root","component":{"Column":{"children":{"explicitList":["title","content"]}}}},{"id":"title","component":{"Text":{"text":{"literalString":"Canvas (A2UI v0.8)"},"usageHint":"h1"}}},{"id":"content","component":{"Text":{"text":{"literalString":"If you can read this, A2UI push works."},"usageHint":"body"}}}]}}
+{"beginRendering":{"surfaceId":"main","root":"root"}}
+EOFA2
+
+openclaw nodes canvas a2ui push --jsonl /tmp/a2ui-v0.8.jsonl --node <id>
+\end{lstlisting}
+
+
+Quick smoke:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas a2ui push --node <id> --text "Hello from A2UI"
+\end{lstlisting}
+
+
+\subsection{Triggering agent runs from Canvas}
+
+
+Canvas can trigger new agent runs via deep links:
+
+\begin{itemize}
+  \item \texttt{openclaw://agent?...}
+\end{itemize}
+
+
+Example (in JS):
+
+\begin{lstlisting}[language=javascript]
+window.location.href = "openclaw://agent?message=Review%20this%20design";
+\end{lstlisting}
+
+
+The app prompts for confirmation unless a valid key is provided.
+
+\subsection{Security notes}
+
+
+\begin{itemize}
+  \item Canvas scheme blocks directory traversal; files must live under the session root.
+  \item Local Canvas content uses a custom scheme (no loopback server required).
+  \item External \texttt{http(s)} URLs are allowed only when explicitly navigated.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/child-process.md ===
+\section{Gateway lifecycle on macOS}
+
+
+The macOS app \textbf{manages the Gateway via launchd} by default and does not spawn
+the Gateway as a child process. It first tries to attach to an already‑running
+Gateway on the configured port; if none is reachable, it enables the launchd
+service via the external \texttt{openclaw} CLI (no embedded runtime). This gives you
+reliable auto‑start at login and restart on crashes.
+
+Child‑process mode (Gateway spawned directly by the app) is \textbf{not in use} today.
+If you need tighter coupling to the UI, run the Gateway manually in a terminal.
+
+\subsection{Default behavior (launchd)}
+
+
+\begin{itemize}
+  \item The app installs a per‑user LaunchAgent labeled \texttt{ai.openclaw.gateway}
+\end{itemize}
+
+(or \texttt{ai.openclaw.} when using \texttt{--profile}/\texttt{OPENCLAW\_PROFILE}; legacy \texttt{com.openclaw.*} is supported).
+\begin{itemize}
+  \item When Local mode is enabled, the app ensures the LaunchAgent is loaded and
+\end{itemize}
+
+starts the Gateway if needed.
+\begin{itemize}
+  \item Logs are written to the launchd gateway log path (visible in Debug Settings).
+\end{itemize}
+
+
+Common commands:
+
+\begin{lstlisting}[language=bash]
+launchctl kickstart -k gui/$UID/ai.openclaw.gateway
+launchctl bootout gui/$UID/ai.openclaw.gateway
+\end{lstlisting}
+
+
+Replace the label with \texttt{ai.openclaw.} when running a named profile.
+
+\subsection{Unsigned dev builds}
+
+
+\texttt{scripts/restart-mac.sh --no-sign} is for fast local builds when you don’t have
+signing keys. To prevent launchd from pointing at an unsigned relay binary, it:
+
+\begin{itemize}
+  \item Writes \texttt{\textasciitilde{}/.openclaw/disable-launchagent}.
+\end{itemize}
+
+
+Signed runs of \texttt{scripts/restart-mac.sh} clear this override if the marker is
+present. To reset manually:
+
+\begin{lstlisting}[language=bash]
+rm ~/.openclaw/disable-launchagent
+\end{lstlisting}
+
+
+\subsection{Attach-only mode}
+
+
+To force the macOS app to \textbf{never install or manage launchd}, launch it with
+\texttt{--attach-only} (or \texttt{--no-launchd}). This sets \texttt{\textasciitilde{}/.openclaw/disable-launchagent},
+so the app only attaches to an already running Gateway. You can toggle the same
+behavior in Debug Settings.
+
+\subsection{Remote mode}
+
+
+Remote mode never starts a local Gateway. The app uses an SSH tunnel to the
+remote host and connects over that tunnel.
+
+\subsection{Why we prefer launchd}
+
+
+\begin{itemize}
+  \item Auto‑start at login.
+  \item Built‑in restart/KeepAlive semantics.
+  \item Predictable logs and supervision.
+\end{itemize}
+
+
+If a true child‑process mode is ever needed again, it should be documented as a
+separate, explicit dev‑only mode.
+
+
+\clearpage
+
+% === Source file: platforms/mac/dev-setup.md ===
+\section{macOS Developer Setup}
+
+
+This guide covers the necessary steps to build and run the OpenClaw macOS application from source.
+
+\subsection{Prerequisites}
+
+
+Before building the app, ensure you have the following installed:
+
+\begin{enumerate}
+  \item \textbf{Xcode 26.2+}: Required for Swift development.
+  \item \textbf{Node.js 22+ \& pnpm}: Required for the gateway, CLI, and packaging scripts.
+\end{enumerate}
+
+
+\subsection{1. Install Dependencies}
+
+
+Install the project-wide dependencies:
+
+\begin{lstlisting}[language=bash]
+pnpm install
+\end{lstlisting}
+
+
+\subsection{2. Build and Package the App}
+
+
+To build the macOS app and package it into \texttt{dist/OpenClaw.app}, run:
+
+\begin{lstlisting}[language=bash]
+./scripts/package-mac-app.sh
+\end{lstlisting}
+
+
+If you don't have an Apple Developer ID certificate, the script will automatically use \textbf{ad-hoc signing} (\texttt{-}).
+
+For dev run modes, signing flags, and Team ID troubleshooting, see the macOS app README:
+\href{https://github.com/openclaw/openclaw/blob/main/apps/macos/README.md}{https://github.com/openclaw/openclaw/blob/main/apps/macos/README.md}
+
+\begin{quote}
+\textbf{Note}: Ad-hoc signed apps may trigger security prompts. If the app crashes immediately with "Abort trap 6", see the \href{\#troubleshooting}{Troubleshooting} section.
+\end{quote}
+
+
+\subsection{3. Install the CLI}
+
+
+The macOS app expects a global \texttt{openclaw} CLI install to manage background tasks.
+
+\textbf{To install it (recommended):}
+
+\begin{enumerate}
+  \item Open the OpenClaw app.
+  \item Go to the \textbf{General} settings tab.
+  \item Click \textbf{"Install CLI"}.
+\end{enumerate}
+
+
+Alternatively, install it manually:
+
+\begin{lstlisting}[language=bash]
+npm install -g openclaw@<version>
+\end{lstlisting}
+
+
+\subsection{Troubleshooting}
+
+
+\subsubsection{Build Fails: Toolchain or SDK Mismatch}
+
+
+The macOS app build expects the latest macOS SDK and Swift 6.2 toolchain.
+
+\textbf{System dependencies (required):}
+
+\begin{itemize}
+  \item \textbf{Latest macOS version available in Software Update} (required by Xcode 26.2 SDKs)
+  \item \textbf{Xcode 26.2} (Swift 6.2 toolchain)
+\end{itemize}
+
+
+\textbf{Checks:}
+
+\begin{lstlisting}[language=bash]
+xcodebuild -version
+xcrun swift --version
+\end{lstlisting}
+
+
+If versions don’t match, update macOS/Xcode and re-run the build.
+
+\subsubsection{App Crashes on Permission Grant}
+
+
+If the app crashes when you try to allow \textbf{Speech Recognition} or \textbf{Microphone} access, it may be due to a corrupted TCC cache or signature mismatch.
+
+\textbf{Fix:}
+
+\begin{enumerate}
+  \item Reset the TCC permissions:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+   tccutil reset All ai.openclaw.mac.debug
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item If that fails, change the \texttt{BUNDLE\_ID} temporarily in \href{https://github.com/openclaw/openclaw/blob/main/scripts/package-mac-app.sh}{\texttt{scripts/package-mac-app.sh}} to force a "clean slate" from macOS.
+\end{enumerate}
+
+
+\subsubsection{Gateway "Starting..." indefinitely}
+
+
+If the gateway status stays on "Starting...", check if a zombie process is holding the port:
+
+\begin{lstlisting}[language=bash]
+openclaw gateway status
+openclaw gateway stop
+
+# If you’re not using a LaunchAgent (dev mode / manual runs), find the listener:
+lsof -nP -iTCP:18789 -sTCP:LISTEN
+\end{lstlisting}
+
+
+If a manual run is holding the port, stop that process (Ctrl+C). As a last resort, kill the PID you found above.
+
+
+\clearpage
+
+% === Source file: platforms/mac/health.md ===
+\section{Health Checks on macOS}
+
+
+How to see whether the linked channel is healthy from the menu bar app.
+
+\subsection{Menu bar}
+
+
+\begin{itemize}
+  \item Status dot now reflects Baileys health:
+  \item Green: linked + socket opened recently.
+  \item Orange: connecting/retrying.
+  \item Red: logged out or probe failed.
+  \item Secondary line reads "linked · auth 12m" or shows the failure reason.
+  \item "Run Health Check" menu item triggers an on-demand probe.
+\end{itemize}
+
+
+\subsection{Settings}
+
+
+\begin{itemize}
+  \item General tab gains a Health card showing: linked auth age, session-store path/count, last check time, last error/status code, and buttons for Run Health Check / Reveal Logs.
+  \item Uses a cached snapshot so the UI loads instantly and falls back gracefully when offline.
+  \item \textbf{Channels tab} surfaces channel status + controls for WhatsApp/Telegram (login QR, logout, probe, last disconnect/error).
+\end{itemize}
+
+
+\subsection{How the probe works}
+
+
+\begin{itemize}
+  \item App runs \texttt{openclaw health --json} via \texttt{ShellExecutor} every \textasciitilde{}60s and on demand. The probe loads creds and reports status without sending messages.
+  \item Cache the last good snapshot and the last error separately to avoid flicker; show the timestamp of each.
+\end{itemize}
+
+
+\subsection{When in doubt}
+
+
+\begin{itemize}
+  \item You can still use the CLI flow in \href{/gateway/health}{Gateway health} (\texttt{openclaw status}, \texttt{openclaw status --deep}, \texttt{openclaw health --json}) and tail \texttt{/tmp/openclaw/openclaw-*.log} for \texttt{web-heartbeat} / \texttt{web-reconnect}.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/icon.md ===
+\section{Menu Bar Icon States}
+
+
+Author: steipete · Updated: 2025-12-06 · Scope: macOS app (\texttt{apps/macos})
+
+\begin{itemize}
+  \item \textbf{Idle:} Normal icon animation (blink, occasional wiggle).
+  \item \textbf{Paused:} Status item uses \texttt{appearsDisabled}; no motion.
+  \item \textbf{Voice trigger (big ears):} Voice wake detector calls \texttt{AppState.triggerVoiceEars(ttl: nil)} when the wake word is heard, keeping \texttt{earBoostActive=true} while the utterance is captured. Ears scale up (1.9x), get circular ear holes for readability, then drop via \texttt{stopVoiceEars()} after 1s of silence. Only fired from the in-app voice pipeline.
+  \item \textbf{Working (agent running):} \texttt{AppState.isWorking=true} drives a “tail/leg scurry” micro-motion: faster leg wiggle and slight offset while work is in-flight. Currently toggled around WebChat agent runs; add the same toggle around other long tasks when you wire them.
+\end{itemize}
+
+
+Wiring points
+
+\begin{itemize}
+  \item Voice wake: runtime/tester call \texttt{AppState.triggerVoiceEars(ttl: nil)} on trigger and \texttt{stopVoiceEars()} after 1s of silence to match the capture window.
+  \item Agent activity: set \texttt{AppStateStore.shared.setWorking(true/false)} around work spans (already done in WebChat agent call). Keep spans short and reset in \texttt{defer} blocks to avoid stuck animations.
+\end{itemize}
+
+
+Shapes \& sizes
+
+\begin{itemize}
+  \item Base icon drawn in \texttt{CritterIconRenderer.makeIcon(blink:legWiggle:earWiggle:earScale:earHoles:)}.
+  \item Ear scale defaults to \texttt{1.0}; voice boost sets \texttt{earScale=1.9} and toggles \texttt{earHoles=true} without changing overall frame (18×18 pt template image rendered into a 36×36 px Retina backing store).
+  \item Scurry uses leg wiggle up to \textasciitilde{}1.0 with a small horizontal jiggle; it’s additive to any existing idle wiggle.
+\end{itemize}
+
+
+Behavioral notes
+
+\begin{itemize}
+  \item No external CLI/broker toggle for ears/working; keep it internal to the app’s own signals to avoid accidental flapping.
+  \item Keep TTLs short (\&lt;10s) so the icon returns to baseline quickly if a job hangs.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/logging.md ===
+\section{Logging (macOS)}
+
+
+\subsection{Rolling diagnostics file log (Debug pane)}
+
+
+OpenClaw routes macOS app logs through swift-log (unified logging by default) and can write a local, rotating file log to disk when you need a durable capture.
+
+\begin{itemize}
+  \item Verbosity: \textbf{Debug pane → Logs → App logging → Verbosity}
+  \item Enable: \textbf{Debug pane → Logs → App logging → “Write rolling diagnostics log (JSONL)”}
+  \item Location: \texttt{\textasciitilde{}/Library/Logs/OpenClaw/diagnostics.jsonl} (rotates automatically; old files are suffixed with \texttt{.1}, \texttt{.2}, …)
+  \item Clear: \textbf{Debug pane → Logs → App logging → “Clear”}
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item This is \textbf{off by default}. Enable only while actively debugging.
+  \item Treat the file as sensitive; don’t share it without review.
+\end{itemize}
+
+
+\subsection{Unified logging private data on macOS}
+
+
+Unified logging redacts most payloads unless a subsystem opts into \texttt{privacy -off}. Per Peter's write-up on macOS \href{https://steipete.me/posts/2025/logging-privacy-shenanigans}{logging privacy shenanigans} (2025) this is controlled by a plist in \texttt{/Library/Preferences/Logging/Subsystems/} keyed by the subsystem name. Only new log entries pick up the flag, so enable it before reproducing an issue.
+
+\subsection{Enable for OpenClaw (ai.openclaw)}
+
+
+\begin{itemize}
+  \item Write the plist to a temp file first, then install it atomically as root:
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+cat <<'EOF' >/tmp/ai.openclaw.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>DEFAULT-OPTIONS</key>
+    <dict>
+        <key>Enable-Private-Data</key>
+        <true/>
+    </dict>
+</dict>
+</plist>
+EOF
+sudo install -m 644 -o root -g wheel /tmp/ai.openclaw.plist /Library/Preferences/Logging/Subsystems/ai.openclaw.plist
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item No reboot is required; logd notices the file quickly, but only new log lines will include private payloads.
+  \item View the richer output with the existing helper, e.g. \texttt{./scripts/clawlog.sh --category WebChat --last 5m}.
+\end{itemize}
+
+
+\subsection{Disable after debugging}
+
+
+\begin{itemize}
+  \item Remove the override: \texttt{sudo rm /Library/Preferences/Logging/Subsystems/ai.openclaw.plist}.
+  \item Optionally run \texttt{sudo log config --reload} to force logd to drop the override immediately.
+  \item Remember this surface can include phone numbers and message bodies; keep the plist in place only while you actively need the extra detail.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/menu-bar.md ===
+\section{Menu Bar Status Logic}
+
+
+\subsection{What is shown}
+
+
+\begin{itemize}
+  \item We surface the current agent work state in the menu bar icon and in the first status row of the menu.
+  \item Health status is hidden while work is active; it returns when all sessions are idle.
+  \item The “Nodes” block in the menu lists \textbf{devices} only (paired nodes via \texttt{node.list}), not client/presence entries.
+  \item A “Usage” section appears under Context when provider usage snapshots are available.
+\end{itemize}
+
+
+\subsection{State model}
+
+
+\begin{itemize}
+  \item Sessions: events arrive with \texttt{runId} (per-run) plus \texttt{sessionKey} in the payload. The “main” session is the key \texttt{main}; if absent, we fall back to the most recently updated session.
+  \item Priority: main always wins. If main is active, its state is shown immediately. If main is idle, the most recently active non‑main session is shown. We do not flip‑flop mid‑activity; we only switch when the current session goes idle or main becomes active.
+  \item Activity kinds:
+  \item \texttt{job}: high‑level command execution (\texttt{state: started|streaming|done|error}).
+  \item \texttt{tool}: \texttt{phase: start|result} with \texttt{toolName} and \texttt{meta/args}.
+\end{itemize}
+
+
+\subsection{IconState enum (Swift)}
+
+
+\begin{itemize}
+  \item \texttt{idle}
+  \item \texttt{workingMain(ActivityKind)}
+  \item \texttt{workingOther(ActivityKind)}
+  \item \texttt{overridden(ActivityKind)} (debug override)
+\end{itemize}
+
+
+\subsubsection{ActivityKind → glyph}
+
+
+\begin{itemize}
+  \item \texttt{exec} → 💻
+  \item \texttt{read} → 📄
+  \item \texttt{write} → ✍️
+  \item \texttt{edit} → 📝
+  \item \texttt{attach} → 📎
+  \item default → 🛠️
+\end{itemize}
+
+
+\subsubsection{Visual mapping}
+
+
+\begin{itemize}
+  \item \texttt{idle}: normal critter.
+  \item \texttt{workingMain}: badge with glyph, full tint, leg “working” animation.
+  \item \texttt{workingOther}: badge with glyph, muted tint, no scurry.
+  \item \texttt{overridden}: uses the chosen glyph/tint regardless of activity.
+\end{itemize}
+
+
+\subsection{Status row text (menu)}
+
+
+\begin{itemize}
+  \item While work is active: \texttt{ · }
+  \item Examples: \texttt{Main · exec: pnpm test}, \texttt{Other · read: apps/macos/Sources/OpenClaw/AppState.swift}.
+  \item When idle: falls back to the health summary.
+\end{itemize}
+
+
+\subsection{Event ingestion}
+
+
+\begin{itemize}
+  \item Source: control‑channel \texttt{agent} events (\texttt{ControlChannel.handleAgentEvent}).
+  \item Parsed fields:
+  \item \texttt{stream: "job"} with \texttt{data.state} for start/stop.
+  \item \texttt{stream: "tool"} with \texttt{data.phase}, \texttt{name}, optional \texttt{meta}/\texttt{args}.
+  \item Labels:
+  \item \texttt{exec}: first line of \texttt{args.command}.
+  \item \texttt{read}/\texttt{write}: shortened path.
+  \item \texttt{edit}: path plus inferred change kind from \texttt{meta}/diff counts.
+  \item fallback: tool name.
+\end{itemize}
+
+
+\subsection{Debug override}
+
+
+\begin{itemize}
+  \item Settings ▸ Debug ▸ “Icon override” picker:
+  \item \texttt{System (auto)} (default)
+  \item \texttt{Working: main} (per tool kind)
+  \item \texttt{Working: other} (per tool kind)
+  \item \texttt{Idle}
+  \item Stored via \texttt{@AppStorage("iconOverride")}; mapped to \texttt{IconState.overridden}.
+\end{itemize}
+
+
+\subsection{Testing checklist}
+
+
+\begin{itemize}
+  \item Trigger main session job: verify icon switches immediately and status row shows main label.
+  \item Trigger non‑main session job while main idle: icon/status shows non‑main; stays stable until it finishes.
+  \item Start main while other active: icon flips to main instantly.
+  \item Rapid tool bursts: ensure badge does not flicker (TTL grace on tool results).
+  \item Health row reappears once all sessions idle.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/peekaboo.md ===
+\section{Peekaboo Bridge (macOS UI automation)}
+
+
+OpenClaw can host \textbf{PeekabooBridge} as a local, permission‑aware UI automation
+broker. This lets the \texttt{peekaboo} CLI drive UI automation while reusing the
+macOS app’s TCC permissions.
+
+\subsection{What this is (and isn’t)}
+
+
+\begin{itemize}
+  \item \textbf{Host}: OpenClaw.app can act as a PeekabooBridge host.
+  \item \textbf{Client}: use the \texttt{peekaboo} CLI (no separate \texttt{openclaw ui ...} surface).
+  \item \textbf{UI}: visual overlays stay in Peekaboo.app; OpenClaw is a thin broker host.
+\end{itemize}
+
+
+\subsection{Enable the bridge}
+
+
+In the macOS app:
+
+\begin{itemize}
+  \item Settings → \textbf{Enable Peekaboo Bridge}
+\end{itemize}
+
+
+When enabled, OpenClaw starts a local UNIX socket server. If disabled, the host
+is stopped and \texttt{peekaboo} will fall back to other available hosts.
+
+\subsection{Client discovery order}
+
+
+Peekaboo clients typically try hosts in this order:
+
+\begin{enumerate}
+  \item Peekaboo.app (full UX)
+  \item Claude.app (if installed)
+  \item OpenClaw.app (thin broker)
+\end{enumerate}
+
+
+Use \texttt{peekaboo bridge status --verbose} to see which host is active and which
+socket path is in use. You can override with:
+
+\begin{lstlisting}[language=bash]
+export PEEKABOO_BRIDGE_SOCKET=/path/to/bridge.sock
+\end{lstlisting}
+
+
+\subsection{Security \& permissions}
+
+
+\begin{itemize}
+  \item The bridge validates \textbf{caller code signatures}; an allowlist of TeamIDs is
+\end{itemize}
+
+enforced (Peekaboo host TeamID + OpenClaw app TeamID).
+\begin{itemize}
+  \item Requests time out after \textasciitilde{}10 seconds.
+  \item If required permissions are missing, the bridge returns a clear error message
+\end{itemize}
+
+rather than launching System Settings.
+
+\subsection{Snapshot behavior (automation)}
+
+
+Snapshots are stored in memory and expire automatically after a short window.
+If you need longer retention, re‑capture from the client.
+
+\subsection{Troubleshooting}
+
+
+\begin{itemize}
+  \item If \texttt{peekaboo} reports “bridge client is not authorized”, ensure the client is
+\end{itemize}
+
+properly signed or run the host with \texttt{PEEKABOO\_ALLOW\_UNSIGNED\_SOCKET\_CLIENTS=1}
+in \textbf{debug} mode only.
+\begin{itemize}
+  \item If no hosts are found, open one of the host apps (Peekaboo.app or OpenClaw.app)
+\end{itemize}
+
+and confirm permissions are granted.
+
+
+\clearpage
+
+% === Source file: platforms/mac/permissions.md ===
+\section{macOS permissions (TCC)}
+
+
+macOS permission grants are fragile. TCC associates a permission grant with the
+app's code signature, bundle identifier, and on-disk path. If any of those change,
+macOS treats the app as new and may drop or hide prompts.
+
+\subsection{Requirements for stable permissions}
+
+
+\begin{itemize}
+  \item Same path: run the app from a fixed location (for OpenClaw, \texttt{dist/OpenClaw.app}).
+  \item Same bundle identifier: changing the bundle ID creates a new permission identity.
+  \item Signed app: unsigned or ad-hoc signed builds do not persist permissions.
+  \item Consistent signature: use a real Apple Development or Developer ID certificate
+\end{itemize}
+
+so the signature stays stable across rebuilds.
+
+Ad-hoc signatures generate a new identity every build. macOS will forget previous
+grants, and prompts can disappear entirely until the stale entries are cleared.
+
+\subsection{Recovery checklist when prompts disappear}
+
+
+\begin{enumerate}
+  \item Quit the app.
+  \item Remove the app entry in System Settings -> Privacy \& Security.
+  \item Relaunch the app from the same path and re-grant permissions.
+  \item If the prompt still does not appear, reset TCC entries with \texttt{tccutil} and try again.
+  \item Some permissions only reappear after a full macOS restart.
+\end{enumerate}
+
+
+Example resets (replace bundle ID as needed):
+
+\begin{lstlisting}[language=bash]
+sudo tccutil reset Accessibility ai.openclaw.mac
+sudo tccutil reset ScreenCapture ai.openclaw.mac
+sudo tccutil reset AppleEvents
+\end{lstlisting}
+
+
+\subsection{Files and folders permissions (Desktop/Documents/Downloads)}
+
+
+macOS may also gate Desktop, Documents, and Downloads for terminal/background processes. If file reads or directory listings hang, grant access to the same process context that performs file operations (for example Terminal/iTerm, LaunchAgent-launched app, or SSH process).
+
+Workaround: move files into the OpenClaw workspace (\texttt{\textasciitilde{}/.openclaw/workspace}) if you want to avoid per-folder grants.
+
+If you are testing permissions, always sign with a real certificate. Ad-hoc
+builds are only acceptable for quick local runs where permissions do not matter.
+
+
+\clearpage
+
+% === Source file: platforms/mac/release.md ===
+\section{OpenClaw macOS release (Sparkle)}
+
+
+This app now ships Sparkle auto-updates. Release builds must be Developer ID–signed, zipped, and published with a signed appcast entry.
+
+\subsection{Prereqs}
+
+
+\begin{itemize}
+  \item Developer ID Application cert installed (example: \texttt{Developer ID Application:  ()}).
+  \item Sparkle private key path set in the environment as \texttt{SPARKLE\_PRIVATE\_KEY\_FILE} (path to your Sparkle ed25519 private key; public key baked into Info.plist). If it is missing, check \texttt{\textasciitilde{}/.profile}.
+  \item Notary credentials (keychain profile or API key) for \texttt{xcrun notarytool} if you want Gatekeeper-safe DMG/zip distribution.
+  \item We use a Keychain profile named \texttt{openclaw-notary}, created from App Store Connect API key env vars in your shell profile:
+  \item \texttt{APP\_STORE\_CONNECT\_API\_KEY\_P8}, \texttt{APP\_STORE\_CONNECT\_KEY\_ID}, \texttt{APP\_STORE\_CONNECT\_ISSUER\_ID}
+  \item \texttt{echo "\$APP\_STORE\_CONNECT\_API\_KEY\_P8" | sed 's/\textbackslash\{\}\textbackslash\{\}n/\textbackslash\{\}n/g' > /tmp/openclaw-notary.p8}
+  \item \texttt{xcrun notarytool store-credentials "openclaw-notary" --key /tmp/openclaw-notary.p8 --key-id "\$APP\_STORE\_CONNECT\_KEY\_ID" --issuer "\$APP\_STORE\_CONNECT\_ISSUER\_ID"}
+  \item \texttt{pnpm} deps installed (\texttt{pnpm install --config.node-linker=hoisted}).
+  \item Sparkle tools are fetched automatically via SwiftPM at \texttt{apps/macos/.build/artifacts/sparkle/Sparkle/bin/} (\texttt{sign\_update}, \texttt{generate\_appcast}, etc.).
+\end{itemize}
+
+
+\subsection{Build \& package}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{APP\_BUILD} maps to \texttt{CFBundleVersion}/\texttt{sparkle:version}; keep it numeric + monotonic (no \texttt{-beta}), or Sparkle compares it as equal.
+  \item If \texttt{APP\_BUILD} is omitted, \texttt{scripts/package-mac-app.sh} derives a Sparkle-safe default from \texttt{APP\_VERSION} (\texttt{YYYYMMDDNN}: stable defaults to \texttt{90}, prereleases use a suffix-derived lane) and uses the higher of that value and git commit count.
+  \item You can still override \texttt{APP\_BUILD} explicitly when release engineering needs a specific monotonic value.
+  \item Defaults to the current architecture (\texttt{\$(uname -m)}). For release/universal builds, set \texttt{BUILD\_ARCHS="arm64 x86\_64"} (or \texttt{BUILD\_ARCHS=all}).
+  \item Use \texttt{scripts/package-mac-dist.sh} for release artifacts (zip + DMG + notarization). Use \texttt{scripts/package-mac-app.sh} for local/dev packaging.
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+# From repo root; set release IDs so Sparkle feed is enabled.
+# APP_BUILD must be numeric + monotonic for Sparkle compare.
+# Default is auto-derived from APP_VERSION when omitted.
+BUNDLE_ID=ai.openclaw.mac \
+APP_VERSION=2026.3.2 \
+BUILD_CONFIG=release \
+SIGN_IDENTITY="Developer ID Application: <Developer Name> (<TEAMID>)" \
+scripts/package-mac-app.sh
+
+# Zip for distribution (includes resource forks for Sparkle delta support)
+ditto -c -k --sequesterRsrc --keepParent dist/OpenClaw.app dist/OpenClaw-2026.3.2.zip
+
+# Optional: also build a styled DMG for humans (drag to /Applications)
+scripts/create-dmg.sh dist/OpenClaw.app dist/OpenClaw-2026.3.2.dmg
+
+# Recommended: build + notarize/staple zip + DMG
+# First, create a keychain profile once:
+#   xcrun notarytool store-credentials "openclaw-notary" \
+#     --apple-id "<apple-id>" --team-id "<team-id>" --password "<app-specific-password>"
+NOTARIZE=1 NOTARYTOOL_PROFILE=openclaw-notary \
+BUNDLE_ID=ai.openclaw.mac \
+APP_VERSION=2026.3.2 \
+BUILD_CONFIG=release \
+SIGN_IDENTITY="Developer ID Application: <Developer Name> (<TEAMID>)" \
+scripts/package-mac-dist.sh
+
+# Optional: ship dSYM alongside the release
+ditto -c -k --keepParent apps/macos/.build/release/OpenClaw.app.dSYM dist/OpenClaw-2026.3.2.dSYM.zip
+\end{lstlisting}
+
+
+\subsection{Appcast entry}
+
+
+Use the release note generator so Sparkle renders formatted HTML notes:
+
+\begin{lstlisting}[language=bash]
+SPARKLE_PRIVATE_KEY_FILE=/path/to/ed25519-private-key scripts/make_appcast.sh dist/OpenClaw-2026.3.2.zip https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml
+\end{lstlisting}
+
+
+Generates HTML release notes from \texttt{CHANGELOG.md} (via \href{https://github.com/openclaw/openclaw/blob/main/scripts/changelog-to-html.sh}{\texttt{scripts/changelog-to-html.sh}}) and embeds them in the appcast entry.
+Commit the updated \texttt{appcast.xml} alongside the release assets (zip + dSYM) when publishing.
+
+\subsection{Publish \& verify}
+
+
+\begin{itemize}
+  \item Upload \texttt{OpenClaw-2026.3.2.zip} (and \texttt{OpenClaw-2026.3.2.dSYM.zip}) to the GitHub release for tag \texttt{v2026.3.2}.
+  \item Ensure the raw appcast URL matches the baked feed: \texttt{https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml}.
+  \item Sanity checks:
+  \item \texttt{curl -I https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml} returns 200.
+  \item \texttt{curl -I } returns 200 after assets upload.
+  \item On a previous public build, run “Check for Updates…” from the About tab and verify Sparkle installs the new build cleanly.
+\end{itemize}
+
+
+Definition of done: signed app + appcast are published, update flow works from an older installed version, and release assets are attached to the GitHub release.
+
+
+\clearpage
+
+% === Source file: platforms/mac/remote.md ===
+\section{Remote OpenClaw (macOS ⇄ remote host)}
+
+
+This flow lets the macOS app act as a full remote control for a OpenClaw gateway running on another host (desktop/server). It’s the app’s \textbf{Remote over SSH} (remote run) feature. All features—health checks, Voice Wake forwarding, and Web Chat—reuse the same remote SSH configuration from \_Settings → General\_.
+
+\subsection{Modes}
+
+
+\begin{itemize}
+  \item \textbf{Local (this Mac)}: Everything runs on the laptop. No SSH involved.
+  \item \textbf{Remote over SSH (default)}: OpenClaw commands are executed on the remote host. The mac app opens an SSH connection with \texttt{-o BatchMode} plus your chosen identity/key and a local port-forward.
+  \item \textbf{Remote direct (ws/wss)}: No SSH tunnel. The mac app connects to the gateway URL directly (for example, via Tailscale Serve or a public HTTPS reverse proxy).
+\end{itemize}
+
+
+\subsection{Remote transports}
+
+
+Remote mode supports two transports:
+
+\begin{itemize}
+  \item \textbf{SSH tunnel} (default): Uses \texttt{ssh -N -L ...} to forward the gateway port to localhost. The gateway will see the node’s IP as \texttt{127.0.0.1} because the tunnel is loopback.
+  \item \textbf{Direct (ws/wss)}: Connects straight to the gateway URL. The gateway sees the real client IP.
+\end{itemize}
+
+
+\subsection{Prereqs on the remote host}
+
+
+\begin{enumerate}
+  \item Install Node + pnpm and build/install the OpenClaw CLI (\texttt{pnpm install \&\& pnpm build \&\& pnpm link --global}).
+  \item Ensure \texttt{openclaw} is on PATH for non-interactive shells (symlink into \texttt{/usr/local/bin} or \texttt{/opt/homebrew/bin} if needed).
+  \item Open SSH with key auth. We recommend \textbf{Tailscale} IPs for stable reachability off-LAN.
+\end{enumerate}
+
+
+\subsection{macOS app setup}
+
+
+\begin{enumerate}
+  \item Open \_Settings → General\_.
+  \item Under \textbf{OpenClaw runs}, pick \textbf{Remote over SSH} and set:
+\end{enumerate}
+
+\begin{itemize}
+  \item \textbf{Transport}: \textbf{SSH tunnel} or \textbf{Direct (ws/wss)}.
+  \item \textbf{SSH target}: \texttt{user@host} (optional \texttt{:port}).
+  \item If the gateway is on the same LAN and advertises Bonjour, pick it from the discovered list to auto-fill this field.
+  \item \textbf{Gateway URL} (Direct only): \texttt{wss://gateway.example.ts.net} (or \texttt{ws://...} for local/LAN).
+  \item \textbf{Identity file} (advanced): path to your key.
+  \item \textbf{Project root} (advanced): remote checkout path used for commands.
+  \item \textbf{CLI path} (advanced): optional path to a runnable \texttt{openclaw} entrypoint/binary (auto-filled when advertised).
+\end{itemize}
+
+\begin{enumerate}
+  \item Hit \textbf{Test remote}. Success indicates the remote \texttt{openclaw status --json} runs correctly. Failures usually mean PATH/CLI issues; exit 127 means the CLI isn’t found remotely.
+  \item Health checks and Web Chat will now run through this SSH tunnel automatically.
+\end{enumerate}
+
+
+\subsection{Web Chat}
+
+
+\begin{itemize}
+  \item \textbf{SSH tunnel}: Web Chat connects to the gateway over the forwarded WebSocket control port (default 18789).
+  \item \textbf{Direct (ws/wss)}: Web Chat connects straight to the configured gateway URL.
+  \item There is no separate WebChat HTTP server anymore.
+\end{itemize}
+
+
+\subsection{Permissions}
+
+
+\begin{itemize}
+  \item The remote host needs the same TCC approvals as local (Automation, Accessibility, Screen Recording, Microphone, Speech Recognition, Notifications). Run onboarding on that machine to grant them once.
+  \item Nodes advertise their permission state via \texttt{node.list} / \texttt{node.describe} so agents know what’s available.
+\end{itemize}
+
+
+\subsection{Security notes}
+
+
+\begin{itemize}
+  \item Prefer loopback binds on the remote host and connect via SSH or Tailscale.
+  \item SSH tunneling uses strict host-key checking; trust the host key first so it exists in \texttt{\textasciitilde{}/.ssh/known\_hosts}.
+  \item If you bind the Gateway to a non-loopback interface, require token/password auth.
+  \item See \href{/gateway/security}{Security} and \href{/gateway/tailscale}{Tailscale}.
+\end{itemize}
+
+
+\subsection{WhatsApp login flow (remote)}
+
+
+\begin{itemize}
+  \item Run \texttt{openclaw channels login --verbose} \textbf{on the remote host}. Scan the QR with WhatsApp on your phone.
+  \item Re-run login on that host if auth expires. Health check will surface link problems.
+\end{itemize}
+
+
+\subsection{Troubleshooting}
+
+
+\begin{itemize}
+  \item \textbf{exit 127 / not found}: \texttt{openclaw} isn’t on PATH for non-login shells. Add it to \texttt{/etc/paths}, your shell rc, or symlink into \texttt{/usr/local/bin}/\texttt{/opt/homebrew/bin}.
+  \item \textbf{Health probe failed}: check SSH reachability, PATH, and that Baileys is logged in (\texttt{openclaw status --json}).
+  \item \textbf{Web Chat stuck}: confirm the gateway is running on the remote host and the forwarded port matches the gateway WS port; the UI requires a healthy WS connection.
+  \item \textbf{Node IP shows 127.0.0.1}: expected with the SSH tunnel. Switch \textbf{Transport} to \textbf{Direct (ws/wss)} if you want the gateway to see the real client IP.
+  \item \textbf{Voice Wake}: trigger phrases are forwarded automatically in remote mode; no separate forwarder is needed.
+\end{itemize}
+
+
+\subsection{Notification sounds}
+
+
+Pick sounds per notification from scripts with \texttt{openclaw} and \texttt{node.invoke}, e.g.:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes notify --node <id> --title "Ping" --body "Remote gateway ready" --sound Glass
+\end{lstlisting}
+
+
+There is no global “default sound” toggle in the app anymore; callers choose a sound (or none) per request.
+
+
+\clearpage
+
+% === Source file: platforms/mac/signing.md ===
+\section{mac signing (debug builds)}
+
+
+This app is usually built from \href{https://github.com/openclaw/openclaw/blob/main/scripts/package-mac-app.sh}{\texttt{scripts/package-mac-app.sh}}, which now:
+
+\begin{itemize}
+  \item sets a stable debug bundle identifier: \texttt{ai.openclaw.mac.debug}
+  \item writes the Info.plist with that bundle id (override via \texttt{BUNDLE\_ID=...})
+  \item calls \href{https://github.com/openclaw/openclaw/blob/main/scripts/codesign-mac-app.sh}{\texttt{scripts/codesign-mac-app.sh}} to sign the main binary and app bundle so macOS treats each rebuild as the same signed bundle and keeps TCC permissions (notifications, accessibility, screen recording, mic, speech). For stable permissions, use a real signing identity; ad-hoc is opt-in and fragile (see \href{/platforms/mac/permissions}{macOS permissions}).
+  \item uses \texttt{CODESIGN\_TIMESTAMP=auto} by default; it enables trusted timestamps for Developer ID signatures. Set \texttt{CODESIGN\_TIMESTAMP=off} to skip timestamping (offline debug builds).
+  \item inject build metadata into Info.plist: \texttt{OpenClawBuildTimestamp} (UTC) and \texttt{OpenClawGitCommit} (short hash) so the About pane can show build, git, and debug/release channel.
+  \item \textbf{Packaging requires Node 22+}: the script runs TS builds and the Control UI build.
+  \item reads \texttt{SIGN\_IDENTITY} from the environment. Add \texttt{export SIGN\_IDENTITY="Apple Development: Your Name (TEAMID)"} (or your Developer ID Application cert) to your shell rc to always sign with your cert. Ad-hoc signing requires explicit opt-in via \texttt{ALLOW\_ADHOC\_SIGNING=1} or \texttt{SIGN\_IDENTITY="-"} (not recommended for permission testing).
+  \item runs a Team ID audit after signing and fails if any Mach-O inside the app bundle is signed by a different Team ID. Set \texttt{SKIP\_TEAM\_ID\_CHECK=1} to bypass.
+\end{itemize}
+
+
+\subsection{Usage}
+
+
+\begin{lstlisting}[language=bash]
+# from repo root
+scripts/package-mac-app.sh               # auto-selects identity; errors if none found
+SIGN_IDENTITY="Developer ID Application: Your Name" scripts/package-mac-app.sh   # real cert
+ALLOW_ADHOC_SIGNING=1 scripts/package-mac-app.sh    # ad-hoc (permissions will not stick)
+SIGN_IDENTITY="-" scripts/package-mac-app.sh        # explicit ad-hoc (same caveat)
+DISABLE_LIBRARY_VALIDATION=1 scripts/package-mac-app.sh   # dev-only Sparkle Team ID mismatch workaround
+\end{lstlisting}
+
+
+\subsubsection{Ad-hoc Signing Note}
+
+
+When signing with \texttt{SIGN\_IDENTITY="-"} (ad-hoc), the script automatically disables the \textbf{Hardened Runtime} (\texttt{--options runtime}). This is necessary to prevent crashes when the app attempts to load embedded frameworks (like Sparkle) that do not share the same Team ID. Ad-hoc signatures also break TCC permission persistence; see \href{/platforms/mac/permissions}{macOS permissions} for recovery steps.
+
+\subsection{Build metadata for About}
+
+
+\texttt{package-mac-app.sh} stamps the bundle with:
+
+\begin{itemize}
+  \item \texttt{OpenClawBuildTimestamp}: ISO8601 UTC at package time
+  \item \texttt{OpenClawGitCommit}: short git hash (or \texttt{unknown} if unavailable)
+\end{itemize}
+
+
+The About tab reads these keys to show version, build date, git commit, and whether it’s a debug build (via \texttt{\#if DEBUG}). Run the packager to refresh these values after code changes.
+
+\subsection{Why}
+
+
+TCC permissions are tied to the bundle identifier \_and\_ code signature. Unsigned debug builds with changing UUIDs were causing macOS to forget grants after each rebuild. Signing the binaries (ad‑hoc by default) and keeping a fixed bundle id/path (\texttt{dist/OpenClaw.app}) preserves the grants between builds, matching the VibeTunnel approach.
+
+
+\clearpage
+
+% === Source file: platforms/mac/skills.md ===
+\section{Skills (macOS)}
+
+
+The macOS app surfaces OpenClaw skills via the gateway; it does not parse skills locally.
+
+\subsection{Data source}
+
+
+\begin{itemize}
+  \item \texttt{skills.status} (gateway) returns all skills plus eligibility and missing requirements
+\end{itemize}
+
+(including allowlist blocks for bundled skills).
+\begin{itemize}
+  \item Requirements are derived from \texttt{metadata.openclaw.requires} in each \texttt{SKILL.md}.
+\end{itemize}
+
+
+\subsection{Install actions}
+
+
+\begin{itemize}
+  \item \texttt{metadata.openclaw.install} defines install options (brew/node/go/uv).
+  \item The app calls \texttt{skills.install} to run installers on the gateway host.
+  \item The gateway surfaces only one preferred installer when multiple are provided
+\end{itemize}
+
+(brew when available, otherwise node manager from \texttt{skills.install}, default npm).
+
+\subsection{Env/API keys}
+
+
+\begin{itemize}
+  \item The app stores keys in \texttt{\textasciitilde{}/.openclaw/openclaw.json} under \texttt{skills.entries.}.
+  \item \texttt{skills.update} patches \texttt{enabled}, \texttt{apiKey}, and \texttt{env}.
+\end{itemize}
+
+
+\subsection{Remote mode}
+
+
+\begin{itemize}
+  \item Install + config updates happen on the gateway host (not the local Mac).
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/voice-overlay.md ===
+\section{Voice Overlay Lifecycle (macOS)}
+
+
+Audience: macOS app contributors. Goal: keep the voice overlay predictable when wake-word and push-to-talk overlap.
+
+\subsection{Current intent}
+
+
+\begin{itemize}
+  \item If the overlay is already visible from wake-word and the user presses the hotkey, the hotkey session \_adopts\_ the existing text instead of resetting it. The overlay stays up while the hotkey is held. When the user releases: send if there is trimmed text, otherwise dismiss.
+  \item Wake-word alone still auto-sends on silence; push-to-talk sends immediately on release.
+\end{itemize}
+
+
+\subsection{Implemented (Dec 9, 2025)}
+
+
+\begin{itemize}
+  \item Overlay sessions now carry a token per capture (wake-word or push-to-talk). Partial/final/send/dismiss/level updates are dropped when the token doesn’t match, avoiding stale callbacks.
+  \item Push-to-talk adopts any visible overlay text as a prefix (so pressing the hotkey while the wake overlay is up keeps the text and appends new speech). It waits up to 1.5s for a final transcript before falling back to the current text.
+  \item Chime/overlay logging is emitted at \texttt{info} in categories \texttt{voicewake.overlay}, \texttt{voicewake.ptt}, and \texttt{voicewake.chime} (session start, partial, final, send, dismiss, chime reason).
+\end{itemize}
+
+
+\subsection{Next steps}
+
+
+\begin{enumerate}
+  \item \textbf{VoiceSessionCoordinator (actor)}
+\end{enumerate}
+
+\begin{itemize}
+  \item Owns exactly one \texttt{VoiceSession} at a time.
+  \item API (token-based): \texttt{beginWakeCapture}, \texttt{beginPushToTalk}, \texttt{updatePartial}, \texttt{endCapture}, \texttt{cancel}, \texttt{applyCooldown}.
+  \item Drops callbacks that carry stale tokens (prevents old recognizers from reopening the overlay).
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{VoiceSession (model)}
+\end{enumerate}
+
+\begin{itemize}
+  \item Fields: \texttt{token}, \texttt{source} (wakeWord|pushToTalk), committed/volatile text, chime flags, timers (auto-send, idle), \texttt{overlayMode} (display|editing|sending), cooldown deadline.
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{Overlay binding}
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{VoiceSessionPublisher} (\texttt{ObservableObject}) mirrors the active session into SwiftUI.
+  \item \texttt{VoiceWakeOverlayView} renders only via the publisher; it never mutates global singletons directly.
+  \item Overlay user actions (\texttt{sendNow}, \texttt{dismiss}, \texttt{edit}) call back into the coordinator with the session token.
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{Unified send path}
+\end{enumerate}
+
+\begin{itemize}
+  \item On \texttt{endCapture}: if trimmed text is empty → dismiss; else \texttt{performSend(session:)} (plays send chime once, forwards, dismisses).
+  \item Push-to-talk: no delay; wake-word: optional delay for auto-send.
+  \item Apply a short cooldown to the wake runtime after push-to-talk finishes so wake-word doesn’t immediately retrigger.
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{Logging}
+\end{enumerate}
+
+\begin{itemize}
+  \item Coordinator emits \texttt{.info} logs in subsystem \texttt{ai.openclaw}, categories \texttt{voicewake.overlay} and \texttt{voicewake.chime}.
+  \item Key events: \texttt{session\_started}, \texttt{adopted\_by\_push\_to\_talk}, \texttt{partial}, \texttt{finalized}, \texttt{send}, \texttt{dismiss}, \texttt{cancel}, \texttt{cooldown}.
+\end{itemize}
+
+
+\subsection{Debugging checklist}
+
+
+\begin{itemize}
+  \item Stream logs while reproducing a sticky overlay:
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+  sudo log stream --predicate 'subsystem == "ai.openclaw" AND category CONTAINS "voicewake"' --level info --style compact
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item Verify only one active session token; stale callbacks should be dropped by the coordinator.
+  \item Ensure push-to-talk release always calls \texttt{endCapture} with the active token; if text is empty, expect \texttt{dismiss} without chime or send.
+\end{itemize}
+
+
+\subsection{Migration steps (suggested)}
+
+
+\begin{enumerate}
+  \item Add \texttt{VoiceSessionCoordinator}, \texttt{VoiceSession}, and \texttt{VoiceSessionPublisher}.
+  \item Refactor \texttt{VoiceWakeRuntime} to create/update/end sessions instead of touching \texttt{VoiceWakeOverlayController} directly.
+  \item Refactor \texttt{VoicePushToTalk} to adopt existing sessions and call \texttt{endCapture} on release; apply runtime cooldown.
+  \item Wire \texttt{VoiceWakeOverlayController} to the publisher; remove direct calls from runtime/PTT.
+  \item Add integration tests for session adoption, cooldown, and empty-text dismissal.
+\end{enumerate}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/voicewake.md ===
+\section{Voice Wake \& Push-to-Talk}
+
+
+\subsection{Modes}
+
+
+\begin{itemize}
+  \item \textbf{Wake-word mode} (default): always-on Speech recognizer waits for trigger tokens (\texttt{swabbleTriggerWords}). On match it starts capture, shows the overlay with partial text, and auto-sends after silence.
+  \item \textbf{Push-to-talk (Right Option hold)}: hold the right Option key to capture immediately—no trigger needed. The overlay appears while held; releasing finalizes and forwards after a short delay so you can tweak text.
+\end{itemize}
+
+
+\subsection{Runtime behavior (wake-word)}
+
+
+\begin{itemize}
+  \item Speech recognizer lives in \texttt{VoiceWakeRuntime}.
+  \item Trigger only fires when there’s a \textbf{meaningful pause} between the wake word and the next word (\textasciitilde{}0.55s gap). The overlay/chime can start on the pause even before the command begins.
+  \item Silence windows: 2.0s when speech is flowing, 5.0s if only the trigger was heard.
+  \item Hard stop: 120s to prevent runaway sessions.
+  \item Debounce between sessions: 350ms.
+  \item Overlay is driven via \texttt{VoiceWakeOverlayController} with committed/volatile coloring.
+  \item After send, recognizer restarts cleanly to listen for the next trigger.
+\end{itemize}
+
+
+\subsection{Lifecycle invariants}
+
+
+\begin{itemize}
+  \item If Voice Wake is enabled and permissions are granted, the wake-word recognizer should be listening (except during an explicit push-to-talk capture).
+  \item Overlay visibility (including manual dismiss via the X button) must never prevent the recognizer from resuming.
+\end{itemize}
+
+
+\subsection{Sticky overlay failure mode (previous)}
+
+
+Previously, if the overlay got stuck visible and you manually closed it, Voice Wake could appear “dead” because the runtime’s restart attempt could be blocked by overlay visibility and no subsequent restart was scheduled.
+
+Hardening:
+
+\begin{itemize}
+  \item Wake runtime restart is no longer blocked by overlay visibility.
+  \item Overlay dismiss completion triggers a \texttt{VoiceWakeRuntime.refresh(...)} via \texttt{VoiceSessionCoordinator}, so manual X-dismiss always resumes listening.
+\end{itemize}
+
+
+\subsection{Push-to-talk specifics}
+
+
+\begin{itemize}
+  \item Hotkey detection uses a global \texttt{.flagsChanged} monitor for \textbf{right Option} (\texttt{keyCode 61} + \texttt{.option}). We only observe events (no swallowing).
+  \item Capture pipeline lives in \texttt{VoicePushToTalk}: starts Speech immediately, streams partials to the overlay, and calls \texttt{VoiceWakeForwarder} on release.
+  \item When push-to-talk starts we pause the wake-word runtime to avoid dueling audio taps; it restarts automatically after release.
+  \item Permissions: requires Microphone + Speech; seeing events needs Accessibility/Input Monitoring approval.
+  \item External keyboards: some may not expose right Option as expected—offer a fallback shortcut if users report misses.
+\end{itemize}
+
+
+\subsection{User-facing settings}
+
+
+\begin{itemize}
+  \item \textbf{Voice Wake} toggle: enables wake-word runtime.
+  \item \textbf{Hold Cmd+Fn to talk}: enables the push-to-talk monitor. Disabled on macOS < 26.
+  \item Language \& mic pickers, live level meter, trigger-word table, tester (local-only; does not forward).
+  \item Mic picker preserves the last selection if a device disconnects, shows a disconnected hint, and temporarily falls back to the system default until it returns.
+  \item \textbf{Sounds}: chimes on trigger detect and on send; defaults to the macOS “Glass” system sound. You can pick any \texttt{NSSound}-loadable file (e.g. MP3/WAV/AIFF) for each event or choose \textbf{No Sound}.
+\end{itemize}
+
+
+\subsection{Forwarding behavior}
+
+
+\begin{itemize}
+  \item When Voice Wake is enabled, transcripts are forwarded to the active gateway/agent (the same local vs remote mode used by the rest of the mac app).
+  \item Replies are delivered to the \textbf{last-used main provider} (WhatsApp/Telegram/Discord/WebChat). If delivery fails, the error is logged and the run is still visible via WebChat/session logs.
+\end{itemize}
+
+
+\subsection{Forwarding payload}
+
+
+\begin{itemize}
+  \item \texttt{VoiceWakeForwarder.prefixedTranscript(\_:)} prepends the machine hint before sending. Shared between wake-word and push-to-talk paths.
+\end{itemize}
+
+
+\subsection{Quick verification}
+
+
+\begin{itemize}
+  \item Toggle push-to-talk on, hold Cmd+Fn, speak, release: overlay should show partials then send.
+  \item While holding, menu-bar ears should stay enlarged (uses \texttt{triggerVoiceEars(ttl:nil)}); they drop after release.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/webchat.md ===
+\section{WebChat (macOS app)}
+
+
+The macOS menu bar app embeds the WebChat UI as a native SwiftUI view. It
+connects to the Gateway and defaults to the \textbf{main session} for the selected
+agent (with a session switcher for other sessions).
+
+\begin{itemize}
+  \item \textbf{Local mode}: connects directly to the local Gateway WebSocket.
+  \item \textbf{Remote mode}: forwards the Gateway control port over SSH and uses that
+\end{itemize}
+
+tunnel as the data plane.
+
+\subsection{Launch \& debugging}
+
+
+\begin{itemize}
+  \item Manual: Lobster menu → “Open Chat”.
+  \item Auto‑open for testing:
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+  dist/OpenClaw.app/Contents/MacOS/OpenClaw --webchat
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item Logs: \texttt{./scripts/clawlog.sh} (subsystem \texttt{ai.openclaw}, category \texttt{WebChatSwiftUI}).
+\end{itemize}
+
+
+\subsection{How it’s wired}
+
+
+\begin{itemize}
+  \item Data plane: Gateway WS methods \texttt{chat.history}, \texttt{chat.send}, \texttt{chat.abort},
+\end{itemize}
+
+\texttt{chat.inject} and events \texttt{chat}, \texttt{agent}, \texttt{presence}, \texttt{tick}, \texttt{health}.
+\begin{itemize}
+  \item Session: defaults to the primary session (\texttt{main}, or \texttt{global} when scope is
+\end{itemize}
+
+global). The UI can switch between sessions.
+\begin{itemize}
+  \item Onboarding uses a dedicated session to keep first‑run setup separate.
+\end{itemize}
+
+
+\subsection{Security surface}
+
+
+\begin{itemize}
+  \item Remote mode forwards only the Gateway WebSocket control port over SSH.
+\end{itemize}
+
+
+\subsection{Known limitations}
+
+
+\begin{itemize}
+  \item The UI is optimized for chat sessions (not a full browser sandbox).
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/mac/xpc.md ===
+\section{OpenClaw macOS IPC architecture}
+
+
+\textbf{Current model:} a local Unix socket connects the \textbf{node host service} to the \textbf{macOS app} for exec approvals + \texttt{system.run}. A \texttt{openclaw-mac} debug CLI exists for discovery/connect checks; agent actions still flow through the Gateway WebSocket and \texttt{node.invoke}. UI automation uses PeekabooBridge.
+
+\subsection{Goals}
+
+
+\begin{itemize}
+  \item Single GUI app instance that owns all TCC-facing work (notifications, screen recording, mic, speech, AppleScript).
+  \item A small surface for automation: Gateway + node commands, plus PeekabooBridge for UI automation.
+  \item Predictable permissions: always the same signed bundle ID, launched by launchd, so TCC grants stick.
+\end{itemize}
+
+
+\subsection{How it works}
+
+
+\subsubsection{Gateway + node transport}
+
+
+\begin{itemize}
+  \item The app runs the Gateway (local mode) and connects to it as a node.
+  \item Agent actions are performed via \texttt{node.invoke} (e.g. \texttt{system.run}, \texttt{system.notify}, \texttt{canvas.*}).
+\end{itemize}
+
+
+\subsubsection{Node service + app IPC}
+
+
+\begin{itemize}
+  \item A headless node host service connects to the Gateway WebSocket.
+  \item \texttt{system.run} requests are forwarded to the macOS app over a local Unix socket.
+  \item The app performs the exec in UI context, prompts if needed, and returns output.
+\end{itemize}
+
+
+Diagram (SCI):
+
+\begin{lstlisting}
+Agent -> Gateway -> Node Service (WS)
+                      |  IPC (UDS + token + HMAC + TTL)
+                      v
+                  Mac App (UI + TCC + system.run)
+\end{lstlisting}
+
+
+\subsubsection{PeekabooBridge (UI automation)}
+
+
+\begin{itemize}
+  \item UI automation uses a separate UNIX socket named \texttt{bridge.sock} and the PeekabooBridge JSON protocol.
+  \item Host preference order (client-side): Peekaboo.app → Claude.app → OpenClaw.app → local execution.
+  \item Security: bridge hosts require an allowed TeamID; DEBUG-only same-UID escape hatch is guarded by \texttt{PEEKABOO\_ALLOW\_UNSIGNED\_SOCKET\_CLIENTS=1} (Peekaboo convention).
+  \item See: \href{/platforms/mac/peekaboo}{PeekabooBridge usage} for details.
+\end{itemize}
+
+
+\subsection{Operational flows}
+
+
+\begin{itemize}
+  \item Restart/rebuild: \texttt{SIGN\_IDENTITY="Apple Development:  ()" scripts/restart-mac.sh}
+  \item Kills existing instances
+  \item Swift build + package
+  \item Writes/bootstraps/kickstarts the LaunchAgent
+  \item Single instance: app exits early if another instance with the same bundle ID is running.
+\end{itemize}
+
+
+\subsection{Hardening notes}
+
+
+\begin{itemize}
+  \item Prefer requiring a TeamID match for all privileged surfaces.
+  \item PeekabooBridge: \texttt{PEEKABOO\_ALLOW\_UNSIGNED\_SOCKET\_CLIENTS=1} (DEBUG-only) may allow same-UID callers for local development.
+  \item All communication remains local-only; no network sockets are exposed.
+  \item TCC prompts originate only from the GUI app bundle; keep the signed bundle ID stable across rebuilds.
+  \item IPC hardening: socket mode \texttt{0600}, token, peer-UID checks, HMAC challenge/response, short TTL.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/macos.md ===
+\section{OpenClaw macOS Companion (menu bar + gateway broker)}
+
+
+The macOS app is the \textbf{menu‑bar companion} for OpenClaw. It owns permissions,
+manages/attaches to the Gateway locally (launchd or manual), and exposes macOS
+capabilities to the agent as a node.
+
+\subsection{What it does}
+
+
+\begin{itemize}
+  \item Shows native notifications and status in the menu bar.
+  \item Owns TCC prompts (Notifications, Accessibility, Screen Recording, Microphone,
+\end{itemize}
+
+Speech Recognition, Automation/AppleScript).
+\begin{itemize}
+  \item Runs or connects to the Gateway (local or remote).
+  \item Exposes macOS‑only tools (Canvas, Camera, Screen Recording, \texttt{system.run}).
+  \item Starts the local node host service in \textbf{remote} mode (launchd), and stops it in \textbf{local} mode.
+  \item Optionally hosts \textbf{PeekabooBridge} for UI automation.
+  \item Installs the global CLI (\texttt{openclaw}) via npm/pnpm on request (bun not recommended for the Gateway runtime).
+\end{itemize}
+
+
+\subsection{Local vs remote mode}
+
+
+\begin{itemize}
+  \item \textbf{Local} (default): the app attaches to a running local Gateway if present;
+\end{itemize}
+
+otherwise it enables the launchd service via \texttt{openclaw gateway install}.
+\begin{itemize}
+  \item \textbf{Remote}: the app connects to a Gateway over SSH/Tailscale and never starts
+\end{itemize}
+
+a local process.
+The app starts the local \textbf{node host service} so the remote Gateway can reach this Mac.
+The app does not spawn the Gateway as a child process.
+
+\subsection{Launchd control}
+
+
+The app manages a per‑user LaunchAgent labeled \texttt{ai.openclaw.gateway}
+(or \texttt{ai.openclaw.} when using \texttt{--profile}/\texttt{OPENCLAW\_PROFILE}; legacy \texttt{com.openclaw.*} still unloads).
+
+\begin{lstlisting}[language=bash]
+launchctl kickstart -k gui/$UID/ai.openclaw.gateway
+launchctl bootout gui/$UID/ai.openclaw.gateway
+\end{lstlisting}
+
+
+Replace the label with \texttt{ai.openclaw.} when running a named profile.
+
+If the LaunchAgent isn’t installed, enable it from the app or run
+\texttt{openclaw gateway install}.
+
+\subsection{Node capabilities (mac)}
+
+
+The macOS app presents itself as a node. Common commands:
+
+\begin{itemize}
+  \item Canvas: \texttt{canvas.present}, \texttt{canvas.navigate}, \texttt{canvas.eval}, \texttt{canvas.snapshot}, \texttt{canvas.a2ui.*}
+  \item Camera: \texttt{camera.snap}, \texttt{camera.clip}
+  \item Screen: \texttt{screen.record}
+  \item System: \texttt{system.run}, \texttt{system.notify}
+\end{itemize}
+
+
+The node reports a \texttt{permissions} map so agents can decide what’s allowed.
+
+Node service + app IPC:
+
+\begin{itemize}
+  \item When the headless node host service is running (remote mode), it connects to the Gateway WS as a node.
+  \item \texttt{system.run} executes in the macOS app (UI/TCC context) over a local Unix socket; prompts + output stay in-app.
+\end{itemize}
+
+
+Diagram (SCI):
+
+\begin{lstlisting}
+Gateway -> Node Service (WS)
+                 |  IPC (UDS + token + HMAC + TTL)
+                 v
+             Mac App (UI + TCC + system.run)
+\end{lstlisting}
+
+
+\subsection{Exec approvals (system.run)}
+
+
+\texttt{system.run} is controlled by \textbf{Exec approvals} in the macOS app (Settings → Exec approvals).
+Security + ask + allowlist are stored locally on the Mac in:
+
+\begin{lstlisting}
+~/.openclaw/exec-approvals.json
+\end{lstlisting}
+
+
+Example:
+
+\begin{lstlisting}[language=json]
+{
+  "version": 1,
+  "defaults": {
+    "security": "deny",
+    "ask": "on-miss"
+  },
+  "agents": {
+    "main": {
+      "security": "allowlist",
+      "ask": "on-miss",
+      "allowlist": [{ "pattern": "/opt/homebrew/bin/rg" }]
+    }
+  }
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{allowlist} entries are glob patterns for resolved binary paths.
+  \item Raw shell command text that contains shell control or expansion syntax (\texttt{\&\&}, \texttt{||}, \texttt{;}, \texttt{|}, `\texttt{ } `\texttt{, }\$\texttt{, }<\texttt{, }>\texttt{, }(\texttt{, })`) is treated as an allowlist miss and requires explicit approval (or allowlisting the shell binary).
+  \item Choosing “Always Allow” in the prompt adds that command to the allowlist.
+  \item \texttt{system.run} environment overrides are filtered (drops \texttt{PATH}, \texttt{DYLD\_\textit{}, \texttt{LD\_}}, \texttt{NODE\_OPTIONS}, \texttt{PYTHON\textit{}, \texttt{PERL}}, \texttt{RUBYOPT}, \texttt{SHELLOPTS}, \texttt{PS4}) and then merged with the app’s environment.
+  \item For shell wrappers (\texttt{bash|sh|zsh ... -c/-lc}), request-scoped environment overrides are reduced to a small explicit allowlist (\texttt{TERM}, \texttt{LANG}, \texttt{LC\_*}, \texttt{COLORTERM}, \texttt{NO\_COLOR}, \texttt{FORCE\_COLOR}).
+  \item For allow-always decisions in allowlist mode, known dispatch wrappers (\texttt{env}, \texttt{nice}, \texttt{nohup}, \texttt{stdbuf}, \texttt{timeout}) persist inner executable paths instead of wrapper paths. If unwrapping is not safe, no allowlist entry is persisted automatically.
+\end{itemize}
+
+
+\subsection{Deep links}
+
+
+The app registers the \texttt{openclaw://} URL scheme for local actions.
+
+\subsubsection{openclaw://agent}
+
+
+Triggers a Gateway \texttt{agent} request.
+
+\begin{lstlisting}[language=bash]
+open 'openclaw://agent?message=Hello%20from%20deep%20link'
+\end{lstlisting}
+
+
+Query parameters:
+
+\begin{itemize}
+  \item \texttt{message} (required)
+  \item \texttt{sessionKey} (optional)
+  \item \texttt{thinking} (optional)
+  \item \texttt{deliver} / \texttt{to} / \texttt{channel} (optional)
+  \item \texttt{timeoutSeconds} (optional)
+  \item \texttt{key} (optional unattended mode key)
+\end{itemize}
+
+
+Safety:
+
+\begin{itemize}
+  \item Without \texttt{key}, the app prompts for confirmation.
+  \item Without \texttt{key}, the app enforces a short message limit for the confirmation prompt and ignores \texttt{deliver} / \texttt{to} / \texttt{channel}.
+  \item With a valid \texttt{key}, the run is unattended (intended for personal automations).
+\end{itemize}
+
+
+\subsection{Onboarding flow (typical)}
+
+
+\begin{enumerate}
+  \item Install and launch \textbf{OpenClaw.app}.
+  \item Complete the permissions checklist (TCC prompts).
+  \item Ensure \textbf{Local} mode is active and the Gateway is running.
+  \item Install the CLI if you want terminal access.
+\end{enumerate}
+
+
+\subsection{State dir placement (macOS)}
+
+
+Avoid putting your OpenClaw state dir in iCloud or other cloud-synced folders.
+Sync-backed paths can add latency and occasionally cause file-lock/sync races for
+sessions and credentials.
+
+Prefer a local non-synced state path such as:
+
+\begin{lstlisting}[language=bash]
+OPENCLAW_STATE_DIR=~/.openclaw
+\end{lstlisting}
+
+
+If \texttt{openclaw doctor} detects state under:
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/Library/Mobile Documents/com\textasciitilde{}apple\textasciitilde{}CloudDocs/...}
+  \item \texttt{\textasciitilde{}/Library/CloudStorage/...}
+\end{itemize}
+
+
+it will warn and recommend moving back to a local path.
+
+\subsection{Build \& dev workflow (native)}
+
+
+\begin{itemize}
+  \item \texttt{cd apps/macos \&\& swift build}
+  \item \texttt{swift run OpenClaw} (or Xcode)
+  \item Package app: \texttt{scripts/package-mac-app.sh}
+\end{itemize}
+
+
+\subsection{Debug gateway connectivity (macOS CLI)}
+
+
+Use the debug CLI to exercise the same Gateway WebSocket handshake and discovery
+logic that the macOS app uses, without launching the app.
+
+\begin{lstlisting}[language=bash]
+cd apps/macos
+swift run openclaw-mac connect --json
+swift run openclaw-mac discover --timeout 3000 --json
+\end{lstlisting}
+
+
+Connect options:
+
+\begin{itemize}
+  \item \texttt{--url }: override config
+  \item \texttt{--mode }: resolve from config (default: config or local)
+  \item \texttt{--probe}: force a fresh health probe
+  \item \texttt{--timeout }: request timeout (default: \texttt{15000})
+  \item \texttt{--json}: structured output for diffing
+\end{itemize}
+
+
+Discovery options:
+
+\begin{itemize}
+  \item \texttt{--include-local}: include gateways that would be filtered as “local”
+  \item \texttt{--timeout }: overall discovery window (default: \texttt{2000})
+  \item \texttt{--json}: structured output for diffing
+\end{itemize}
+
+
+Tip: compare against \texttt{openclaw gateway discover --json} to see whether the
+macOS app’s discovery pipeline (NWBrowser + tailnet DNS‑SD fallback) differs from
+the Node CLI’s \texttt{dns-sd} based discovery.
+
+\subsection{Remote connection plumbing (SSH tunnels)}
+
+
+When the macOS app runs in \textbf{Remote} mode, it opens an SSH tunnel so local UI
+components can talk to a remote Gateway as if it were on localhost.
+
+\subsubsection{Control tunnel (Gateway WebSocket port)}
+
+
+\begin{itemize}
+  \item \textbf{Purpose:} health checks, status, Web Chat, config, and other control-plane calls.
+  \item \textbf{Local port:} the Gateway port (default \texttt{18789}), always stable.
+  \item \textbf{Remote port:} the same Gateway port on the remote host.
+  \item \textbf{Behavior:} no random local port; the app reuses an existing healthy tunnel
+\end{itemize}
+
+or restarts it if needed.
+\begin{itemize}
+  \item \textbf{SSH shape:} \texttt{ssh -N -L :127.0.0.1:} with BatchMode +
+\end{itemize}
+
+ExitOnForwardFailure + keepalive options.
+\begin{itemize}
+  \item \textbf{IP reporting:} the SSH tunnel uses loopback, so the gateway will see the node
+\end{itemize}
+
+IP as \texttt{127.0.0.1}. Use \textbf{Direct (ws/wss)} transport if you want the real client
+IP to appear (see \href{/platforms/mac/remote}{macOS remote access}).
+
+For setup steps, see \href{/platforms/mac/remote}{macOS remote access}. For protocol
+details, see \href{/gateway/protocol}{Gateway protocol}.
+
+\subsection{Related docs}
+
+
+\begin{itemize}
+  \item \href{/gateway}{Gateway runbook}
+  \item \href{/platforms/mac/bundled-gateway}{Gateway (macOS)}
+  \item \href{/platforms/mac/permissions}{macOS permissions}
+  \item \href{/platforms/mac/canvas}{Canvas}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/oracle.md ===
+\section{OpenClaw on Oracle Cloud (OCI)}
+
+
+\subsection{Goal}
+
+
+Run a persistent OpenClaw Gateway on Oracle Cloud's \textbf{Always Free} ARM tier.
+
+Oracle’s free tier can be a great fit for OpenClaw (especially if you already have an OCI account), but it comes with tradeoffs:
+
+\begin{itemize}
+  \item ARM architecture (most things work, but some binaries may be x86-only)
+  \item Capacity and signup can be finicky
+\end{itemize}
+
+
+\subsection{Cost Comparison (2026)}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+Provider & Plan & Specs & Price/mo & Notes \\
+\hline
+Oracle Cloud & Always Free ARM & up to 4 OCPU, 24GB RAM & \$0 & ARM, limited capacity \\
+\hline
+Hetzner & CX22 & 2 vCPU, 4GB RAM & \textasciitilde{} \$4 & Cheapest paid option \\
+\hline
+DigitalOcean & Basic & 1 vCPU, 1GB RAM & \$6 & Easy UI, good docs \\
+\hline
+Vultr & Cloud Compute & 1 vCPU, 1GB RAM & \$6 & Many locations \\
+\hline
+Linode & Nanode & 1 vCPU, 1GB RAM & \$5 & Now part of Akamai \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\hrulefill
+
+
+\subsection{Prerequisites}
+
+
+\begin{itemize}
+  \item Oracle Cloud account (\href{https://www.oracle.com/cloud/free/}{signup}) — see \href{https://gist.github.com/rssnyder/51e3cfedd730e7dd5f4a816143b25dbd}{community signup guide} if you hit issues
+  \item Tailscale account (free at \href{https://tailscale.com}{tailscale.com})
+  \item \textasciitilde{}30 minutes
+\end{itemize}
+
+
+\subsection{1) Create an OCI Instance}
+
+
+\begin{enumerate}
+  \item Log into \href{https://cloud.oracle.com/}{Oracle Cloud Console}
+  \item Navigate to \textbf{Compute → Instances → Create Instance}
+  \item Configure:
+\end{enumerate}
+
+\begin{itemize}
+  \item \textbf{Name:} \texttt{openclaw}
+  \item \textbf{Image:} Ubuntu 24.04 (aarch64)
+  \item \textbf{Shape:} \texttt{VM.Standard.A1.Flex} (Ampere ARM)
+  \item \textbf{OCPUs:} 2 (or up to 4)
+  \item \textbf{Memory:} 12 GB (or up to 24 GB)
+  \item \textbf{Boot volume:} 50 GB (up to 200 GB free)
+  \item \textbf{SSH key:} Add your public key
+\end{itemize}
+
+\begin{enumerate}
+  \item Click \textbf{Create}
+  \item Note the public IP address
+\end{enumerate}
+
+
+\textbf{Tip:} If instance creation fails with "Out of capacity", try a different availability domain or retry later. Free tier capacity is limited.
+
+\subsection{2) Connect and Update}
+
+
+\begin{lstlisting}[language=bash]
+# Connect via public IP
+ssh ubuntu@YOUR_PUBLIC_IP
+
+# Update system
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y build-essential
+\end{lstlisting}
+
+
+\textbf{Note:} \texttt{build-essential} is required for ARM compilation of some dependencies.
+
+\subsection{3) Configure User and Hostname}
+
+
+\begin{lstlisting}[language=bash]
+# Set hostname
+sudo hostnamectl set-hostname openclaw
+
+# Set password for ubuntu user
+sudo passwd ubuntu
+
+# Enable lingering (keeps user services running after logout)
+sudo loginctl enable-linger ubuntu
+\end{lstlisting}
+
+
+\subsection{4) Install Tailscale}
+
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --ssh --hostname=openclaw
+\end{lstlisting}
+
+
+This enables Tailscale SSH, so you can connect via \texttt{ssh openclaw} from any device on your tailnet — no public IP needed.
+
+Verify:
+
+\begin{lstlisting}[language=bash]
+tailscale status
+\end{lstlisting}
+
+
+\textbf{From now on, connect via Tailscale:} \texttt{ssh ubuntu@openclaw} (or use the Tailscale IP).
+
+\subsection{5) Install OpenClaw}
+
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://openclaw.ai/install.sh | bash
+source ~/.bashrc
+\end{lstlisting}
+
+
+When prompted "How do you want to hatch your bot?", select \textbf{"Do this later"}.
+
+\begin{quote}
+Note: If you hit ARM-native build issues, start with system packages (e.g. \texttt{sudo apt install -y build-essential}) before reaching for Homebrew.
+\end{quote}
+
+
+\subsection{6) Configure Gateway (loopback + token auth) and enable Tailscale Serve}
+
+
+Use token auth as the default. It’s predictable and avoids needing any “insecure auth” Control UI flags.
+
+\begin{lstlisting}[language=bash]
+# Keep the Gateway private on the VM
+openclaw config set gateway.bind loopback
+
+# Require auth for the Gateway + Control UI
+openclaw config set gateway.auth.mode token
+openclaw doctor --generate-gateway-token
+
+# Expose over Tailscale Serve (HTTPS + tailnet access)
+openclaw config set gateway.tailscale.mode serve
+openclaw config set gateway.trustedProxies '["127.0.0.1"]'
+
+systemctl --user restart openclaw-gateway
+\end{lstlisting}
+
+
+\subsection{7) Verify}
+
+
+\begin{lstlisting}[language=bash]
+# Check version
+openclaw --version
+
+# Check daemon status
+systemctl --user status openclaw-gateway
+
+# Check Tailscale Serve
+tailscale serve status
+
+# Test local response
+curl http://localhost:18789
+\end{lstlisting}
+
+
+\subsection{8) Lock Down VCN Security}
+
+
+Now that everything is working, lock down the VCN to block all traffic except Tailscale. OCI's Virtual Cloud Network acts as a firewall at the network edge — traffic is blocked before it reaches your instance.
+
+\begin{enumerate}
+  \item Go to \textbf{Networking → Virtual Cloud Networks} in the OCI Console
+  \item Click your VCN → \textbf{Security Lists} → Default Security List
+  \item \textbf{Remove} all ingress rules except:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{0.0.0.0/0 UDP 41641} (Tailscale)
+\end{itemize}
+
+\begin{enumerate}
+  \item Keep default egress rules (allow all outbound)
+\end{enumerate}
+
+
+This blocks SSH on port 22, HTTP, HTTPS, and everything else at the network edge. From now on, you can only connect via Tailscale.
+
+\hrulefill
+
+
+\subsection{Access the Control UI}
+
+
+From any device on your Tailscale network:
+
+\begin{lstlisting}
+https://openclaw.<tailnet-name>.ts.net/
+\end{lstlisting}
+
+
+Replace `\texttt{ with your tailnet name (visible in }tailscale status`).
+
+No SSH tunnel needed. Tailscale provides:
+
+\begin{itemize}
+  \item HTTPS encryption (automatic certs)
+  \item Authentication via Tailscale identity
+  \item Access from any device on your tailnet (laptop, phone, etc.)
+\end{itemize}
+
+
+\hrulefill
+
+
+\subsection{Security: VCN + Tailscale (recommended baseline)}
+
+
+With the VCN locked down (only UDP 41641 open) and the Gateway bound to loopback, you get strong defense-in-depth: public traffic is blocked at the network edge, and admin access happens over your tailnet.
+
+This setup often removes the \_need\_ for extra host-based firewall rules purely to stop Internet-wide SSH brute force — but you should still keep the OS updated, run \texttt{openclaw security audit}, and verify you aren’t accidentally listening on public interfaces.
+
+\subsubsection{What's Already Protected}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Traditional Step & Needed? & Why \\
+\hline
+UFW firewall & No & VCN blocks before traffic reaches instance \\
+\hline
+fail2ban & No & No brute force if port 22 blocked at VCN \\
+\hline
+sshd hardening & No & Tailscale SSH doesn't use sshd \\
+\hline
+Disable root login & No & Tailscale uses Tailscale identity, not system users \\
+\hline
+SSH key-only auth & No & Tailscale authenticates via your tailnet \\
+\hline
+IPv6 hardening & Usually not & Depends on your VCN/subnet settings; verify what’s actually assigned/exposed \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{Still Recommended}
+
+
+\begin{itemize}
+  \item \textbf{Credential permissions:} \texttt{chmod 700 \textasciitilde{}/.openclaw}
+  \item \textbf{Security audit:} \texttt{openclaw security audit}
+  \item \textbf{System updates:} \texttt{sudo apt update \&\& sudo apt upgrade} regularly
+  \item \textbf{Monitor Tailscale:} Review devices in \href{https://login.tailscale.com/admin}{Tailscale admin console}
+\end{itemize}
+
+
+\subsubsection{Verify Security Posture}
+
+
+\begin{lstlisting}[language=bash]
+# Confirm no public ports listening
+sudo ss -tlnp | grep -v '127.0.0.1\|::1'
+
+# Verify Tailscale SSH is active
+tailscale status | grep -q 'offers: ssh' && echo "Tailscale SSH active"
+
+# Optional: disable sshd entirely
+sudo systemctl disable --now ssh
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{Fallback: SSH Tunnel}
+
+
+If Tailscale Serve isn't working, use an SSH tunnel:
+
+\begin{lstlisting}[language=bash]
+# From your local machine (via Tailscale)
+ssh -L 18789:127.0.0.1:18789 ubuntu@openclaw
+\end{lstlisting}
+
+
+Then open \texttt{http://localhost:18789}.
+
+\hrulefill
+
+
+\subsection{Troubleshooting}
+
+
+\subsubsection{Instance creation fails ("Out of capacity")}
+
+
+Free tier ARM instances are popular. Try:
+
+\begin{itemize}
+  \item Different availability domain
+  \item Retry during off-peak hours (early morning)
+  \item Use the "Always Free" filter when selecting shape
+\end{itemize}
+
+
+\subsubsection{Tailscale won't connect}
+
+
+\begin{lstlisting}[language=bash]
+# Check status
+sudo tailscale status
+
+# Re-authenticate
+sudo tailscale up --ssh --hostname=openclaw --reset
+\end{lstlisting}
+
+
+\subsubsection{Gateway won't start}
+
+
+\begin{lstlisting}[language=bash]
+openclaw gateway status
+openclaw doctor --non-interactive
+journalctl --user -u openclaw-gateway -n 50
+\end{lstlisting}
+
+
+\subsubsection{Can't reach Control UI}
+
+
+\begin{lstlisting}[language=bash]
+# Verify Tailscale Serve is running
+tailscale serve status
+
+# Check gateway is listening
+curl http://localhost:18789
+
+# Restart if needed
+systemctl --user restart openclaw-gateway
+\end{lstlisting}
+
+
+\subsubsection{ARM binary issues}
+
+
+Some tools may not have ARM builds. Check:
+
+\begin{lstlisting}[language=bash]
+uname -m  # Should show aarch64
+\end{lstlisting}
+
+
+Most npm packages work fine. For binaries, look for \texttt{linux-arm64} or \texttt{aarch64} releases.
+
+\hrulefill
+
+
+\subsection{Persistence}
+
+
+All state lives in:
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/.openclaw/} — config, credentials, session data
+  \item \texttt{\textasciitilde{}/.openclaw/workspace/} — workspace (SOUL.md, memory, artifacts)
+\end{itemize}
+
+
+Back up periodically:
+
+\begin{lstlisting}[language=bash]
+tar -czvf openclaw-backup.tar.gz ~/.openclaw ~/.openclaw/workspace
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{See Also}
+
+
+\begin{itemize}
+  \item \href{/gateway/remote}{Gateway remote access} — other remote access patterns
+  \item \href{/gateway/tailscale}{Tailscale integration} — full Tailscale docs
+  \item \href{/gateway/configuration}{Gateway configuration} — all config options
+  \item \href{/platforms/digitalocean}{DigitalOcean guide} — if you want paid + easier signup
+  \item \href{/install/hetzner}{Hetzner guide} — Docker-based alternative
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/raspberry-pi.md ===
+\section{OpenClaw on Raspberry Pi}
+
+
+\subsection{Goal}
+
+
+Run a persistent, always-on OpenClaw Gateway on a Raspberry Pi for \textbf{\textasciitilde{}\$35-80} one-time cost (no monthly fees).
+
+Perfect for:
+
+\begin{itemize}
+  \item 24/7 personal AI assistant
+  \item Home automation hub
+  \item Low-power, always-available Telegram/WhatsApp bot
+\end{itemize}
+
+
+\subsection{Hardware Requirements}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+Pi Model & RAM & Works? & Notes \\
+\hline
+\textbf{Pi 5} & 4GB/8GB & ✅ Best & Fastest, recommended \\
+\hline
+\textbf{Pi 4} & 4GB & ✅ Good & Sweet spot for most users \\
+\hline
+\textbf{Pi 4} & 2GB & ✅ OK & Works, add swap \\
+\hline
+\textbf{Pi 4} & 1GB & ⚠️ Tight & Possible with swap, minimal config \\
+\hline
+\textbf{Pi 3B+} & 1GB & ⚠️ Slow & Works but sluggish \\
+\hline
+\textbf{Pi Zero 2 W} & 512MB & ❌ & Not recommended \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\textbf{Minimum specs:} 1GB RAM, 1 core, 500MB disk
+\textbf{Recommended:} 2GB+ RAM, 64-bit OS, 16GB+ SD card (or USB SSD)
+
+\subsection{What You'll Need}
+
+
+\begin{itemize}
+  \item Raspberry Pi 4 or 5 (2GB+ recommended)
+  \item MicroSD card (16GB+) or USB SSD (better performance)
+  \item Power supply (official Pi PSU recommended)
+  \item Network connection (Ethernet or WiFi)
+  \item \textasciitilde{}30 minutes
+\end{itemize}
+
+
+\subsection{1) Flash the OS}
+
+
+Use \textbf{Raspberry Pi OS Lite (64-bit)} — no desktop needed for a headless server.
+
+\begin{enumerate}
+  \item Download \href{https://www.raspberrypi.com/software/}{Raspberry Pi Imager}
+  \item Choose OS: \textbf{Raspberry Pi OS Lite (64-bit)}
+  \item Click the gear icon (⚙️) to pre-configure:
+\end{enumerate}
+
+\begin{itemize}
+  \item Set hostname: \texttt{gateway-host}
+  \item Enable SSH
+  \item Set username/password
+  \item Configure WiFi (if not using Ethernet)
+\end{itemize}
+
+\begin{enumerate}
+  \item Flash to your SD card / USB drive
+  \item Insert and boot the Pi
+\end{enumerate}
+
+
+\subsection{2) Connect via SSH}
+
+
+\begin{lstlisting}[language=bash]
+ssh user@gateway-host
+# or use the IP address
+ssh user@192.168.x.x
+\end{lstlisting}
+
+
+\subsection{3) System Setup}
+
+
+\begin{lstlisting}[language=bash]
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install essential packages
+sudo apt install -y git curl build-essential
+
+# Set timezone (important for cron/reminders)
+sudo timedatectl set-timezone America/Chicago  # Change to your timezone
+\end{lstlisting}
+
+
+\subsection{4) Install Node.js 22 (ARM64)}
+
+
+\begin{lstlisting}[language=bash]
+# Install Node.js via NodeSource
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Verify
+node --version  # Should show v22.x.x
+npm --version
+\end{lstlisting}
+
+
+\subsection{5) Add Swap (Important for 2GB or less)}
+
+
+Swap prevents out-of-memory crashes:
+
+\begin{lstlisting}[language=bash]
+# Create 2GB swap file
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# Make permanent
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Optimize for low RAM (reduce swappiness)
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+\end{lstlisting}
+
+
+\subsection{6) Install OpenClaw}
+
+
+\subsubsection{Option A: Standard Install (Recommended)}
+
+
+\begin{lstlisting}[language=bash]
+curl -fsSL https://openclaw.ai/install.sh | bash
+\end{lstlisting}
+
+
+\subsubsection{Option B: Hackable Install (For tinkering)}
+
+
+\begin{lstlisting}[language=bash]
+git clone https://github.com/openclaw/openclaw.git
+cd openclaw
+npm install
+npm run build
+npm link
+\end{lstlisting}
+
+
+The hackable install gives you direct access to logs and code — useful for debugging ARM-specific issues.
+
+\subsection{7) Run Onboarding}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+
+Follow the wizard:
+
+\begin{enumerate}
+  \item \textbf{Gateway mode:} Local
+  \item \textbf{Auth:} API keys recommended (OAuth can be finicky on headless Pi)
+  \item \textbf{Channels:} Telegram is easiest to start with
+  \item \textbf{Daemon:} Yes (systemd)
+\end{enumerate}
+
+
+\subsection{8) Verify Installation}
+
+
+\begin{lstlisting}[language=bash]
+# Check status
+openclaw status
+
+# Check service
+sudo systemctl status openclaw
+
+# View logs
+journalctl -u openclaw -f
+\end{lstlisting}
+
+
+\subsection{9) Access the Dashboard}
+
+
+Since the Pi is headless, use an SSH tunnel:
+
+\begin{lstlisting}[language=bash]
+# From your laptop/desktop
+ssh -L 18789:localhost:18789 user@gateway-host
+
+# Then open in browser
+open http://localhost:18789
+\end{lstlisting}
+
+
+Or use Tailscale for always-on access:
+
+\begin{lstlisting}[language=bash]
+# On the Pi
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+
+# Update config
+openclaw config set gateway.bind tailnet
+sudo systemctl restart openclaw
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{Performance Optimizations}
+
+
+\subsubsection{Use a USB SSD (Huge Improvement)}
+
+
+SD cards are slow and wear out. A USB SSD dramatically improves performance:
+
+\begin{lstlisting}[language=bash]
+# Check if booting from USB
+lsblk
+\end{lstlisting}
+
+
+See \href{https://www.raspberrypi.com/documentation/computers/raspberry-pi.html\#usb-mass-storage-boot}{Pi USB boot guide} for setup.
+
+\subsubsection{Speed up CLI startup (module compile cache)}
+
+
+On lower-power Pi hosts, enable Node's module compile cache so repeated CLI runs are faster:
+
+\begin{lstlisting}[language=bash]
+grep -q 'NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache' ~/.bashrc || cat >> ~/.bashrc <<'EOF'
+export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
+mkdir -p /var/tmp/openclaw-compile-cache
+export OPENCLAW_NO_RESPAWN=1
+EOF
+source ~/.bashrc
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{NODE\_COMPILE\_CACHE} speeds up subsequent runs (\texttt{status}, \texttt{health}, \texttt{--help}).
+  \item \texttt{/var/tmp} survives reboots better than \texttt{/tmp}.
+  \item \texttt{OPENCLAW\_NO\_RESPAWN=1} avoids extra startup cost from CLI self-respawn.
+  \item First run warms the cache; later runs benefit most.
+\end{itemize}
+
+
+\subsubsection{systemd startup tuning (optional)}
+
+
+If this Pi is mostly running OpenClaw, add a service drop-in to reduce restart
+jitter and keep startup env stable:
+
+\begin{lstlisting}[language=bash]
+sudo systemctl edit openclaw
+\end{lstlisting}
+
+
+\begin{lstlisting}
+[Service]
+Environment=OPENCLAW_NO_RESPAWN=1
+Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
+Restart=always
+RestartSec=2
+TimeoutStartSec=90
+\end{lstlisting}
+
+
+Then apply:
+
+\begin{lstlisting}[language=bash]
+sudo systemctl daemon-reload
+sudo systemctl restart openclaw
+\end{lstlisting}
+
+
+If possible, keep OpenClaw state/cache on SSD-backed storage to avoid SD-card
+random-I/O bottlenecks during cold starts.
+
+How \texttt{Restart=} policies help automated recovery:
+\href{https://www.redhat.com/en/blog/systemd-automate-recovery}{systemd can automate service recovery}.
+
+\subsubsection{Reduce Memory Usage}
+
+
+\begin{lstlisting}[language=bash]
+# Disable GPU memory allocation (headless)
+echo 'gpu_mem=16' | sudo tee -a /boot/config.txt
+
+# Disable Bluetooth if not needed
+sudo systemctl disable bluetooth
+\end{lstlisting}
+
+
+\subsubsection{Monitor Resources}
+
+
+\begin{lstlisting}[language=bash]
+# Check memory
+free -h
+
+# Check CPU temperature
+vcgencmd measure_temp
+
+# Live monitoring
+htop
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{ARM-Specific Notes}
+
+
+\subsubsection{Binary Compatibility}
+
+
+Most OpenClaw features work on ARM64, but some external binaries may need ARM builds:
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Tool & ARM64 Status & Notes \\
+\hline
+Node.js & ✅ & Works great \\
+\hline
+WhatsApp (Baileys) & ✅ & Pure JS, no issues \\
+\hline
+Telegram & ✅ & Pure JS, no issues \\
+\hline
+gog (Gmail CLI) & ⚠️ & Check for ARM release \\
+\hline
+Chromium (browser) & ✅ & \texttt{sudo apt install chromium-browser} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+If a skill fails, check if its binary has an ARM build. Many Go/Rust tools do; some don't.
+
+\subsubsection{32-bit vs 64-bit}
+
+
+\textbf{Always use 64-bit OS.} Node.js and many modern tools require it. Check with:
+
+\begin{lstlisting}[language=bash]
+uname -m
+# Should show: aarch64 (64-bit) not armv7l (32-bit)
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{Recommended Model Setup}
+
+
+Since the Pi is just the Gateway (models run in the cloud), use API-based models:
+
+\begin{lstlisting}[language=json]
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-20250514",
+        "fallbacks": ["openai/gpt-4o-mini"]
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\textbf{Don't try to run local LLMs on a Pi} — even small models are too slow. Let Claude/GPT do the heavy lifting.
+
+\hrulefill
+
+
+\subsection{Auto-Start on Boot}
+
+
+The onboarding wizard sets this up, but to verify:
+
+\begin{lstlisting}[language=bash]
+# Check service is enabled
+sudo systemctl is-enabled openclaw
+
+# Enable if not
+sudo systemctl enable openclaw
+
+# Start on boot
+sudo systemctl start openclaw
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{Troubleshooting}
+
+
+\subsubsection{Out of Memory (OOM)}
+
+
+\begin{lstlisting}[language=bash]
+# Check memory
+free -h
+
+# Add more swap (see Step 5)
+# Or reduce services running on the Pi
+\end{lstlisting}
+
+
+\subsubsection{Slow Performance}
+
+
+\begin{itemize}
+  \item Use USB SSD instead of SD card
+  \item Disable unused services: \texttt{sudo systemctl disable cups bluetooth avahi-daemon}
+  \item Check CPU throttling: \texttt{vcgencmd get\_throttled} (should return \texttt{0x0})
+\end{itemize}
+
+
+\subsubsection{Service Won't Start}
+
+
+\begin{lstlisting}[language=bash]
+# Check logs
+journalctl -u openclaw --no-pager -n 100
+
+# Common fix: rebuild
+cd ~/openclaw  # if using hackable install
+npm run build
+sudo systemctl restart openclaw
+\end{lstlisting}
+
+
+\subsubsection{ARM Binary Issues}
+
+
+If a skill fails with "exec format error":
+
+\begin{enumerate}
+  \item Check if the binary has an ARM64 build
+  \item Try building from source
+  \item Or use a Docker container with ARM support
+\end{enumerate}
+
+
+\subsubsection{WiFi Drops}
+
+
+For headless Pis on WiFi:
+
+\begin{lstlisting}[language=bash]
+# Disable WiFi power management
+sudo iwconfig wlan0 power off
+
+# Make permanent
+echo 'wireless-power off' | sudo tee -a /etc/network/interfaces
+\end{lstlisting}
+
+
+\hrulefill
+
+
+\subsection{Cost Comparison}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+Setup & One-Time Cost & Monthly Cost & Notes \\
+\hline
+\textbf{Pi 4 (2GB)} & \textasciitilde{}\$45 & \$0 & + power (\textasciitilde{}\$5/yr) \\
+\hline
+\textbf{Pi 4 (4GB)} & \textasciitilde{}\$55 & \$0 & Recommended \\
+\hline
+\textbf{Pi 5 (4GB)} & \textasciitilde{}\$60 & \$0 & Best performance \\
+\hline
+\textbf{Pi 5 (8GB)} & \textasciitilde{}\$80 & \$0 & Overkill but future-proof \\
+\hline
+DigitalOcean & \$0 & \$6/mo & \$72/year \\
+\hline
+Hetzner & \$0 & €3.79/mo & \textasciitilde{}\$50/year \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\textbf{Break-even:} A Pi pays for itself in \textasciitilde{}6-12 months vs cloud VPS.
+
+\hrulefill
+
+
+\subsection{See Also}
+
+
+\begin{itemize}
+  \item \href{/platforms/linux}{Linux guide} — general Linux setup
+  \item \href{/platforms/digitalocean}{DigitalOcean guide} — cloud alternative
+  \item \href{/install/hetzner}{Hetzner guide} — Docker setup
+  \item \href{/gateway/tailscale}{Tailscale} — remote access
+  \item \href{/nodes}{Nodes} — pair your laptop/phone with the Pi gateway
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: platforms/windows.md ===
+\section{Windows (WSL2)}
+
+
+OpenClaw on Windows is recommended \textbf{via WSL2} (Ubuntu recommended). The
+CLI + Gateway run inside Linux, which keeps the runtime consistent and makes
+tooling far more compatible (Node/Bun/pnpm, Linux binaries, skills). Native
+Windows might be trickier. WSL2 gives you the full Linux experience — one command
+to install: \texttt{wsl --install}.
+
+Native Windows companion apps are planned.
+
+\subsection{Install (WSL2)}
+
+
+\begin{itemize}
+  \item \href{/start/getting-started}{Getting Started} (use inside WSL)
+  \item \href{/install/updating}{Install \& updates}
+  \item Official WSL2 guide (Microsoft): \href{https://learn.microsoft.com/windows/wsl/install}{https://learn.microsoft.com/windows/wsl/install}
+\end{itemize}
+
+
+\subsection{Gateway}
+
+
+\begin{itemize}
+  \item \href{/gateway}{Gateway runbook}
+  \item \href{/gateway/configuration}{Configuration}
+\end{itemize}
+
+
+\subsection{Gateway service install (CLI)}
+
+
+Inside WSL2:
+
+\begin{lstlisting}
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+
+Or:
+
+\begin{lstlisting}
+openclaw gateway install
+\end{lstlisting}
+
+
+Or:
+
+\begin{lstlisting}
+openclaw configure
+\end{lstlisting}
+
+
+Select \textbf{Gateway service} when prompted.
+
+Repair/migrate:
+
+\begin{lstlisting}
+openclaw doctor
+\end{lstlisting}
+
+
+\subsection{Gateway auto-start before Windows login}
+
+
+For headless setups, ensure the full boot chain runs even when no one logs into
+Windows.
+
+\subsubsection{1) Keep user services running without login}
+
+
+Inside WSL:
+
+\begin{lstlisting}[language=bash]
+sudo loginctl enable-linger "$(whoami)"
+\end{lstlisting}
+
+
+\subsubsection{2) Install the OpenClaw gateway user service}
+
+
+Inside WSL:
+
+\begin{lstlisting}[language=bash]
+openclaw gateway install
+\end{lstlisting}
+
+
+\subsubsection{3) Start WSL automatically at Windows boot}
+
+
+In PowerShell as Administrator:
+
+\begin{lstlisting}
+schtasks /create /tn "WSL Boot" /tr "wsl.exe -d Ubuntu --exec /bin/true" /sc onstart /ru SYSTEM
+\end{lstlisting}
+
+
+Replace \texttt{Ubuntu} with your distro name from:
+
+\begin{lstlisting}
+wsl --list --verbose
+\end{lstlisting}
+
+
+\subsubsection{Verify startup chain}
+
+
+After a reboot (before Windows sign-in), check from WSL:
+
+\begin{lstlisting}[language=bash]
+systemctl --user is-enabled openclaw-gateway
+systemctl --user status openclaw-gateway --no-pager
+\end{lstlisting}
+
+
+\subsection{Advanced: expose WSL services over LAN (portproxy)}
+
+
+WSL has its own virtual network. If another machine needs to reach a service
+running \textbf{inside WSL} (SSH, a local TTS server, or the Gateway), you must
+forward a Windows port to the current WSL IP. The WSL IP changes after restarts,
+so you may need to refresh the forwarding rule.
+
+Example (PowerShell \textbf{as Administrator}):
+
+\begin{lstlisting}
+$Distro = "Ubuntu-24.04"
+$ListenPort = 2222
+$TargetPort = 22
+
+$WslIp = (wsl -d $Distro -- hostname -I).Trim().Split(" ")[0]
+if (-not $WslIp) { throw "WSL IP not found." }
+
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=$ListenPort `
+  connectaddress=$WslIp connectport=$TargetPort
+\end{lstlisting}
+
+
+Allow the port through Windows Firewall (one-time):
+
+\begin{lstlisting}
+New-NetFirewallRule -DisplayName "WSL SSH $ListenPort" -Direction Inbound `
+  -Protocol TCP -LocalPort $ListenPort -Action Allow
+\end{lstlisting}
+
+
+Refresh the portproxy after WSL restarts:
+
+\begin{lstlisting}
+netsh interface portproxy delete v4tov4 listenport=$ListenPort listenaddress=0.0.0.0 | Out-Null
+netsh interface portproxy add v4tov4 listenport=$ListenPort listenaddress=0.0.0.0 `
+  connectaddress=$WslIp connectport=$TargetPort | Out-Null
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item SSH from another machine targets the \textbf{Windows host IP} (example: \texttt{ssh user@windows-host -p 2222}).
+  \item Remote nodes must point at a \textbf{reachable} Gateway URL (not \texttt{127.0.0.1}); use
+\end{itemize}
+
+\texttt{openclaw status --all} to confirm.
+\begin{itemize}
+  \item Use \texttt{listenaddress=0.0.0.0} for LAN access; \texttt{127.0.0.1} keeps it local only.
+  \item If you want this automatic, register a Scheduled Task to run the refresh
+\end{itemize}
+
+step at login.
+
+\subsection{Step-by-step WSL2 install}
+
+
+\subsubsection{1) Install WSL2 + Ubuntu}
+
+
+Open PowerShell (Admin):
+
+\begin{lstlisting}
+wsl --install
+# Or pick a distro explicitly:
+wsl --list --online
+wsl --install -d Ubuntu-24.04
+\end{lstlisting}
+
+
+Reboot if Windows asks.
+
+\subsubsection{2) Enable systemd (required for gateway install)}
+
+
+In your WSL terminal:
+
+\begin{lstlisting}[language=bash]
+sudo tee /etc/wsl.conf >/dev/null <<'EOF'
+[boot]
+systemd=true
+EOF
+\end{lstlisting}
+
+
+Then from PowerShell:
+
+\begin{lstlisting}
+wsl --shutdown
+\end{lstlisting}
+
+
+Re-open Ubuntu, then verify:
+
+\begin{lstlisting}[language=bash]
+systemctl --user status
+\end{lstlisting}
+
+
+\subsubsection{3) Install OpenClaw (inside WSL)}
+
+
+Follow the Linux Getting Started flow inside WSL:
+
+\begin{lstlisting}[language=bash]
+git clone https://github.com/openclaw/openclaw.git
+cd openclaw
+pnpm install
+pnpm ui:build # auto-installs UI deps on first run
+pnpm build
+openclaw onboard
+\end{lstlisting}
+
+
+Full guide: \href{/start/getting-started}{Getting Started}
+
+\subsection{Windows companion app}
+
+
+We do not have a Windows companion app yet. Contributions are welcome if you want
+contributions to make it happen.
+
+
+\clearpage

@@ -1,0 +1,756 @@
+\chapter{Plugin Development}
+
+% === Source file: plugins/agent-tools.md ===
+\section{Plugin agent tools}
+
+
+OpenClaw plugins can register \textbf{agent tools} (JSON‑schema functions) that are exposed
+to the LLM during agent runs. Tools can be \textbf{required} (always available) or
+\textbf{optional} (opt‑in).
+
+Agent tools are configured under \texttt{tools} in the main config, or per‑agent under
+\texttt{agents.list[].tools}. The allowlist/denylist policy controls which tools the agent
+can call.
+
+\subsection{Basic tool}
+
+
+\begin{lstlisting}[language=typescript]
+import { Type } from "@sinclair/typebox";
+
+export default function (api) {
+  api.registerTool({
+    name: "my_tool",
+    description: "Do a thing",
+    parameters: Type.Object({
+      input: Type.String(),
+    }),
+    async execute(_id, params) {
+      return { content: [{ type: "text", text: params.input }] };
+    },
+  });
+}
+\end{lstlisting}
+
+
+\subsection{Optional tool (opt‑in)}
+
+
+Optional tools are \textbf{never} auto‑enabled. Users must add them to an agent
+allowlist.
+
+\begin{lstlisting}[language=typescript]
+export default function (api) {
+  api.registerTool(
+    {
+      name: "workflow_tool",
+      description: "Run a local workflow",
+      parameters: {
+        type: "object",
+        properties: {
+          pipeline: { type: "string" },
+        },
+        required: ["pipeline"],
+      },
+      async execute(_id, params) {
+        return { content: [{ type: "text", text: params.pipeline }] };
+      },
+    },
+    { optional: true },
+  );
+}
+\end{lstlisting}
+
+
+Enable optional tools in \texttt{agents.list[].tools.allow} (or global \texttt{tools.allow}):
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [
+      {
+        id: "main",
+        tools: {
+          allow: [
+            "workflow_tool", // specific tool name
+            "workflow", // plugin id (enables all tools from that plugin)
+            "group:plugins", // all plugin tools
+          ],
+        },
+      },
+    ],
+  },
+}
+\end{lstlisting}
+
+
+Other config knobs that affect tool availability:
+
+\begin{itemize}
+  \item Allowlists that only name plugin tools are treated as plugin opt-ins; core tools remain
+\end{itemize}
+
+enabled unless you also include core tools or groups in the allowlist.
+\begin{itemize}
+  \item \texttt{tools.profile} / \texttt{agents.list[].tools.profile} (base allowlist)
+  \item \texttt{tools.byProvider} / \texttt{agents.list[].tools.byProvider} (provider‑specific allow/deny)
+  \item \texttt{tools.sandbox.tools.*} (sandbox tool policy when sandboxed)
+\end{itemize}
+
+
+\subsection{Rules + tips}
+
+
+\begin{itemize}
+  \item Tool names must \textbf{not} clash with core tool names; conflicting tools are skipped.
+  \item Plugin ids used in allowlists must not clash with core tool names.
+  \item Prefer \texttt{optional: true} for tools that trigger side effects or require extra
+\end{itemize}
+
+binaries/credentials.
+
+
+\clearpage
+
+% === Source file: plugins/community.md ===
+\section{Community plugins}
+
+
+This page tracks high-quality \textbf{community-maintained plugins} for OpenClaw.
+
+We accept PRs that add community plugins here when they meet the quality bar.
+
+\subsection{Required for listing}
+
+
+\begin{itemize}
+  \item Plugin package is published on npmjs (installable via \texttt{openclaw plugins install }).
+  \item Source code is hosted on GitHub (public repository).
+  \item Repository includes setup/use docs and an issue tracker.
+  \item Plugin has a clear maintenance signal (active maintainer, recent updates, or responsive issue handling).
+\end{itemize}
+
+
+\subsection{How to submit}
+
+
+Open a PR that adds your plugin to this page with:
+
+\begin{itemize}
+  \item Plugin name
+  \item npm package name
+  \item GitHub repository URL
+  \item One-line description
+  \item Install command
+\end{itemize}
+
+
+\subsection{Review bar}
+
+
+We prefer plugins that are useful, documented, and safe to operate.
+Low-effort wrappers, unclear ownership, or unmaintained packages may be declined.
+
+\subsection{Candidate format}
+
+
+Use this format when adding entries:
+
+\begin{itemize}
+  \item \textbf{Plugin Name} — short description
+\end{itemize}
+
+npm: \texttt{@scope/package}
+repo: \texttt{https://github.com/org/repo}
+install: \texttt{openclaw plugins install @scope/package}
+
+\subsection{Listed plugins}
+
+
+\begin{itemize}
+  \item \textbf{WeChat} — Connect OpenClaw to WeChat personal accounts via WeChatPadPro (iPad protocol). Supports text, image, and file exchange with keyword-triggered conversations.
+\end{itemize}
+
+npm: \texttt{@icesword760/openclaw-wechat}
+repo: \texttt{https://github.com/icesword0760/openclaw-wechat}
+install: \texttt{openclaw plugins install @icesword760/openclaw-wechat}
+
+
+\clearpage
+
+% === Source file: plugins/manifest.md ===
+\section{Plugin manifest (openclaw.plugin.json)}
+
+
+Every plugin \textbf{must} ship a \texttt{openclaw.plugin.json} file in the \textbf{plugin root}.
+OpenClaw uses this manifest to validate configuration **without executing plugin
+code**. Missing or invalid manifests are treated as plugin errors and block
+config validation.
+
+See the full plugin system guide: \href{/tools/plugin}{Plugins}.
+
+\subsection{Required fields}
+
+
+\begin{lstlisting}[language=json]
+{
+  "id": "voice-call",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
+\end{lstlisting}
+
+
+Required keys:
+
+\begin{itemize}
+  \item \texttt{id} (string): canonical plugin id.
+  \item \texttt{configSchema} (object): JSON Schema for plugin config (inline).
+\end{itemize}
+
+
+Optional keys:
+
+\begin{itemize}
+  \item \texttt{kind} (string): plugin kind (example: \texttt{"memory"}).
+  \item \texttt{channels} (array): channel ids registered by this plugin (example: \texttt{["matrix"]}).
+  \item \texttt{providers} (array): provider ids registered by this plugin.
+  \item \texttt{skills} (array): skill directories to load (relative to the plugin root).
+  \item \texttt{name} (string): display name for the plugin.
+  \item \texttt{description} (string): short plugin summary.
+  \item \texttt{uiHints} (object): config field labels/placeholders/sensitive flags for UI rendering.
+  \item \texttt{version} (string): plugin version (informational).
+\end{itemize}
+
+
+\subsection{JSON Schema requirements}
+
+
+\begin{itemize}
+  \item \textbf{Every plugin must ship a JSON Schema}, even if it accepts no config.
+  \item An empty schema is acceptable (for example, \texttt{\{ "type": "object", "additionalProperties": false \}}).
+  \item Schemas are validated at config read/write time, not at runtime.
+\end{itemize}
+
+
+\subsection{Validation behavior}
+
+
+\begin{itemize}
+  \item Unknown \texttt{channels.*} keys are \textbf{errors}, unless the channel id is declared by
+\end{itemize}
+
+a plugin manifest.
+\begin{itemize}
+  \item \texttt{plugins.entries.}, \texttt{plugins.allow}, \texttt{plugins.deny}, and \texttt{plugins.slots.*}
+\end{itemize}
+
+must reference \textbf{discoverable} plugin ids. Unknown ids are \textbf{errors}.
+\begin{itemize}
+  \item If a plugin is installed but has a broken or missing manifest or schema,
+\end{itemize}
+
+validation fails and Doctor reports the plugin error.
+\begin{itemize}
+  \item If plugin config exists but the plugin is \textbf{disabled}, the config is kept and
+\end{itemize}
+
+a \textbf{warning} is surfaced in Doctor + logs.
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item The manifest is \textbf{required for all plugins}, including local filesystem loads.
+  \item Runtime still loads the plugin module separately; the manifest is only for
+\end{itemize}
+
+discovery + validation.
+\begin{itemize}
+  \item If your plugin depends on native modules, document the build steps and any
+\end{itemize}
+
+package-manager allowlist requirements (for example, pnpm \texttt{allow-build-scripts}
+\begin{itemize}
+  \item \texttt{pnpm rebuild }).
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: plugins/voice-call.md ===
+\section{Voice Call (plugin)}
+
+
+Voice calls for OpenClaw via a plugin. Supports outbound notifications and
+multi-turn conversations with inbound policies.
+
+Current providers:
+
+\begin{itemize}
+  \item \texttt{twilio} (Programmable Voice + Media Streams)
+  \item \texttt{telnyx} (Call Control v2)
+  \item \texttt{plivo} (Voice API + XML transfer + GetInput speech)
+  \item \texttt{mock} (dev/no network)
+\end{itemize}
+
+
+Quick mental model:
+
+\begin{itemize}
+  \item Install plugin
+  \item Restart Gateway
+  \item Configure under \texttt{plugins.entries.voice-call.config}
+  \item Use \texttt{openclaw voicecall ...} or the \texttt{voice\_call} tool
+\end{itemize}
+
+
+\subsection{Where it runs (local vs remote)}
+
+
+The Voice Call plugin runs \textbf{inside the Gateway process}.
+
+If you use a remote Gateway, install/configure the plugin on the \textbf{machine running the Gateway}, then restart the Gateway to load it.
+
+\subsection{Install}
+
+
+\subsubsection{Option A: install from npm (recommended)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install @openclaw/voice-call
+\end{lstlisting}
+
+
+Restart the Gateway afterwards.
+
+\subsubsection{Option B: install from a local folder (dev, no copying)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install ./extensions/voice-call
+cd ./extensions/voice-call && pnpm install
+\end{lstlisting}
+
+
+Restart the Gateway afterwards.
+
+\subsection{Config}
+
+
+Set config under \texttt{plugins.entries.voice-call.config}:
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        enabled: true,
+        config: {
+          provider: "twilio", // or "telnyx" | "plivo" | "mock"
+          fromNumber: "+15550001234",
+          toNumber: "+15550005678",
+
+          twilio: {
+            accountSid: "ACxxxxxxxx",
+            authToken: "...",
+          },
+
+          telnyx: {
+            apiKey: "...",
+            connectionId: "...",
+            // Telnyx webhook public key from the Telnyx Mission Control Portal
+            // (Base64 string; can also be set via TELNYX_PUBLIC_KEY).
+            publicKey: "...",
+          },
+
+          plivo: {
+            authId: "MAxxxxxxxxxxxxxxxxxxxx",
+            authToken: "...",
+          },
+
+          // Webhook server
+          serve: {
+            port: 3334,
+            path: "/voice/webhook",
+          },
+
+          // Webhook security (recommended for tunnels/proxies)
+          webhookSecurity: {
+            allowedHosts: ["voice.example.com"],
+            trustedProxyIPs: ["100.64.0.1"],
+          },
+
+          // Public exposure (pick one)
+          // publicUrl: "https://example.ngrok.app/voice/webhook",
+          // tunnel: { provider: "ngrok" },
+          // tailscale: { mode: "funnel", path: "/voice/webhook" }
+
+          outbound: {
+            defaultMode: "notify", // notify | conversation
+          },
+
+          streaming: {
+            enabled: true,
+            streamPath: "/voice/stream",
+            preStartTimeoutMs: 5000,
+            maxPendingConnections: 32,
+            maxPendingConnectionsPerIp: 4,
+            maxConnections: 128,
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Twilio/Telnyx require a \textbf{publicly reachable} webhook URL.
+  \item Plivo requires a \textbf{publicly reachable} webhook URL.
+  \item \texttt{mock} is a local dev provider (no network calls).
+  \item Telnyx requires \texttt{telnyx.publicKey} (or \texttt{TELNYX\_PUBLIC\_KEY}) unless \texttt{skipSignatureVerification} is true.
+  \item \texttt{skipSignatureVerification} is for local testing only.
+  \item If you use ngrok free tier, set \texttt{publicUrl} to the exact ngrok URL; signature verification is always enforced.
+  \item \texttt{tunnel.allowNgrokFreeTierLoopbackBypass: true} allows Twilio webhooks with invalid signatures \textbf{only} when \texttt{tunnel.provider="ngrok"} and \texttt{serve.bind} is loopback (ngrok local agent). Use for local dev only.
+  \item Ngrok free tier URLs can change or add interstitial behavior; if \texttt{publicUrl} drifts, Twilio signatures will fail. For production, prefer a stable domain or Tailscale funnel.
+  \item Streaming security defaults:
+  \item \texttt{streaming.preStartTimeoutMs} closes sockets that never send a valid \texttt{start} frame.
+  \item \texttt{streaming.maxPendingConnections} caps total unauthenticated pre-start sockets.
+  \item \texttt{streaming.maxPendingConnectionsPerIp} caps unauthenticated pre-start sockets per source IP.
+  \item \texttt{streaming.maxConnections} caps total open media stream sockets (pending + active).
+\end{itemize}
+
+
+\subsection{Stale call reaper}
+
+
+Use \texttt{staleCallReaperSeconds} to end calls that never receive a terminal webhook
+(for example, notify-mode calls that never complete). The default is \texttt{0}
+(disabled).
+
+Recommended ranges:
+
+\begin{itemize}
+  \item \textbf{Production:} \texttt{120}–\texttt{300} seconds for notify-style flows.
+  \item Keep this value \textbf{higher than \texttt{maxDurationSeconds}} so normal calls can
+\end{itemize}
+
+finish. A good starting point is \texttt{maxDurationSeconds + 30–60} seconds.
+
+Example:
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        config: {
+          maxDurationSeconds: 300,
+          staleCallReaperSeconds: 360,
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Webhook Security}
+
+
+When a proxy or tunnel sits in front of the Gateway, the plugin reconstructs the
+public URL for signature verification. These options control which forwarded
+headers are trusted.
+
+\texttt{webhookSecurity.allowedHosts} allowlists hosts from forwarding headers.
+
+\texttt{webhookSecurity.trustForwardingHeaders} trusts forwarded headers without an allowlist.
+
+\texttt{webhookSecurity.trustedProxyIPs} only trusts forwarded headers when the request
+remote IP matches the list.
+
+Webhook replay protection is enabled for Twilio and Plivo. Replayed valid webhook
+requests are acknowledged but skipped for side effects.
+
+Twilio conversation turns include a per-turn token in `` callbacks, so
+stale/replayed speech callbacks cannot satisfy a newer pending transcript turn.
+
+Example with a stable public host:
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        config: {
+          publicUrl: "https://voice.example.com/voice/webhook",
+          webhookSecurity: {
+            allowedHosts: ["voice.example.com"],
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{TTS for calls}
+
+
+Voice Call uses the core \texttt{messages.tts} configuration (OpenAI or ElevenLabs) for
+streaming speech on calls. You can override it under the plugin config with the
+\textbf{same shape} — it deep‑merges with \texttt{messages.tts}.
+
+\begin{lstlisting}[language=json]
+{
+  tts: {
+    provider: "elevenlabs",
+    elevenlabs: {
+      voiceId: "pMsXgVXv3BLzUgSXRplE",
+      modelId: "eleven_multilingual_v2",
+    },
+  },
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \textbf{Edge TTS is ignored for voice calls} (telephony audio needs PCM; Edge output is unreliable).
+  \item Core TTS is used when Twilio media streaming is enabled; otherwise calls fall back to provider native voices.
+\end{itemize}
+
+
+\subsubsection{More examples}
+
+
+Use core TTS only (no override):
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      provider: "openai",
+      openai: { voice: "alloy" },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Override to ElevenLabs just for calls (keep core default elsewhere):
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        config: {
+          tts: {
+            provider: "elevenlabs",
+            elevenlabs: {
+              apiKey: "elevenlabs_key",
+              voiceId: "pMsXgVXv3BLzUgSXRplE",
+              modelId: "eleven_multilingual_v2",
+            },
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Override only the OpenAI model for calls (deep‑merge example):
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      "voice-call": {
+        config: {
+          tts: {
+            openai: {
+              model: "gpt-4o-mini-tts",
+              voice: "marin",
+            },
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Inbound calls}
+
+
+Inbound policy defaults to \texttt{disabled}. To enable inbound calls, set:
+
+\begin{lstlisting}[language=json]
+{
+  inboundPolicy: "allowlist",
+  allowFrom: ["+15550001234"],
+  inboundGreeting: "Hello! How can I help?",
+}
+\end{lstlisting}
+
+
+Auto-responses use the agent system. Tune with:
+
+\begin{itemize}
+  \item \texttt{responseModel}
+  \item \texttt{responseSystemPrompt}
+  \item \texttt{responseTimeoutMs}
+\end{itemize}
+
+
+\subsection{CLI}
+
+
+\begin{lstlisting}[language=bash]
+openclaw voicecall call --to "+15555550123" --message "Hello from OpenClaw"
+openclaw voicecall continue --call-id <id> --message "Any questions?"
+openclaw voicecall speak --call-id <id> --message "One moment"
+openclaw voicecall end --call-id <id>
+openclaw voicecall status --call-id <id>
+openclaw voicecall tail
+openclaw voicecall expose --mode funnel
+\end{lstlisting}
+
+
+\subsection{Agent tool}
+
+
+Tool name: \texttt{voice\_call}
+
+Actions:
+
+\begin{itemize}
+  \item \texttt{initiate\_call} (message, to?, mode?)
+  \item \texttt{continue\_call} (callId, message)
+  \item \texttt{speak\_to\_user} (callId, message)
+  \item \texttt{end\_call} (callId)
+  \item \texttt{get\_status} (callId)
+\end{itemize}
+
+
+This repo ships a matching skill doc at \texttt{skills/voice-call/SKILL.md}.
+
+\subsection{Gateway RPC}
+
+
+\begin{itemize}
+  \item \texttt{voicecall.initiate} (\texttt{to?}, \texttt{message}, \texttt{mode?})
+  \item \texttt{voicecall.continue} (\texttt{callId}, \texttt{message})
+  \item \texttt{voicecall.speak} (\texttt{callId}, \texttt{message})
+  \item \texttt{voicecall.end} (\texttt{callId})
+  \item \texttt{voicecall.status} (\texttt{callId})
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: plugins/zalouser.md ===
+\section{Zalo Personal (plugin)}
+
+
+Zalo Personal support for OpenClaw via a plugin, using native \texttt{zca-js} to automate a normal Zalo user account.
+
+\begin{quote}
+\textbf{Warning:} Unofficial automation may lead to account suspension/ban. Use at your own risk.
+\end{quote}
+
+
+\subsection{Naming}
+
+
+Channel id is \texttt{zalouser} to make it explicit this automates a \textbf{personal Zalo user account} (unofficial). We keep \texttt{zalo} reserved for a potential future official Zalo API integration.
+
+\subsection{Where it runs}
+
+
+This plugin runs \textbf{inside the Gateway process}.
+
+If you use a remote Gateway, install/configure it on the \textbf{machine running the Gateway}, then restart the Gateway.
+
+No external \texttt{zca}/\texttt{openzca} CLI binary is required.
+
+\subsection{Install}
+
+
+\subsubsection{Option A: install from npm}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install @openclaw/zalouser
+\end{lstlisting}
+
+
+Restart the Gateway afterwards.
+
+\subsubsection{Option B: install from a local folder (dev)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install ./extensions/zalouser
+cd ./extensions/zalouser && pnpm install
+\end{lstlisting}
+
+
+Restart the Gateway afterwards.
+
+\subsection{Config}
+
+
+Channel config lives under \texttt{channels.zalouser} (not \texttt{plugins.entries.*}):
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    zalouser: {
+      enabled: true,
+      dmPolicy: "pairing",
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{CLI}
+
+
+\begin{lstlisting}[language=bash]
+openclaw channels login --channel zalouser
+openclaw channels logout --channel zalouser
+openclaw channels status --probe
+openclaw message send --channel zalouser --target <threadId> --message "Hello from OpenClaw"
+openclaw directory peers list --channel zalouser --query "name"
+\end{lstlisting}
+
+
+\subsection{Agent tool}
+
+
+Tool name: \texttt{zalouser}
+
+Actions: \texttt{send}, \texttt{image}, \texttt{link}, \texttt{friends}, \texttt{groups}, \texttt{me}, \texttt{status}
+
+Channel message actions also support \texttt{react} for message reactions.
+
+
+\clearpage

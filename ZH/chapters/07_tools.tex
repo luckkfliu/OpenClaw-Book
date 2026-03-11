@@ -6128,3 +6128,1437 @@ await web_search({
 
 
 \clearpage
+% === 源文件: tools/acp-agents.md ===
+\section{ACP agents}
+
+
+\href{https://agentclientprotocol.com/}{Agent Client Protocol (ACP)} sessions let OpenClaw run external coding harnesses (for example Pi, Claude Code, Codex, OpenCode, and Gemini CLI) through an ACP backend plugin.
+
+If you ask OpenClaw in plain language to "run this in Codex" or "start Claude Code in a thread", OpenClaw should route that request to the ACP runtime (not the native sub-agent runtime).
+
+\subsection{Fast operator flow}
+
+
+Use this when you want a practical \texttt{/acp} runbook:
+
+\begin{enumerate}
+  \item Spawn a session:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{/acp spawn codex --mode persistent --thread auto}
+\end{itemize}
+
+\begin{enumerate}
+  \item Work in the bound thread (or target that session key explicitly).
+  \item Check runtime state:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{/acp status}
+\end{itemize}
+
+\begin{enumerate}
+  \item Tune runtime options as needed:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{/acp model }
+  \item \texttt{/acp permissions }
+  \item \texttt{/acp timeout }
+\end{itemize}
+
+\begin{enumerate}
+  \item Nudge an active session without replacing context:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{/acp steer tighten logging and continue}
+\end{itemize}
+
+\begin{enumerate}
+  \item Stop work:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{/acp cancel} (stop current turn), or
+  \item \texttt{/acp close} (close session + remove bindings)
+\end{itemize}
+
+
+\subsection{Quick start for humans}
+
+
+Examples of natural requests:
+
+\begin{itemize}
+  \item "Start a persistent Codex session in a thread here and keep it focused."
+  \item "Run this as a one-shot Claude Code ACP session and summarize the result."
+  \item "Use Gemini CLI for this task in a thread, then keep follow-ups in that same thread."
+\end{itemize}
+
+
+What OpenClaw should do:
+
+\begin{enumerate}
+  \item Pick \texttt{runtime: "acp"}.
+  \item Resolve the requested harness target (\texttt{agentId}, for example \texttt{codex}).
+  \item If thread binding is requested and the current channel supports it, bind the ACP session to the thread.
+  \item Route follow-up thread messages to that same ACP session until unfocused/closed/expired.
+\end{enumerate}
+
+
+\subsection{ACP versus sub-agents}
+
+
+Use ACP when you want an external harness runtime. Use sub-agents when you want OpenClaw-native delegated runs.
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Area & ACP session & Sub-agent run \\
+\hline
+Runtime & ACP backend plugin (for example acpx) & OpenClaw native sub-agent runtime \\
+\hline
+Session key & \texttt{agent::acp:} & \texttt{agent::subagent:} \\
+\hline
+Main commands & \texttt{/acp ...} & \texttt{/subagents ...} \\
+\hline
+Spawn tool & \texttt{sessions\_spawn} with \texttt{runtime:"acp"} & \texttt{sessions\_spawn} (default runtime) \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+See also \href{/tools/subagents}{Sub-agents}.
+
+\subsection{Thread-bound sessions (channel-agnostic)}
+
+
+When thread bindings are enabled for a channel adapter, ACP sessions can be bound to threads:
+
+\begin{itemize}
+  \item OpenClaw binds a thread to a target ACP session.
+  \item Follow-up messages in that thread route to the bound ACP session.
+  \item ACP output is delivered back to the same thread.
+  \item Unfocus/close/archive/idle-timeout or max-age expiry removes the binding.
+\end{itemize}
+
+
+Thread binding support is adapter-specific. If the active channel adapter does not support thread bindings, OpenClaw returns a clear unsupported/unavailable message.
+
+Required feature flags for thread-bound ACP:
+
+\begin{itemize}
+  \item \texttt{acp.enabled=true}
+  \item \texttt{acp.dispatch.enabled} is on by default (set \texttt{false} to pause ACP dispatch)
+  \item Channel-adapter ACP thread-spawn flag enabled (adapter-specific)
+  \item Discord: \texttt{channels.discord.threadBindings.spawnAcpSessions=true}
+\end{itemize}
+
+
+\subsubsection{Thread supporting channels}
+
+
+\begin{itemize}
+  \item Any channel adapter that exposes session/thread binding capability.
+  \item Current built-in support: Discord.
+  \item Plugin channels can add support through the same binding interface.
+\end{itemize}
+
+
+\subsection{Start ACP sessions (interfaces)}
+
+
+\subsubsection{From sessions\_spawn}
+
+
+Use \texttt{runtime: "acp"} to start an ACP session from an agent turn or tool call.
+
+\begin{lstlisting}[language=json]
+{
+  "task": "Open the repo and summarize failing tests",
+  "runtime": "acp",
+  "agentId": "codex",
+  "thread": true,
+  "mode": "session"
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{runtime} defaults to \texttt{subagent}, so set \texttt{runtime: "acp"} explicitly for ACP sessions.
+  \item If \texttt{agentId} is omitted, OpenClaw uses \texttt{acp.defaultAgent} when configured.
+  \item \texttt{mode: "session"} requires \texttt{thread: true} to keep a persistent bound conversation.
+\end{itemize}
+
+
+Interface details:
+
+\begin{itemize}
+  \item \texttt{task} (required): initial prompt sent to the ACP session.
+  \item \texttt{runtime} (required for ACP): must be \texttt{"acp"}.
+  \item \texttt{agentId} (optional): ACP target harness id. Falls back to \texttt{acp.defaultAgent} if set.
+  \item \texttt{thread} (optional, default \texttt{false}): request thread binding flow where supported.
+  \item \texttt{mode} (optional): \texttt{run} (one-shot) or \texttt{session} (persistent).
+  \item default is \texttt{run}
+  \item if \texttt{thread: true} and mode omitted, OpenClaw may default to persistent behavior per runtime path
+  \item \texttt{mode: "session"} requires \texttt{thread: true}
+  \item \texttt{cwd} (optional): requested runtime working directory (validated by backend/runtime policy).
+  \item \texttt{label} (optional): operator-facing label used in session/banner text.
+\end{itemize}
+
+
+\subsection{Sandbox compatibility}
+
+
+ACP sessions currently run on the host runtime, not inside the OpenClaw sandbox.
+
+Current limitations:
+
+\begin{itemize}
+  \item If the requester session is sandboxed, ACP spawns are blocked.
+  \item Error: \texttt{Sandboxed sessions cannot spawn ACP sessions because runtime="acp" runs on the host. Use runtime="subagent" from sandboxed sessions.}
+  \item \texttt{sessions\_spawn} with \texttt{runtime: "acp"} does not support \texttt{sandbox: "require"}.
+  \item Error: \texttt{sessions\_spawn sandbox="require" is unsupported for runtime="acp" because ACP sessions run outside the sandbox. Use runtime="subagent" or sandbox="inherit".}
+\end{itemize}
+
+
+Use \texttt{runtime: "subagent"} when you need sandbox-enforced execution.
+
+\subsubsection{From /acp command}
+
+
+Use \texttt{/acp spawn} for explicit operator control from chat when needed.
+
+\begin{lstlisting}
+/acp spawn codex --mode persistent --thread auto
+/acp spawn codex --mode oneshot --thread off
+/acp spawn codex --thread here
+\end{lstlisting}
+
+
+Key flags:
+
+\begin{itemize}
+  \item \texttt{--mode persistent|oneshot}
+  \item \texttt{--thread auto|here|off}
+  \item \texttt{--cwd }
+  \item \texttt{--label }
+\end{itemize}
+
+
+See \href{/tools/slash-commands}{Slash Commands}.
+
+\subsection{Session target resolution}
+
+
+Most \texttt{/acp} actions accept an optional session target (\texttt{session-key}, \texttt{session-id}, or \texttt{session-label}).
+
+Resolution order:
+
+\begin{enumerate}
+  \item Explicit target argument (or \texttt{--session} for \texttt{/acp steer})
+\end{enumerate}
+
+\begin{itemize}
+  \item tries key
+  \item then UUID-shaped session id
+  \item then label
+\end{itemize}
+
+\begin{enumerate}
+  \item Current thread binding (if this conversation/thread is bound to an ACP session)
+  \item Current requester session fallback
+\end{enumerate}
+
+
+If no target resolves, OpenClaw returns a clear error (\texttt{Unable to resolve session target: ...}).
+
+\subsection{Spawn thread modes}
+
+
+\texttt{/acp spawn} supports \texttt{--thread auto|here|off}.
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Mode & Behavior \\
+\hline
+\texttt{auto} & In an active thread: bind that thread. Outside a thread: create/bind a child thread when supported. \\
+\hline
+\texttt{here} & Require current active thread; fail if not in one. \\
+\hline
+\texttt{off} & No binding. Session starts unbound. \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+Notes:
+
+\begin{itemize}
+  \item On non-thread binding surfaces, default behavior is effectively \texttt{off}.
+  \item Thread-bound spawn requires channel policy support (for Discord: \texttt{channels.discord.threadBindings.spawnAcpSessions=true}).
+\end{itemize}
+
+
+\subsection{ACP controls}
+
+
+Available command family:
+
+\begin{itemize}
+  \item \texttt{/acp spawn}
+  \item \texttt{/acp cancel}
+  \item \texttt{/acp steer}
+  \item \texttt{/acp close}
+  \item \texttt{/acp status}
+  \item \texttt{/acp set-mode}
+  \item \texttt{/acp set}
+  \item \texttt{/acp cwd}
+  \item \texttt{/acp permissions}
+  \item \texttt{/acp timeout}
+  \item \texttt{/acp model}
+  \item \texttt{/acp reset-options}
+  \item \texttt{/acp sessions}
+  \item \texttt{/acp doctor}
+  \item \texttt{/acp install}
+\end{itemize}
+
+
+\texttt{/acp status} shows the effective runtime options and, when available, both runtime-level and backend-level session identifiers.
+
+Some controls depend on backend capabilities. If a backend does not support a control, OpenClaw returns a clear unsupported-control error.
+
+\subsection{ACP command cookbook}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Command & What it does & Example \\
+\hline
+\texttt{/acp spawn} & Create ACP session; optional thread bind. & \texttt{/acp spawn codex --mode persistent --thread auto --cwd /repo} \\
+\hline
+\texttt{/acp cancel} & Cancel in-flight turn for target session. & \texttt{/acp cancel agent:codex:acp:} \\
+\hline
+\texttt{/acp steer} & Send steer instruction to running session. & \texttt{/acp steer --session support inbox prioritize failing tests} \\
+\hline
+\texttt{/acp close} & Close session and unbind thread targets. & \texttt{/acp close} \\
+\hline
+\texttt{/acp status} & Show backend, mode, state, runtime options, capabilities. & \texttt{/acp status} \\
+\hline
+\texttt{/acp set-mode} & Set runtime mode for target session. & \texttt{/acp set-mode plan} \\
+\hline
+\texttt{/acp set} & Generic runtime config option write. & \texttt{/acp set model openai/gpt-5.2} \\
+\hline
+\texttt{/acp cwd} & Set runtime working directory override. & \texttt{/acp cwd /Users/user/Projects/repo} \\
+\hline
+\texttt{/acp permissions} & Set approval policy profile. & \texttt{/acp permissions strict} \\
+\hline
+\texttt{/acp timeout} & Set runtime timeout (seconds). & \texttt{/acp timeout 120} \\
+\hline
+\texttt{/acp model} & Set runtime model override. & \texttt{/acp model anthropic/claude-opus-4-5} \\
+\hline
+\texttt{/acp reset-options} & Remove session runtime option overrides. & \texttt{/acp reset-options} \\
+\hline
+\texttt{/acp sessions} & List recent ACP sessions from store. & \texttt{/acp sessions} \\
+\hline
+\texttt{/acp doctor} & Backend health, capabilities, actionable fixes. & \texttt{/acp doctor} \\
+\hline
+\texttt{/acp install} & Print deterministic install and enable steps. & \texttt{/acp install} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Runtime options mapping}
+
+
+\texttt{/acp} has convenience commands and a generic setter.
+
+Equivalent operations:
+
+\begin{itemize}
+  \item \texttt{/acp model } maps to runtime config key \texttt{model}.
+  \item \texttt{/acp permissions } maps to runtime config key \texttt{approval\_policy}.
+  \item \texttt{/acp timeout } maps to runtime config key \texttt{timeout}.
+  \item \texttt{/acp cwd } updates runtime cwd override directly.
+  \item \texttt{/acp set  } is the generic path.
+  \item Special case: \texttt{key=cwd} uses the cwd override path.
+  \item \texttt{/acp reset-options} clears all runtime overrides for target session.
+\end{itemize}
+
+
+\subsection{acpx harness support (current)}
+
+
+Current acpx built-in harness aliases:
+
+\begin{itemize}
+  \item \texttt{pi}
+  \item \texttt{claude}
+  \item \texttt{codex}
+  \item \texttt{opencode}
+  \item \texttt{gemini}
+  \item \texttt{kimi}
+\end{itemize}
+
+
+When OpenClaw uses the acpx backend, prefer these values for \texttt{agentId} unless your acpx config defines custom agent aliases.
+
+Direct acpx CLI usage can also target arbitrary adapters via \texttt{--agent }, but that raw escape hatch is an acpx CLI feature (not the normal OpenClaw \texttt{agentId} path).
+
+\subsection{Required config}
+
+
+Core ACP baseline:
+
+\begin{lstlisting}[language=json]
+{
+  acp: {
+    enabled: true,
+    // Optional. Default is true; set false to pause ACP dispatch while keeping /acp controls.
+    dispatch: { enabled: true },
+    backend: "acpx",
+    defaultAgent: "codex",
+    allowedAgents: ["pi", "claude", "codex", "opencode", "gemini", "kimi"],
+    maxConcurrentSessions: 8,
+    stream: {
+      coalesceIdleMs: 300,
+      maxChunkChars: 1200,
+    },
+    runtime: {
+      ttlMinutes: 120,
+    },
+  },
+}
+\end{lstlisting}
+
+
+Thread binding config is channel-adapter specific. Example for Discord:
+
+\begin{lstlisting}[language=json]
+{
+  session: {
+    threadBindings: {
+      enabled: true,
+      idleHours: 24,
+      maxAgeHours: 0,
+    },
+  },
+  channels: {
+    discord: {
+      threadBindings: {
+        enabled: true,
+        spawnAcpSessions: true,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+If thread-bound ACP spawn does not work, verify the adapter feature flag first:
+
+\begin{itemize}
+  \item Discord: \texttt{channels.discord.threadBindings.spawnAcpSessions=true}
+\end{itemize}
+
+
+See \href{/gateway/configuration-reference}{Configuration Reference}.
+
+\subsection{Plugin setup for acpx backend}
+
+
+Install and enable plugin:
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install acpx
+openclaw config set plugins.entries.acpx.enabled true
+\end{lstlisting}
+
+
+Local workspace install during development:
+
+\begin{lstlisting}[language=bash]
+openclaw plugins install ./extensions/acpx
+\end{lstlisting}
+
+
+Then verify backend health:
+
+\begin{lstlisting}
+/acp doctor
+\end{lstlisting}
+
+
+\subsubsection{acpx command and version configuration}
+
+
+By default, the acpx plugin (published as \texttt{@openclaw/acpx}) uses the plugin-local pinned binary:
+
+\begin{enumerate}
+  \item Command defaults to \texttt{extensions/acpx/node\_modules/.bin/acpx}.
+  \item Expected version defaults to the extension pin.
+  \item Startup registers ACP backend immediately as not-ready.
+  \item A background ensure job verifies \texttt{acpx --version}.
+  \item If the plugin-local binary is missing or mismatched, it runs:
+\end{enumerate}
+
+\texttt{npm install --omit=dev --no-save acpx@} and re-verifies.
+
+You can override command/version in plugin config:
+
+\begin{lstlisting}[language=json]
+{
+  "plugins": {
+    "entries": {
+      "acpx": {
+        "enabled": true,
+        "config": {
+          "command": "../acpx/dist/cli.js",
+          "expectedVersion": "any"
+        }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{command} accepts an absolute path, relative path, or command name (\texttt{acpx}).
+  \item Relative paths resolve from OpenClaw workspace directory.
+  \item \texttt{expectedVersion: "any"} disables strict version matching.
+  \item When \texttt{command} points to a custom binary/path, plugin-local auto-install is disabled.
+  \item OpenClaw startup remains non-blocking while the backend health check runs.
+\end{itemize}
+
+
+See \href{/tools/plugin}{Plugins}.
+
+\subsection{Permission configuration}
+
+
+ACP sessions run non-interactively — there is no TTY to approve or deny file-write and shell-exec permission prompts. The acpx plugin provides two config keys that control how permissions are handled:
+
+\subsubsection{permissionMode}
+
+
+Controls which operations the harness agent can perform without prompting.
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Value & Behavior \\
+\hline
+\texttt{approve-all} & Auto-approve all file writes and shell commands. \\
+\hline
+\texttt{approve-reads} & Auto-approve reads only; writes and exec require prompts. \\
+\hline
+\texttt{deny-all} & Deny all permission prompts. \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{nonInteractivePermissions}
+
+
+Controls what happens when a permission prompt would be shown but no interactive TTY is available (which is always the case for ACP sessions).
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Value & Behavior \\
+\hline
+\texttt{fail} & Abort the session with \texttt{AcpRuntimeError}. \textbf{(default)} \\
+\hline
+\texttt{deny} & Silently deny the permission and continue (graceful degradation). \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{Configuration}
+
+
+Set via plugin config:
+
+\begin{lstlisting}[language=bash]
+openclaw config set plugins.entries.acpx.config.permissionMode approve-all
+openclaw config set plugins.entries.acpx.config.nonInteractivePermissions fail
+\end{lstlisting}
+
+
+Restart the gateway after changing these values.
+
+\begin{quote}
+\textbf{Important:} OpenClaw currently defaults to \texttt{permissionMode=approve-reads} and \texttt{nonInteractivePermissions=fail}. In non-interactive ACP sessions, any write or exec that triggers a permission prompt can fail with \texttt{AcpRuntimeError: Permission prompt unavailable in non-interactive mode}.
+
+If you need to restrict permissions, set \texttt{nonInteractivePermissions} to \texttt{deny} so sessions degrade gracefully instead of crashing.
+\end{quote}
+
+
+\subsection{Troubleshooting}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Symptom & Likely cause & Fix \\
+\hline
+\texttt{ACP runtime backend is not configured} & Backend plugin missing or disabled. & Install and enable backend plugin, then run \texttt{/acp doctor}. \\
+\hline
+\texttt{ACP is disabled by policy (acp.enabled=false)} & ACP globally disabled. & Set \texttt{acp.enabled=true}. \\
+\hline
+\texttt{ACP dispatch is disabled by policy (acp.dispatch.enabled=false)} & Dispatch from normal thread messages disabled. & Set \texttt{acp.dispatch.enabled=true}. \\
+\hline
+\texttt{ACP agent "" is not allowed by policy} & Agent not in allowlist. & Use allowed \texttt{agentId} or update \texttt{acp.allowedAgents}. \\
+\hline
+\texttt{Unable to resolve session target: ...} & Bad key/id/label token. & Run \texttt{/acp sessions}, copy exact key/label, retry. \\
+\hline
+\texttt{--thread here requires running /acp spawn inside an active ... thread} & \texttt{--thread here} used outside a thread context. & Move to target thread or use \texttt{--thread auto}/\texttt{off}. \\
+\hline
+\texttt{Only  can rebind this thread.} & Another user owns thread binding. & Rebind as owner or use a different thread. \\
+\hline
+\texttt{Thread bindings are unavailable for .} & Adapter lacks thread binding capability. & Use \texttt{--thread off} or move to supported adapter/channel. \\
+\hline
+\texttt{Sandboxed sessions cannot spawn ACP sessions ...} & ACP runtime is host-side; requester session is sandboxed. & Use \texttt{runtime="subagent"} from sandboxed sessions, or run ACP spawn from a non-sandboxed session. \\
+\hline
+\texttt{sessions\_spawn sandbox="require" is unsupported for runtime="acp" ...} & \texttt{sandbox="require"} requested for ACP runtime. & Use \texttt{runtime="subagent"} for required sandboxing, or use ACP with \texttt{sandbox="inherit"} from a non-sandboxed session. \\
+\hline
+Missing ACP metadata for bound session & Stale/deleted ACP session metadata. & Recreate with \texttt{/acp spawn}, then rebind/focus thread. \\
+\hline
+\texttt{AcpRuntimeError: Permission prompt unavailable in non-interactive mode} & \texttt{permissionMode} blocks writes/exec in non-interactive ACP session. & Set \texttt{plugins.entries.acpx.config.permissionMode} to \texttt{approve-all} and restart gateway. See \href{\#permission-configuration}{Permission configuration}. \\
+\hline
+ACP session fails early with little output & Permission prompts are blocked by \texttt{permissionMode}/\texttt{nonInteractivePermissions}. & Check gateway logs for \texttt{AcpRuntimeError}. For full permissions, set \texttt{permissionMode=approve-all}; for graceful degradation, set \texttt{nonInteractivePermissions=deny}. \\
+\hline
+ACP session stalls indefinitely after completing work & Harness process finished but ACP session did not report completion. & Monitor with `ps aux \textbackslash\{\} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+
+\clearpage
+
+% === 源文件: tools/diffs.md ===
+\section{Diffs}
+
+
+\texttt{diffs} is an optional plugin tool and companion skill that turns change content into a read-only diff artifact for agents.
+
+It accepts either:
+
+\begin{itemize}
+  \item \texttt{before} and \texttt{after} text
+  \item a unified \texttt{patch}
+\end{itemize}
+
+
+It can return:
+
+\begin{itemize}
+  \item a gateway viewer URL for canvas presentation
+  \item a rendered file path (PNG or PDF) for message delivery
+  \item both outputs in one call
+\end{itemize}
+
+
+\subsection{Quick start}
+
+
+\begin{enumerate}
+  \item Enable the plugin.
+  \item Call \texttt{diffs} with \texttt{mode: "view"} for canvas-first flows.
+  \item Call \texttt{diffs} with \texttt{mode: "file"} for chat file delivery flows.
+  \item Call \texttt{diffs} with \texttt{mode: "both"} when you need both artifacts.
+\end{enumerate}
+
+
+\subsection{Enable the plugin}
+
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      diffs: {
+        enabled: true,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Typical agent workflow}
+
+
+\begin{enumerate}
+  \item Agent calls \texttt{diffs}.
+  \item Agent reads \texttt{details} fields.
+  \item Agent either:
+\end{enumerate}
+
+\begin{itemize}
+  \item opens \texttt{details.viewerUrl} with \texttt{canvas present}
+  \item sends \texttt{details.filePath} with \texttt{message} using \texttt{path} or \texttt{filePath}
+  \item does both
+\end{itemize}
+
+
+\subsection{Input examples}
+
+
+Before and after:
+
+\begin{lstlisting}[language=json]
+{
+  "before": "# Hello\n\nOne",
+  "after": "# Hello\n\nTwo",
+  "path": "docs/example.md",
+  "mode": "view"
+}
+\end{lstlisting}
+
+
+Patch:
+
+\begin{lstlisting}[language=json]
+{
+  "patch": "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-const x = 1;\n+const x = 2;\n",
+  "mode": "both"
+}
+\end{lstlisting}
+
+
+\subsection{Tool input reference}
+
+
+All fields are optional unless noted:
+
+\begin{itemize}
+  \item \texttt{before} (\texttt{string}): original text. Required with \texttt{after} when \texttt{patch} is omitted.
+  \item \texttt{after} (\texttt{string}): updated text. Required with \texttt{before} when \texttt{patch} is omitted.
+  \item \texttt{patch} (\texttt{string}): unified diff text. Mutually exclusive with \texttt{before} and \texttt{after}.
+  \item \texttt{path} (\texttt{string}): display filename for before and after mode.
+  \item \texttt{lang} (\texttt{string}): language override hint for before and after mode.
+  \item \texttt{title} (\texttt{string}): viewer title override.
+  \item \texttt{mode} (\texttt{"view" | "file" | "both"}): output mode. Defaults to plugin default \texttt{defaults.mode}.
+  \item \texttt{theme} (\texttt{"light" | "dark"}): viewer theme. Defaults to plugin default \texttt{defaults.theme}.
+  \item \texttt{layout} (\texttt{"unified" | "split"}): diff layout. Defaults to plugin default \texttt{defaults.layout}.
+  \item \texttt{expandUnchanged} (\texttt{boolean}): expand unchanged sections when full context is available. Per-call option only (not a plugin default key).
+  \item \texttt{fileFormat} (\texttt{"png" | "pdf"}): rendered file format. Defaults to plugin default \texttt{defaults.fileFormat}.
+  \item \texttt{fileQuality} (\texttt{"standard" | "hq" | "print"}): quality preset for PNG or PDF rendering.
+  \item \texttt{fileScale} (\texttt{number}): device scale override (\texttt{1}-\texttt{4}).
+  \item \texttt{fileMaxWidth} (\texttt{number}): max render width in CSS pixels (\texttt{640}-\texttt{2400}).
+  \item \texttt{ttlSeconds} (\texttt{number}): viewer artifact TTL in seconds. Default 1800, max 21600.
+  \item \texttt{baseUrl} (\texttt{string}): viewer URL origin override. Must be \texttt{http} or \texttt{https}, no query/hash.
+\end{itemize}
+
+
+Validation and limits:
+
+\begin{itemize}
+  \item \texttt{before} and \texttt{after} each max 512 KiB.
+  \item \texttt{patch} max 2 MiB.
+  \item \texttt{path} max 2048 bytes.
+  \item \texttt{lang} max 128 bytes.
+  \item \texttt{title} max 1024 bytes.
+  \item Patch complexity cap: max 128 files and 120000 total lines.
+  \item \texttt{patch} and \texttt{before} or \texttt{after} together are rejected.
+  \item Rendered file safety limits (apply to PNG and PDF):
+  \item \texttt{fileQuality: "standard"}: max 8 MP (8,000,000 rendered pixels).
+  \item \texttt{fileQuality: "hq"}: max 14 MP (14,000,000 rendered pixels).
+  \item \texttt{fileQuality: "print"}: max 24 MP (24,000,000 rendered pixels).
+  \item PDF also has a max of 50 pages.
+\end{itemize}
+
+
+\subsection{Output details contract}
+
+
+The tool returns structured metadata under \texttt{details}.
+
+Shared fields for modes that create a viewer:
+
+\begin{itemize}
+  \item \texttt{artifactId}
+  \item \texttt{viewerUrl}
+  \item \texttt{viewerPath}
+  \item \texttt{title}
+  \item \texttt{expiresAt}
+  \item \texttt{inputKind}
+  \item \texttt{fileCount}
+  \item \texttt{mode}
+\end{itemize}
+
+
+File fields when PNG or PDF is rendered:
+
+\begin{itemize}
+  \item \texttt{filePath}
+  \item \texttt{path} (same value as \texttt{filePath}, for message tool compatibility)
+  \item \texttt{fileBytes}
+  \item \texttt{fileFormat}
+  \item \texttt{fileQuality}
+  \item \texttt{fileScale}
+  \item \texttt{fileMaxWidth}
+\end{itemize}
+
+
+Mode behavior summary:
+
+\begin{itemize}
+  \item \texttt{mode: "view"}: viewer fields only.
+  \item \texttt{mode: "file"}: file fields only, no viewer artifact.
+  \item \texttt{mode: "both"}: viewer fields plus file fields. If file rendering fails, viewer still returns with \texttt{fileError}.
+\end{itemize}
+
+
+\subsection{Collapsed unchanged sections}
+
+
+\begin{itemize}
+  \item The viewer can show rows like \texttt{N unmodified lines}.
+  \item Expand controls on those rows are conditional and not guaranteed for every input kind.
+  \item Expand controls appear when the rendered diff has expandable context data, which is typical for before and after input.
+  \item For many unified patch inputs, omitted context bodies are not available in the parsed patch hunks, so the row can appear without expand controls. This is expected behavior.
+  \item \texttt{expandUnchanged} applies only when expandable context exists.
+\end{itemize}
+
+
+\subsection{Plugin defaults}
+
+
+Set plugin-wide defaults in \texttt{\textasciitilde{}/.openclaw/openclaw.json}:
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      diffs: {
+        enabled: true,
+        config: {
+          defaults: {
+            fontFamily: "Fira Code",
+            fontSize: 15,
+            lineSpacing: 1.6,
+            layout: "unified",
+            showLineNumbers: true,
+            diffIndicators: "bars",
+            wordWrap: true,
+            background: true,
+            theme: "dark",
+            fileFormat: "png",
+            fileQuality: "standard",
+            fileScale: 2,
+            fileMaxWidth: 960,
+            mode: "both",
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Supported defaults:
+
+\begin{itemize}
+  \item \texttt{fontFamily}
+  \item \texttt{fontSize}
+  \item \texttt{lineSpacing}
+  \item \texttt{layout}
+  \item \texttt{showLineNumbers}
+  \item \texttt{diffIndicators}
+  \item \texttt{wordWrap}
+  \item \texttt{background}
+  \item \texttt{theme}
+  \item \texttt{fileFormat}
+  \item \texttt{fileQuality}
+  \item \texttt{fileScale}
+  \item \texttt{fileMaxWidth}
+  \item \texttt{mode}
+\end{itemize}
+
+
+Explicit tool parameters override these defaults.
+
+\subsection{Security config}
+
+
+\begin{itemize}
+  \item \texttt{security.allowRemoteViewer} (\texttt{boolean}, default \texttt{false})
+  \item \texttt{false}: non-loopback requests to viewer routes are denied.
+  \item \texttt{true}: remote viewers are allowed if tokenized path is valid.
+\end{itemize}
+
+
+Example:
+
+\begin{lstlisting}[language=json]
+{
+  plugins: {
+    entries: {
+      diffs: {
+        enabled: true,
+        config: {
+          security: {
+            allowRemoteViewer: false,
+          },
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Artifact lifecycle and storage}
+
+
+\begin{itemize}
+  \item Artifacts are stored under the temp subfolder: \texttt{\$TMPDIR/openclaw-diffs}.
+  \item Viewer artifact metadata contains:
+  \item random artifact ID (20 hex chars)
+  \item random token (48 hex chars)
+  \item \texttt{createdAt} and \texttt{expiresAt}
+  \item stored \texttt{viewer.html} path
+  \item Default viewer TTL is 30 minutes when not specified.
+  \item Maximum accepted viewer TTL is 6 hours.
+  \item Cleanup runs opportunistically after artifact creation.
+  \item Expired artifacts are deleted.
+  \item Fallback cleanup removes stale folders older than 24 hours when metadata is missing.
+\end{itemize}
+
+
+\subsection{Viewer URL and network behavior}
+
+
+Viewer route:
+
+\begin{itemize}
+  \item \texttt{/plugins/diffs/view/\{artifactId\}/\{token\}}
+\end{itemize}
+
+
+Viewer assets:
+
+\begin{itemize}
+  \item \texttt{/plugins/diffs/assets/viewer.js}
+  \item \texttt{/plugins/diffs/assets/viewer-runtime.js}
+\end{itemize}
+
+
+URL construction behavior:
+
+\begin{itemize}
+  \item If \texttt{baseUrl} is provided, it is used after strict validation.
+  \item Without \texttt{baseUrl}, viewer URL defaults to loopback \texttt{127.0.0.1}.
+  \item If gateway bind mode is \texttt{custom} and \texttt{gateway.customBindHost} is set, that host is used.
+\end{itemize}
+
+
+\texttt{baseUrl} rules:
+
+\begin{itemize}
+  \item Must be \texttt{http://} or \texttt{https://}.
+  \item Query and hash are rejected.
+  \item Origin plus optional base path is allowed.
+\end{itemize}
+
+
+\subsection{Security model}
+
+
+Viewer hardening:
+
+\begin{itemize}
+  \item Loopback-only by default.
+  \item Tokenized viewer paths with strict ID and token validation.
+  \item Viewer response CSP:
+  \item \texttt{default-src 'none'}
+  \item scripts and assets only from self
+  \item no outbound \texttt{connect-src}
+  \item Remote miss throttling when remote access is enabled:
+  \item 40 failures per 60 seconds
+  \item 60 second lockout (\texttt{429 Too Many Requests})
+\end{itemize}
+
+
+File rendering hardening:
+
+\begin{itemize}
+  \item Screenshot browser request routing is deny-by-default.
+  \item Only local viewer assets from \texttt{http://127.0.0.1/plugins/diffs/assets/*} are allowed.
+  \item External network requests are blocked.
+\end{itemize}
+
+
+\subsection{Browser requirements for file mode}
+
+
+\texttt{mode: "file"} and \texttt{mode: "both"} need a Chromium-compatible browser.
+
+Resolution order:
+
+\begin{enumerate}
+  \item \texttt{browser.executablePath} in OpenClaw config.
+  \item Environment variables:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{OPENCLAW\_BROWSER\_EXECUTABLE\_PATH}
+  \item \texttt{BROWSER\_EXECUTABLE\_PATH}
+  \item \texttt{PLAYWRIGHT\_CHROMIUM\_EXECUTABLE\_PATH}
+\end{itemize}
+
+\begin{enumerate}
+  \item Platform command/path discovery fallback.
+\end{enumerate}
+
+
+Common failure text:
+
+\begin{itemize}
+  \item \texttt{Diff PNG/PDF rendering requires a Chromium-compatible browser...}
+\end{itemize}
+
+
+Fix by installing Chrome, Chromium, Edge, or Brave, or setting one of the executable path options above.
+
+\subsection{Troubleshooting}
+
+
+Input validation errors:
+
+\begin{itemize}
+  \item \texttt{Provide patch or both before and after text.}
+  \item Include both \texttt{before} and \texttt{after}, or provide \texttt{patch}.
+  \item \texttt{Provide either patch or before/after input, not both.}
+  \item Do not mix input modes.
+  \item \texttt{Invalid baseUrl: ...}
+  \item Use \texttt{http(s)} origin with optional path, no query/hash.
+  \item \texttt{\{field\} exceeds maximum size (...)}
+  \item Reduce payload size.
+  \item Large patch rejection
+  \item Reduce patch file count or total lines.
+\end{itemize}
+
+
+Viewer accessibility issues:
+
+\begin{itemize}
+  \item Viewer URL resolves to \texttt{127.0.0.1} by default.
+  \item For remote access scenarios, either:
+  \item pass \texttt{baseUrl} per tool call, or
+  \item use \texttt{gateway.bind=custom} and \texttt{gateway.customBindHost}
+  \item Enable \texttt{security.allowRemoteViewer} only when you intend external viewer access.
+\end{itemize}
+
+
+Unmodified-lines row has no expand button:
+
+\begin{itemize}
+  \item This can happen for patch input when the patch does not carry expandable context.
+  \item This is expected and does not indicate a viewer failure.
+\end{itemize}
+
+
+Artifact not found:
+
+\begin{itemize}
+  \item Artifact expired due TTL.
+  \item Token or path changed.
+  \item Cleanup removed stale data.
+\end{itemize}
+
+
+\subsection{Operational guidance}
+
+
+\begin{itemize}
+  \item Prefer \texttt{mode: "view"} for local interactive reviews in canvas.
+  \item Prefer \texttt{mode: "file"} for outbound chat channels that need an attachment.
+  \item Keep \texttt{allowRemoteViewer} disabled unless your deployment requires remote viewer URLs.
+  \item Set explicit short \texttt{ttlSeconds} for sensitive diffs.
+  \item Avoid sending secrets in diff input when not required.
+  \item If your channel compresses images aggressively (for example Telegram or WhatsApp), prefer PDF output (\texttt{fileFormat: "pdf"}).
+\end{itemize}
+
+
+Diff rendering engine:
+
+\begin{itemize}
+  \item Powered by \href{https://diffs.com}{Diffs}.
+\end{itemize}
+
+
+\subsection{Related docs}
+
+
+\begin{itemize}
+  \item \href{/tools}{Tools overview}
+  \item \href{/tools/plugin}{Plugins}
+  \item \href{/tools/browser}{Browser}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/loop-detection.md ===
+\section{Tool-loop detection}
+
+
+OpenClaw can keep agents from getting stuck in repeated tool-call patterns.
+The guard is \textbf{disabled by default}.
+
+Enable it only where needed, because it can block legitimate repeated calls with strict settings.
+
+\subsection{Why this exists}
+
+
+\begin{itemize}
+  \item Detect repetitive sequences that do not make progress.
+  \item Detect high-frequency no-result loops (same tool, same inputs, repeated errors).
+  \item Detect specific repeated-call patterns for known polling tools.
+\end{itemize}
+
+
+\subsection{Configuration block}
+
+
+Global defaults:
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    loopDetection: {
+      enabled: false,
+      historySize: 20,
+      detectorCooldownMs: 12000,
+      repeatThreshold: 3,
+      criticalThreshold: 6,
+      detectors: {
+        repeatedFailure: true,
+        knownPollLoop: true,
+        repeatingNoProgress: true,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Per-agent override (optional):
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [
+      {
+        id: "safe-runner",
+        tools: {
+          loopDetection: {
+            enabled: true,
+            repeatThreshold: 2,
+            criticalThreshold: 5,
+          },
+        },
+      },
+    ],
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Field behavior}
+
+
+\begin{itemize}
+  \item \texttt{enabled}: Master switch. \texttt{false} means no loop detection is performed.
+  \item \texttt{historySize}: number of recent tool calls kept for analysis.
+  \item \texttt{detectorCooldownMs}: time window used by the no-progress detector.
+  \item \texttt{repeatThreshold}: minimum repeats before warning/blocking starts.
+  \item \texttt{criticalThreshold}: stronger threshold that can trigger stricter handling.
+  \item \texttt{detectors.repeatedFailure}: detects repeated failed attempts on the same call path.
+  \item \texttt{detectors.knownPollLoop}: detects known polling-like loops.
+  \item \texttt{detectors.repeatingNoProgress}: detects high-frequency repeated calls without state change.
+\end{itemize}
+
+
+\subsection{Recommended setup}
+
+
+\begin{itemize}
+  \item Start with \texttt{enabled: true}, defaults unchanged.
+  \item If false positives occur:
+  \item raise \texttt{repeatThreshold} and/or \texttt{criticalThreshold}
+  \item disable only the detector causing issues
+  \item reduce \texttt{historySize} for less strict historical context
+\end{itemize}
+
+
+\subsection{Logs and expected behavior}
+
+
+When a loop is detected, OpenClaw reports a loop event and blocks or dampens the next tool-cycle depending on severity.
+This protects users from runaway token spend and lockups while preserving normal tool access.
+
+\begin{itemize}
+  \item Prefer warning and temporary suppression first.
+  \item Escalate only when repeated evidence accumulates.
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item \texttt{tools.loopDetection} is merged with agent-level overrides.
+  \item Per-agent config fully overrides or extends global values.
+  \item If no config exists, guardrails stay off.
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: tools/pdf.md ===
+\section{PDF tool}
+
+
+\texttt{pdf} analyzes one or more PDF documents and returns text.
+
+Quick behavior:
+
+\begin{itemize}
+  \item Native provider mode for Anthropic and Google model providers.
+  \item Extraction fallback mode for other providers (extract text first, then page images when needed).
+  \item Supports single (\texttt{pdf}) or multi (\texttt{pdfs}) input, max 10 PDFs per call.
+\end{itemize}
+
+
+\subsection{Availability}
+
+
+The tool is only registered when OpenClaw can resolve a PDF-capable model config for the agent:
+
+\begin{enumerate}
+  \item \texttt{agents.defaults.pdfModel}
+  \item fallback to \texttt{agents.defaults.imageModel}
+  \item fallback to best effort provider defaults based on available auth
+\end{enumerate}
+
+
+If no usable model can be resolved, the \texttt{pdf} tool is not exposed.
+
+\subsection{Input reference}
+
+
+\begin{itemize}
+  \item \texttt{pdf} (\texttt{string}): one PDF path or URL
+  \item \texttt{pdfs} (\texttt{string[]}): multiple PDF paths or URLs, up to 10 total
+  \item \texttt{prompt} (\texttt{string}): analysis prompt, default \texttt{Analyze this PDF document.}
+  \item \texttt{pages} (\texttt{string}): page filter like \texttt{1-5} or \texttt{1,3,7-9}
+  \item \texttt{model} (\texttt{string}): optional model override (\texttt{provider/model})
+  \item \texttt{maxBytesMb} (\texttt{number}): per-PDF size cap in MB
+\end{itemize}
+
+
+Input notes:
+
+\begin{itemize}
+  \item \texttt{pdf} and \texttt{pdfs} are merged and deduplicated before loading.
+  \item If no PDF input is provided, the tool errors.
+  \item \texttt{pages} is parsed as 1-based page numbers, deduped, sorted, and clamped to the configured max pages.
+  \item \texttt{maxBytesMb} defaults to \texttt{agents.defaults.pdfMaxBytesMb} or \texttt{10}.
+\end{itemize}
+
+
+\subsection{Supported PDF references}
+
+
+\begin{itemize}
+  \item local file path (including \texttt{\textasciitilde{}} expansion)
+  \item \texttt{file://} URL
+  \item \texttt{http://} and \texttt{https://} URL
+\end{itemize}
+
+
+Reference notes:
+
+\begin{itemize}
+  \item Other URI schemes (for example \texttt{ftp://}) are rejected with \texttt{unsupported\_pdf\_reference}.
+  \item In sandbox mode, remote \texttt{http(s)} URLs are rejected.
+  \item With workspace-only file policy enabled, local file paths outside allowed roots are rejected.
+\end{itemize}
+
+
+\subsection{Execution modes}
+
+
+\subsubsection{Native provider mode}
+
+
+Native mode is used for provider \texttt{anthropic} and \texttt{google}.
+The tool sends raw PDF bytes directly to provider APIs.
+
+Native mode limits:
+
+\begin{itemize}
+  \item \texttt{pages} is not supported. If set, the tool returns an error.
+\end{itemize}
+
+
+\subsubsection{Extraction fallback mode}
+
+
+Fallback mode is used for non-native providers.
+
+Flow:
+
+\begin{enumerate}
+  \item Extract text from selected pages (up to \texttt{agents.defaults.pdfMaxPages}, default \texttt{20}).
+  \item If extracted text length is below \texttt{200} chars, render selected pages to PNG images and include them.
+  \item Send extracted content plus prompt to the selected model.
+\end{enumerate}
+
+
+Fallback details:
+
+\begin{itemize}
+  \item Page image extraction uses a pixel budget of \texttt{4,000,000}.
+  \item If the target model does not support image input and there is no extractable text, the tool errors.
+  \item Extraction fallback requires \texttt{pdfjs-dist} (and \texttt{@napi-rs/canvas} for image rendering).
+\end{itemize}
+
+
+\subsection{Config}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      pdfModel: {
+        primary: "anthropic/claude-opus-4-6",
+        fallbacks: ["openai/gpt-5-mini"],
+      },
+      pdfMaxBytesMb: 10,
+      pdfMaxPages: 20,
+    },
+  },
+}
+\end{lstlisting}
+
+
+See \href{/gateway/configuration-reference}{Configuration Reference} for full field details.
+
+\subsection{Output details}
+
+
+The tool returns text in \texttt{content[0].text} and structured metadata in \texttt{details}.
+
+Common \texttt{details} fields:
+
+\begin{itemize}
+  \item \texttt{model}: resolved model ref (\texttt{provider/model})
+  \item \texttt{native}: \texttt{true} for native provider mode, \texttt{false} for fallback
+  \item \texttt{attempts}: fallback attempts that failed before success
+\end{itemize}
+
+
+Path fields:
+
+\begin{itemize}
+  \item single PDF input: \texttt{details.pdf}
+  \item multiple PDF inputs: \texttt{details.pdfs[]} with \texttt{pdf} entries
+  \item sandbox path rewrite metadata (when applicable): \texttt{rewrittenFrom}
+\end{itemize}
+
+
+\subsection{Error behavior}
+
+
+\begin{itemize}
+  \item Missing PDF input: throws \texttt{pdf required: provide a path or URL to a PDF document}
+  \item Too many PDFs: returns structured error in \texttt{details.error = "too\_many\_pdfs"}
+  \item Unsupported reference scheme: returns \texttt{details.error = "unsupported\_pdf\_reference"}
+  \item Native mode with \texttt{pages}: throws clear \texttt{pages is not supported with native PDF providers} error
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+Single PDF:
+
+\begin{lstlisting}[language=json]
+{
+  "pdf": "/tmp/report.pdf",
+  "prompt": "Summarize this report in 5 bullets"
+}
+\end{lstlisting}
+
+
+Multiple PDFs:
+
+\begin{lstlisting}[language=json]
+{
+  "pdfs": ["/tmp/q1.pdf", "/tmp/q2.pdf"],
+  "prompt": "Compare risks and timeline changes across both documents"
+}
+\end{lstlisting}
+
+
+Page-filtered fallback model:
+
+\begin{lstlisting}[language=json]
+{
+  "pdf": "https://example.com/report.pdf",
+  "pages": "1-3,7",
+  "model": "openai/gpt-5-mini",
+  "prompt": "Extract only customer-impacting incidents"
+}
+\end{lstlisting}
+
+
+
+\clearpage
+

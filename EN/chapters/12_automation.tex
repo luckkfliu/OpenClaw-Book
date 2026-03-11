@@ -1,0 +1,3392 @@
+\chapter{Automation}
+
+% === Source file: automation/auth-monitoring.md ===
+\section{Auth monitoring}
+
+
+OpenClaw exposes OAuth expiry health via \texttt{openclaw models status}. Use that for
+automation and alerting; scripts are optional extras for phone workflows.
+
+\subsection{Preferred: CLI check (portable)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw models status --check
+\end{lstlisting}
+
+
+Exit codes:
+
+\begin{itemize}
+  \item \texttt{0}: OK
+  \item \texttt{1}: expired or missing credentials
+  \item \texttt{2}: expiring soon (within 24h)
+\end{itemize}
+
+
+This works in cron/systemd and requires no extra scripts.
+
+\subsection{Optional scripts (ops / phone workflows)}
+
+
+These live under \texttt{scripts/} and are \textbf{optional}. They assume SSH access to the
+gateway host and are tuned for systemd + Termux.
+
+\begin{itemize}
+  \item \texttt{scripts/claude-auth-status.sh} now uses \texttt{openclaw models status --json} as the
+\end{itemize}
+
+source of truth (falling back to direct file reads if the CLI is unavailable),
+so keep \texttt{openclaw} on \texttt{PATH} for timers.
+\begin{itemize}
+  \item \texttt{scripts/auth-monitor.sh}: cron/systemd timer target; sends alerts (ntfy or phone).
+  \item \texttt{scripts/systemd/openclaw-auth-monitor.\{service,timer\}}: systemd user timer.
+  \item \texttt{scripts/claude-auth-status.sh}: Claude Code + OpenClaw auth checker (full/json/simple).
+  \item \texttt{scripts/mobile-reauth.sh}: guided re‑auth flow over SSH.
+  \item \texttt{scripts/termux-quick-auth.sh}: one‑tap widget status + open auth URL.
+  \item \texttt{scripts/termux-auth-widget.sh}: full guided widget flow.
+  \item \texttt{scripts/termux-sync-widget.sh}: sync Claude Code creds → OpenClaw.
+\end{itemize}
+
+
+If you don’t need phone automation or systemd timers, skip these scripts.
+
+
+\clearpage
+
+% === Source file: automation/cron-jobs.md ===
+\section{Cron jobs (Gateway scheduler)}
+
+
+\begin{quote}
+\textbf{Cron vs Heartbeat?} See \href{/automation/cron-vs-heartbeat}{Cron vs Heartbeat} for guidance on when to use each.
+\end{quote}
+
+
+Cron is the Gateway’s built-in scheduler. It persists jobs, wakes the agent at
+the right time, and can optionally deliver output back to a chat.
+
+If you want \_“run this every morning”\_ or \_“poke the agent in 20 minutes”\_,
+cron is the mechanism.
+
+Troubleshooting: \href{/automation/troubleshooting}{/automation/troubleshooting}
+
+\subsection{TL;DR}
+
+
+\begin{itemize}
+  \item Cron runs \textbf{inside the Gateway} (not inside the model).
+  \item Jobs persist under \texttt{\textasciitilde{}/.openclaw/cron/} so restarts don’t lose schedules.
+  \item Two execution styles:
+  \item \textbf{Main session}: enqueue a system event, then run on the next heartbeat.
+  \item \textbf{Isolated}: run a dedicated agent turn in \texttt{cron:}, with delivery (announce by default or none).
+  \item Wakeups are first-class: a job can request “wake now” vs “next heartbeat”.
+  \item Webhook posting is per job via \texttt{delivery.mode = "webhook"} + \texttt{delivery.to = ""}.
+  \item Legacy fallback remains for stored jobs with \texttt{notify: true} when \texttt{cron.webhook} is set, migrate those jobs to webhook delivery mode.
+\end{itemize}
+
+
+\subsection{Quick start (actionable)}
+
+
+Create a one-shot reminder, verify it exists, and run it immediately:
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Reminder" \
+  --at "2026-02-01T16:00:00Z" \
+  --session main \
+  --system-event "Reminder: check the cron docs draft" \
+  --wake now \
+  --delete-after-run
+
+openclaw cron list
+openclaw cron run <job-id>
+openclaw cron runs --id <job-id>
+\end{lstlisting}
+
+
+Schedule a recurring isolated job with delivery:
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Morning brief" \
+  --cron "0 7 * * *" \
+  --tz "America/Los_Angeles" \
+  --session isolated \
+  --message "Summarize overnight updates." \
+  --announce \
+  --channel slack \
+  --to "channel:C1234567890"
+\end{lstlisting}
+
+
+\subsection{Tool-call equivalents (Gateway cron tool)}
+
+
+For the canonical JSON shapes and examples, see \href{/automation/cron-jobs\#json-schema-for-tool-calls}{JSON schema for tool calls}.
+
+\subsection{Where cron jobs are stored}
+
+
+Cron jobs are persisted on the Gateway host at \texttt{\textasciitilde{}/.openclaw/cron/jobs.json} by default.
+The Gateway loads the file into memory and writes it back on changes, so manual edits
+are only safe when the Gateway is stopped. Prefer \texttt{openclaw cron add/edit} or the cron
+tool call API for changes.
+
+\subsection{Beginner-friendly overview}
+
+
+Think of a cron job as: \textbf{when} to run + \textbf{what} to do.
+
+\begin{enumerate}
+  \item \textbf{Choose a schedule}
+\end{enumerate}
+
+\begin{itemize}
+  \item One-shot reminder → \texttt{schedule.kind = "at"} (CLI: \texttt{--at})
+  \item Repeating job → \texttt{schedule.kind = "every"} or \texttt{schedule.kind = "cron"}
+  \item If your ISO timestamp omits a timezone, it is treated as \textbf{UTC}.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item \textbf{Choose where it runs}
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{sessionTarget: "main"} → run during the next heartbeat with main context.
+  \item \texttt{sessionTarget: "isolated"} → run a dedicated agent turn in \texttt{cron:}.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item \textbf{Choose the payload}
+\end{enumerate}
+
+\begin{itemize}
+  \item Main session → \texttt{payload.kind = "systemEvent"}
+  \item Isolated session → \texttt{payload.kind = "agentTurn"}
+\end{itemize}
+
+
+Optional: one-shot jobs (\texttt{schedule.kind = "at"}) delete after success by default. Set
+\texttt{deleteAfterRun: false} to keep them (they will disable after success).
+
+\subsection{Concepts}
+
+
+\subsubsection{Jobs}
+
+
+A cron job is a stored record with:
+
+\begin{itemize}
+  \item a \textbf{schedule} (when it should run),
+  \item a \textbf{payload} (what it should do),
+  \item optional \textbf{delivery mode} (\texttt{announce}, \texttt{webhook}, or \texttt{none}).
+  \item optional \textbf{agent binding} (\texttt{agentId}): run the job under a specific agent; if
+\end{itemize}
+
+missing or unknown, the gateway falls back to the default agent.
+
+Jobs are identified by a stable \texttt{jobId} (used by CLI/Gateway APIs).
+In agent tool calls, \texttt{jobId} is canonical; legacy \texttt{id} is accepted for compatibility.
+One-shot jobs auto-delete after success by default; set \texttt{deleteAfterRun: false} to keep them.
+
+\subsubsection{Schedules}
+
+
+Cron supports three schedule kinds:
+
+\begin{itemize}
+  \item \texttt{at}: one-shot timestamp via \texttt{schedule.at} (ISO 8601).
+  \item \texttt{every}: fixed interval (ms).
+  \item \texttt{cron}: 5-field cron expression (or 6-field with seconds) with optional IANA timezone.
+\end{itemize}
+
+
+Cron expressions use \texttt{croner}. If a timezone is omitted, the Gateway host’s
+local timezone is used.
+
+To reduce top-of-hour load spikes across many gateways, OpenClaw applies a
+deterministic per-job stagger window of up to 5 minutes for recurring
+top-of-hour expressions (for example \texttt{0 \textit{ } \textit{ }}, \texttt{0 \textit{/2 } \textit{ }}). Fixed-hour
+expressions such as \texttt{0 7 \textit{ } *} remain exact.
+
+For any cron schedule, you can set an explicit stagger window with \texttt{schedule.staggerMs}
+(\texttt{0} keeps exact timing). CLI shortcuts:
+
+\begin{itemize}
+  \item \texttt{--stagger 30s} (or \texttt{1m}, \texttt{5m}) to set an explicit stagger window.
+  \item \texttt{--exact} to force \texttt{staggerMs = 0}.
+\end{itemize}
+
+
+\subsubsection{Main vs isolated execution}
+
+
+\paragraph{Main session jobs (system events)}
+
+
+Main jobs enqueue a system event and optionally wake the heartbeat runner.
+They must use \texttt{payload.kind = "systemEvent"}.
+
+\begin{itemize}
+  \item \texttt{wakeMode: "now"} (default): event triggers an immediate heartbeat run.
+  \item \texttt{wakeMode: "next-heartbeat"}: event waits for the next scheduled heartbeat.
+\end{itemize}
+
+
+This is the best fit when you want the normal heartbeat prompt + main-session context.
+See \href{/gateway/heartbeat}{Heartbeat}.
+
+\paragraph{Isolated jobs (dedicated cron sessions)}
+
+
+Isolated jobs run a dedicated agent turn in session \texttt{cron:}.
+
+Key behaviors:
+
+\begin{itemize}
+  \item Prompt is prefixed with \texttt{[cron: ]} for traceability.
+  \item Each run starts a \textbf{fresh session id} (no prior conversation carry-over).
+  \item Default behavior: if \texttt{delivery} is omitted, isolated jobs announce a summary (\texttt{delivery.mode = "announce"}).
+  \item \texttt{delivery.mode} chooses what happens:
+  \item \texttt{announce}: deliver a summary to the target channel and post a brief summary to the main session.
+  \item \texttt{webhook}: POST the finished event payload to \texttt{delivery.to} when the finished event includes a summary.
+  \item \texttt{none}: internal only (no delivery, no main-session summary).
+  \item \texttt{wakeMode} controls when the main-session summary posts:
+  \item \texttt{now}: immediate heartbeat.
+  \item \texttt{next-heartbeat}: waits for the next scheduled heartbeat.
+\end{itemize}
+
+
+Use isolated jobs for noisy, frequent, or "background chores" that shouldn't spam
+your main chat history.
+
+\subsubsection{Payload shapes (what runs)}
+
+
+Two payload kinds are supported:
+
+\begin{itemize}
+  \item \texttt{systemEvent}: main-session only, routed through the heartbeat prompt.
+  \item \texttt{agentTurn}: isolated-session only, runs a dedicated agent turn.
+\end{itemize}
+
+
+Common \texttt{agentTurn} fields:
+
+\begin{itemize}
+  \item \texttt{message}: required text prompt.
+  \item \texttt{model} / \texttt{thinking}: optional overrides (see below).
+  \item \texttt{timeoutSeconds}: optional timeout override.
+\end{itemize}
+
+
+Delivery config:
+
+\begin{itemize}
+  \item \texttt{delivery.mode}: \texttt{none} | \texttt{announce} | \texttt{webhook}.
+  \item \texttt{delivery.channel}: \texttt{last} or a specific channel.
+  \item \texttt{delivery.to}: channel-specific target (announce) or webhook URL (webhook mode).
+  \item \texttt{delivery.bestEffort}: avoid failing the job if announce delivery fails.
+\end{itemize}
+
+
+Announce delivery suppresses messaging tool sends for the run; use \texttt{delivery.channel}/\texttt{delivery.to}
+to target the chat instead. When \texttt{delivery.mode = "none"}, no summary is posted to the main session.
+
+If \texttt{delivery} is omitted for isolated jobs, OpenClaw defaults to \texttt{announce}.
+
+\paragraph{Announce delivery flow}
+
+
+When \texttt{delivery.mode = "announce"}, cron delivers directly via the outbound channel adapters.
+The main agent is not spun up to craft or forward the message.
+
+Behavior details:
+
+\begin{itemize}
+  \item Content: delivery uses the isolated run's outbound payloads (text/media) with normal chunking and
+\end{itemize}
+
+channel formatting.
+\begin{itemize}
+  \item Heartbeat-only responses (\texttt{HEARTBEAT\_OK} with no real content) are not delivered.
+  \item If the isolated run already sent a message to the same target via the message tool, delivery is
+\end{itemize}
+
+skipped to avoid duplicates.
+\begin{itemize}
+  \item Missing or invalid delivery targets fail the job unless \texttt{delivery.bestEffort = true}.
+  \item A short summary is posted to the main session only when \texttt{delivery.mode = "announce"}.
+  \item The main-session summary respects \texttt{wakeMode}: \texttt{now} triggers an immediate heartbeat and
+\end{itemize}
+
+\texttt{next-heartbeat} waits for the next scheduled heartbeat.
+
+\paragraph{Webhook delivery flow}
+
+
+When \texttt{delivery.mode = "webhook"}, cron posts the finished event payload to \texttt{delivery.to} when the finished event includes a summary.
+
+Behavior details:
+
+\begin{itemize}
+  \item The endpoint must be a valid HTTP(S) URL.
+  \item No channel delivery is attempted in webhook mode.
+  \item No main-session summary is posted in webhook mode.
+  \item If \texttt{cron.webhookToken} is set, auth header is \texttt{Authorization: Bearer }.
+  \item Deprecated fallback: stored legacy jobs with \texttt{notify: true} still post to \texttt{cron.webhook} (if configured), with a warning so you can migrate to \texttt{delivery.mode = "webhook"}.
+\end{itemize}
+
+
+\subsubsection{Model and thinking overrides}
+
+
+Isolated jobs (\texttt{agentTurn}) can override the model and thinking level:
+
+\begin{itemize}
+  \item \texttt{model}: Provider/model string (e.g., \texttt{anthropic/claude-sonnet-4-20250514}) or alias (e.g., \texttt{opus})
+  \item \texttt{thinking}: Thinking level (\texttt{off}, \texttt{minimal}, \texttt{low}, \texttt{medium}, \texttt{high}, \texttt{xhigh}; GPT-5.2 + Codex models only)
+\end{itemize}
+
+
+Note: You can set \texttt{model} on main-session jobs too, but it changes the shared main
+session model. We recommend model overrides only for isolated jobs to avoid
+unexpected context shifts.
+
+Resolution priority:
+
+\begin{enumerate}
+  \item Job payload override (highest)
+  \item Hook-specific defaults (e.g., \texttt{hooks.gmail.model})
+  \item Agent config default
+\end{enumerate}
+
+
+\subsubsection{Delivery (channel + target)}
+
+
+Isolated jobs can deliver output to a channel via the top-level \texttt{delivery} config:
+
+\begin{itemize}
+  \item \texttt{delivery.mode}: \texttt{announce} (channel delivery), \texttt{webhook} (HTTP POST), or \texttt{none}.
+  \item \texttt{delivery.channel}: \texttt{whatsapp} / \texttt{telegram} / \texttt{discord} / \texttt{slack} / \texttt{mattermost} (plugin) / \texttt{signal} / \texttt{imessage} / \texttt{last}.
+  \item \texttt{delivery.to}: channel-specific recipient target.
+\end{itemize}
+
+
+\texttt{announce} delivery is only valid for isolated jobs (\texttt{sessionTarget: "isolated"}).
+\texttt{webhook} delivery is valid for both main and isolated jobs.
+
+If \texttt{delivery.channel} or \texttt{delivery.to} is omitted, cron can fall back to the main session’s
+“last route” (the last place the agent replied).
+
+Target format reminders:
+
+\begin{itemize}
+  \item Slack/Discord/Mattermost (plugin) targets should use explicit prefixes (e.g. \texttt{channel:}, \texttt{user:}) to avoid ambiguity.
+  \item Telegram topics should use the \texttt{:topic:} form (see below).
+\end{itemize}
+
+
+\paragraph{Telegram delivery targets (topics / forum threads)}
+
+
+Telegram supports forum topics via \texttt{message\_thread\_id}. For cron delivery, you can encode
+the topic/thread into the \texttt{to} field:
+
+\begin{itemize}
+  \item \texttt{-1001234567890} (chat id only)
+  \item \texttt{-1001234567890:topic:123} (preferred: explicit topic marker)
+  \item \texttt{-1001234567890:123} (shorthand: numeric suffix)
+\end{itemize}
+
+
+Prefixed targets like \texttt{telegram:...} / \texttt{telegram:group:...} are also accepted:
+
+\begin{itemize}
+  \item \texttt{telegram:group:-1001234567890:topic:123}
+\end{itemize}
+
+
+\subsection{JSON schema for tool calls}
+
+
+Use these shapes when calling Gateway \texttt{cron.*} tools directly (agent tool calls or RPC).
+CLI flags accept human durations like \texttt{20m}, but tool calls should use an ISO 8601 string
+for \texttt{schedule.at} and milliseconds for \texttt{schedule.everyMs}.
+
+\subsubsection{cron.add params}
+
+
+One-shot, main session job (system event):
+
+\begin{lstlisting}[language=json]
+{
+  "name": "Reminder",
+  "schedule": { "kind": "at", "at": "2026-02-01T16:00:00Z" },
+  "sessionTarget": "main",
+  "wakeMode": "now",
+  "payload": { "kind": "systemEvent", "text": "Reminder text" },
+  "deleteAfterRun": true
+}
+\end{lstlisting}
+
+
+Recurring, isolated job with delivery:
+
+\begin{lstlisting}[language=json]
+{
+  "name": "Morning brief",
+  "schedule": { "kind": "cron", "expr": "0 7 * * *", "tz": "America/Los_Angeles" },
+  "sessionTarget": "isolated",
+  "wakeMode": "next-heartbeat",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Summarize overnight updates."
+  },
+  "delivery": {
+    "mode": "announce",
+    "channel": "slack",
+    "to": "channel:C1234567890",
+    "bestEffort": true
+  }
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{schedule.kind}: \texttt{at} (\texttt{at}), \texttt{every} (\texttt{everyMs}), or \texttt{cron} (\texttt{expr}, optional \texttt{tz}).
+  \item \texttt{schedule.at} accepts ISO 8601 (timezone optional; treated as UTC when omitted).
+  \item \texttt{everyMs} is milliseconds.
+  \item \texttt{sessionTarget} must be \texttt{"main"} or \texttt{"isolated"} and must match \texttt{payload.kind}.
+  \item Optional fields: \texttt{agentId}, \texttt{description}, \texttt{enabled}, \texttt{deleteAfterRun} (defaults to true for \texttt{at}),
+\end{itemize}
+
+\texttt{delivery}.
+\begin{itemize}
+  \item \texttt{wakeMode} defaults to \texttt{"now"} when omitted.
+\end{itemize}
+
+
+\subsubsection{cron.update params}
+
+
+\begin{lstlisting}[language=json]
+{
+  "jobId": "job-123",
+  "patch": {
+    "enabled": false,
+    "schedule": { "kind": "every", "everyMs": 3600000 }
+  }
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{jobId} is canonical; \texttt{id} is accepted for compatibility.
+  \item Use \texttt{agentId: null} in the patch to clear an agent binding.
+\end{itemize}
+
+
+\subsubsection{cron.run and cron.remove params}
+
+
+\begin{lstlisting}[language=json]
+{ "jobId": "job-123", "mode": "force" }
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=json]
+{ "jobId": "job-123" }
+\end{lstlisting}
+
+
+\subsection{Storage \& history}
+
+
+\begin{itemize}
+  \item Job store: \texttt{\textasciitilde{}/.openclaw/cron/jobs.json} (Gateway-managed JSON).
+  \item Run history: \texttt{\textasciitilde{}/.openclaw/cron/runs/.jsonl} (JSONL, auto-pruned by size and line count).
+  \item Isolated cron run sessions in \texttt{sessions.json} are pruned by \texttt{cron.sessionRetention} (default \texttt{24h}; set \texttt{false} to disable).
+  \item Override store path: \texttt{cron.store} in config.
+\end{itemize}
+
+
+\subsection{Retry policy}
+
+
+When a job fails, OpenClaw classifies errors as \textbf{transient} (retryable) or \textbf{permanent} (disable immediately).
+
+\subsubsection{Transient errors (retried)}
+
+
+\begin{itemize}
+  \item Rate limit (429, too many requests, resource exhausted)
+  \item Network errors (timeout, ECONNRESET, fetch failed, socket)
+  \item Server errors (5xx)
+  \item Cloudflare-related errors
+\end{itemize}
+
+
+\subsubsection{Permanent errors (no retry)}
+
+
+\begin{itemize}
+  \item Auth failures (invalid API key, unauthorized)
+  \item Config or validation errors
+  \item Other non-transient errors
+\end{itemize}
+
+
+\subsubsection{Default behavior (no config)}
+
+
+\textbf{One-shot jobs (\texttt{schedule.kind: "at"}):}
+
+\begin{itemize}
+  \item On transient error: retry up to 3 times with exponential backoff (30s → 1m → 5m).
+  \item On permanent error: disable immediately.
+  \item On success or skip: disable (or delete if \texttt{deleteAfterRun: true}).
+\end{itemize}
+
+
+\textbf{Recurring jobs (\texttt{cron} / \texttt{every}):}
+
+\begin{itemize}
+  \item On any error: apply exponential backoff (30s → 1m → 5m → 15m → 60m) before the next scheduled run.
+  \item Job stays enabled; backoff resets after the next successful run.
+\end{itemize}
+
+
+Configure \texttt{cron.retry} to override these defaults (see \href{/automation/cron-jobs\#configuration}{Configuration}).
+
+\subsection{Configuration}
+
+
+\begin{lstlisting}[language=json]
+{
+  cron: {
+    enabled: true, // default true
+    store: "~/.openclaw/cron/jobs.json",
+    maxConcurrentRuns: 1, // default 1
+    // Optional: override retry policy for one-shot jobs
+    retry: {
+      maxAttempts: 3,
+      backoffMs: [60000, 120000, 300000],
+      retryOn: ["rate_limit", "network", "server_error"],
+    },
+    webhook: "https://example.invalid/legacy", // deprecated fallback for stored notify:true jobs
+    webhookToken: "replace-with-dedicated-webhook-token", // optional bearer token for webhook mode
+    sessionRetention: "24h", // duration string or false
+    runLog: {
+      maxBytes: "2mb", // default 2_000_000 bytes
+      keepLines: 2000, // default 2000
+    },
+  },
+}
+\end{lstlisting}
+
+
+Run-log pruning behavior:
+
+\begin{itemize}
+  \item \texttt{cron.runLog.maxBytes}: max run-log file size before pruning.
+  \item \texttt{cron.runLog.keepLines}: when pruning, keep only the newest N lines.
+  \item Both apply to \texttt{cron/runs/.jsonl} files.
+\end{itemize}
+
+
+Webhook behavior:
+
+\begin{itemize}
+  \item Preferred: set \texttt{delivery.mode: "webhook"} with \texttt{delivery.to: "https://..."} per job.
+  \item Webhook URLs must be valid \texttt{http://} or \texttt{https://} URLs.
+  \item When posted, payload is the cron finished event JSON.
+  \item If \texttt{cron.webhookToken} is set, auth header is \texttt{Authorization: Bearer }.
+  \item If \texttt{cron.webhookToken} is not set, no \texttt{Authorization} header is sent.
+  \item Deprecated fallback: stored legacy jobs with \texttt{notify: true} still use \texttt{cron.webhook} when present.
+\end{itemize}
+
+
+Disable cron entirely:
+
+\begin{itemize}
+  \item \texttt{cron.enabled: false} (config)
+  \item \texttt{OPENCLAW\_SKIP\_CRON=1} (env)
+\end{itemize}
+
+
+\subsection{Maintenance}
+
+
+Cron has two built-in maintenance paths: isolated run-session retention and run-log pruning.
+
+\subsubsection{Defaults}
+
+
+\begin{itemize}
+  \item \texttt{cron.sessionRetention}: \texttt{24h} (set \texttt{false} to disable run-session pruning)
+  \item \texttt{cron.runLog.maxBytes}: \texttt{2\_000\_000} bytes
+  \item \texttt{cron.runLog.keepLines}: \texttt{2000}
+\end{itemize}
+
+
+\subsubsection{How it works}
+
+
+\begin{itemize}
+  \item Isolated runs create session entries (\texttt{...:cron::run:}) and transcript files.
+  \item The reaper removes expired run-session entries older than \texttt{cron.sessionRetention}.
+  \item For removed run sessions no longer referenced by the session store, OpenClaw archives transcript files and purges old deleted archives on the same retention window.
+  \item After each run append, \texttt{cron/runs/.jsonl} is size-checked:
+  \item if file size exceeds \texttt{runLog.maxBytes}, it is trimmed to the newest \texttt{runLog.keepLines} lines.
+\end{itemize}
+
+
+\subsubsection{Performance caveat for high volume schedulers}
+
+
+High-frequency cron setups can generate large run-session and run-log footprints. Maintenance is built in, but loose limits can still create avoidable IO and cleanup work.
+
+What to watch:
+
+\begin{itemize}
+  \item long \texttt{cron.sessionRetention} windows with many isolated runs
+  \item high \texttt{cron.runLog.keepLines} combined with large \texttt{runLog.maxBytes}
+  \item many noisy recurring jobs writing to the same \texttt{cron/runs/.jsonl}
+\end{itemize}
+
+
+What to do:
+
+\begin{itemize}
+  \item keep \texttt{cron.sessionRetention} as short as your debugging/audit needs allow
+  \item keep run logs bounded with moderate \texttt{runLog.maxBytes} and \texttt{runLog.keepLines}
+  \item move noisy background jobs to isolated mode with delivery rules that avoid unnecessary chatter
+  \item review growth periodically with \texttt{openclaw cron runs} and adjust retention before logs become large
+\end{itemize}
+
+
+\subsubsection{Customize examples}
+
+
+Keep run sessions for a week and allow bigger run logs:
+
+\begin{lstlisting}[language=json]
+{
+  cron: {
+    sessionRetention: "7d",
+    runLog: {
+      maxBytes: "10mb",
+      keepLines: 5000,
+    },
+  },
+}
+\end{lstlisting}
+
+
+Disable isolated run-session pruning but keep run-log pruning:
+
+\begin{lstlisting}[language=json]
+{
+  cron: {
+    sessionRetention: false,
+    runLog: {
+      maxBytes: "5mb",
+      keepLines: 3000,
+    },
+  },
+}
+\end{lstlisting}
+
+
+Tune for high-volume cron usage (example):
+
+\begin{lstlisting}[language=json]
+{
+  cron: {
+    sessionRetention: "12h",
+    runLog: {
+      maxBytes: "3mb",
+      keepLines: 1500,
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{CLI quickstart}
+
+
+One-shot reminder (UTC ISO, auto-delete after success):
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Send reminder" \
+  --at "2026-01-12T18:00:00Z" \
+  --session main \
+  --system-event "Reminder: submit expense report." \
+  --wake now \
+  --delete-after-run
+\end{lstlisting}
+
+
+One-shot reminder (main session, wake immediately):
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Calendar check" \
+  --at "20m" \
+  --session main \
+  --system-event "Next heartbeat: check calendar." \
+  --wake now
+\end{lstlisting}
+
+
+Recurring isolated job (announce to WhatsApp):
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Morning status" \
+  --cron "0 7 * * *" \
+  --tz "America/Los_Angeles" \
+  --session isolated \
+  --message "Summarize inbox + calendar for today." \
+  --announce \
+  --channel whatsapp \
+  --to "+15551234567"
+\end{lstlisting}
+
+
+Recurring cron job with explicit 30-second stagger:
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Minute watcher" \
+  --cron "0 * * * * *" \
+  --tz "UTC" \
+  --stagger 30s \
+  --session isolated \
+  --message "Run minute watcher checks." \
+  --announce
+\end{lstlisting}
+
+
+Recurring isolated job (deliver to a Telegram topic):
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Nightly summary (topic)" \
+  --cron "0 22 * * *" \
+  --tz "America/Los_Angeles" \
+  --session isolated \
+  --message "Summarize today; send to the nightly topic." \
+  --announce \
+  --channel telegram \
+  --to "-1001234567890:topic:123"
+\end{lstlisting}
+
+
+Isolated job with model and thinking override:
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Deep analysis" \
+  --cron "0 6 * * 1" \
+  --tz "America/Los_Angeles" \
+  --session isolated \
+  --message "Weekly deep analysis of project progress." \
+  --model "opus" \
+  --thinking high \
+  --announce \
+  --channel whatsapp \
+  --to "+15551234567"
+\end{lstlisting}
+
+
+Agent selection (multi-agent setups):
+
+\begin{lstlisting}[language=bash]
+# Pin a job to agent "ops" (falls back to default if that agent is missing)
+openclaw cron add --name "Ops sweep" --cron "0 6 * * *" --session isolated --message "Check ops queue" --agent ops
+
+# Switch or clear the agent on an existing job
+openclaw cron edit <jobId> --agent ops
+openclaw cron edit <jobId> --clear-agent
+\end{lstlisting}
+
+
+Manual run (force is the default, use \texttt{--due} to only run when due):
+
+\begin{lstlisting}[language=bash]
+openclaw cron run <jobId>
+openclaw cron run <jobId> --due
+\end{lstlisting}
+
+
+Edit an existing job (patch fields):
+
+\begin{lstlisting}[language=bash]
+openclaw cron edit <jobId> \
+  --message "Updated prompt" \
+  --model "opus" \
+  --thinking low
+\end{lstlisting}
+
+
+Force an existing cron job to run exactly on schedule (no stagger):
+
+\begin{lstlisting}[language=bash]
+openclaw cron edit <jobId> --exact
+\end{lstlisting}
+
+
+Run history:
+
+\begin{lstlisting}[language=bash]
+openclaw cron runs --id <jobId> --limit 50
+\end{lstlisting}
+
+
+Immediate system event without creating a job:
+
+\begin{lstlisting}[language=bash]
+openclaw system event --mode now --text "Next heartbeat: check battery."
+\end{lstlisting}
+
+
+\subsection{Gateway API surface}
+
+
+\begin{itemize}
+  \item \texttt{cron.list}, \texttt{cron.status}, \texttt{cron.add}, \texttt{cron.update}, \texttt{cron.remove}
+  \item \texttt{cron.run} (force or due), \texttt{cron.runs}
+\end{itemize}
+
+For immediate system events without a job, use \href{/cli/system}{\texttt{openclaw system event}}.
+
+\subsection{Troubleshooting}
+
+
+\subsubsection{“Nothing runs”}
+
+
+\begin{itemize}
+  \item Check cron is enabled: \texttt{cron.enabled} and \texttt{OPENCLAW\_SKIP\_CRON}.
+  \item Check the Gateway is running continuously (cron runs inside the Gateway process).
+  \item For \texttt{cron} schedules: confirm timezone (\texttt{--tz}) vs the host timezone.
+\end{itemize}
+
+
+\subsubsection{A recurring job keeps delaying after failures}
+
+
+\begin{itemize}
+  \item OpenClaw applies exponential retry backoff for recurring jobs after consecutive errors:
+\end{itemize}
+
+30s, 1m, 5m, 15m, then 60m between retries.
+\begin{itemize}
+  \item Backoff resets automatically after the next successful run.
+  \item One-shot (\texttt{at}) jobs retry transient errors (rate limit, network, server\_error) up to 3 times with backoff; permanent errors disable immediately. See \href{/automation/cron-jobs\#retry-policy}{Retry policy}.
+\end{itemize}
+
+
+\subsubsection{Telegram delivers to the wrong place}
+
+
+\begin{itemize}
+  \item For forum topics, use \texttt{-100…:topic:} so it’s explicit and unambiguous.
+  \item If you see \texttt{telegram:...} prefixes in logs or stored “last route” targets, that’s normal;
+\end{itemize}
+
+cron delivery accepts them and still parses topic IDs correctly.
+
+\subsubsection{Subagent announce delivery retries}
+
+
+\begin{itemize}
+  \item When a subagent run completes, the gateway announces the result to the requester session.
+  \item If the announce flow returns \texttt{false} (e.g. requester session is busy), the gateway retries up to 3 times with tracking via \texttt{announceRetryCount}.
+  \item Announces older than 5 minutes past \texttt{endedAt} are force-expired to prevent stale entries from looping indefinitely.
+  \item If you see repeated announce deliveries in logs, check the subagent registry for entries with high \texttt{announceRetryCount} values.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: automation/cron-vs-heartbeat.md ===
+\section{Cron vs Heartbeat: When to Use Each}
+
+
+Both heartbeats and cron jobs let you run tasks on a schedule. This guide helps you choose the right mechanism for your use case.
+
+\subsection{Quick Decision Guide}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Use Case & Recommended & Why \\
+\hline
+Check inbox every 30 min & Heartbeat & Batches with other checks, context-aware \\
+\hline
+Send daily report at 9am sharp & Cron (isolated) & Exact timing needed \\
+\hline
+Monitor calendar for upcoming events & Heartbeat & Natural fit for periodic awareness \\
+\hline
+Run weekly deep analysis & Cron (isolated) & Standalone task, can use different model \\
+\hline
+Remind me in 20 minutes & Cron (main, \texttt{--at}) & One-shot with precise timing \\
+\hline
+Background project health check & Heartbeat & Piggybacks on existing cycle \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Heartbeat: Periodic Awareness}
+
+
+Heartbeats run in the \textbf{main session} at a regular interval (default: 30 min). They're designed for the agent to check on things and surface anything important.
+
+\subsubsection{When to use heartbeat}
+
+
+\begin{itemize}
+  \item \textbf{Multiple periodic checks}: Instead of 5 separate cron jobs checking inbox, calendar, weather, notifications, and project status, a single heartbeat can batch all of these.
+  \item \textbf{Context-aware decisions}: The agent has full main-session context, so it can make smart decisions about what's urgent vs. what can wait.
+  \item \textbf{Conversational continuity}: Heartbeat runs share the same session, so the agent remembers recent conversations and can follow up naturally.
+  \item \textbf{Low-overhead monitoring}: One heartbeat replaces many small polling tasks.
+\end{itemize}
+
+
+\subsubsection{Heartbeat advantages}
+
+
+\begin{itemize}
+  \item \textbf{Batches multiple checks}: One agent turn can review inbox, calendar, and notifications together.
+  \item \textbf{Reduces API calls}: A single heartbeat is cheaper than 5 isolated cron jobs.
+  \item \textbf{Context-aware}: The agent knows what you've been working on and can prioritize accordingly.
+  \item \textbf{Smart suppression}: If nothing needs attention, the agent replies \texttt{HEARTBEAT\_OK} and no message is delivered.
+  \item \textbf{Natural timing}: Drifts slightly based on queue load, which is fine for most monitoring.
+\end{itemize}
+
+
+\subsubsection{Heartbeat example: HEARTBEAT.md checklist}
+
+
+\begin{lstlisting}
+# Heartbeat checklist
+
+- Check email for urgent messages
+- Review calendar for events in next 2 hours
+- If a background task finished, summarize results
+- If idle for 8+ hours, send a brief check-in
+\end{lstlisting}
+
+
+The agent reads this on each heartbeat and handles all items in one turn.
+
+\subsubsection{Configuring heartbeat}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      heartbeat: {
+        every: "30m", // interval
+        target: "last", // explicit alert delivery target (default is "none")
+        activeHours: { start: "08:00", end: "22:00" }, // optional
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+See \href{/gateway/heartbeat}{Heartbeat} for full configuration.
+
+\subsection{Cron: Precise Scheduling}
+
+
+Cron jobs run at precise times and can run in isolated sessions without affecting main context.
+Recurring top-of-hour schedules are automatically spread by a deterministic
+per-job offset in a 0-5 minute window.
+
+\subsubsection{When to use cron}
+
+
+\begin{itemize}
+  \item \textbf{Exact timing required}: "Send this at 9:00 AM every Monday" (not "sometime around 9").
+  \item \textbf{Standalone tasks}: Tasks that don't need conversational context.
+  \item \textbf{Different model/thinking}: Heavy analysis that warrants a more powerful model.
+  \item \textbf{One-shot reminders}: "Remind me in 20 minutes" with \texttt{--at}.
+  \item \textbf{Noisy/frequent tasks}: Tasks that would clutter main session history.
+  \item \textbf{External triggers}: Tasks that should run independently of whether the agent is otherwise active.
+\end{itemize}
+
+
+\subsubsection{Cron advantages}
+
+
+\begin{itemize}
+  \item \textbf{Precise timing}: 5-field or 6-field (seconds) cron expressions with timezone support.
+  \item \textbf{Built-in load spreading}: recurring top-of-hour schedules are staggered by up to 5 minutes by default.
+  \item \textbf{Per-job control}: override stagger with \texttt{--stagger } or force exact timing with \texttt{--exact}.
+  \item \textbf{Session isolation}: Runs in \texttt{cron:} without polluting main history.
+  \item \textbf{Model overrides}: Use a cheaper or more powerful model per job.
+  \item \textbf{Delivery control}: Isolated jobs default to \texttt{announce} (summary); choose \texttt{none} as needed.
+  \item \textbf{Immediate delivery}: Announce mode posts directly without waiting for heartbeat.
+  \item \textbf{No agent context needed}: Runs even if main session is idle or compacted.
+  \item \textbf{One-shot support}: \texttt{--at} for precise future timestamps.
+\end{itemize}
+
+
+\subsubsection{Cron example: Daily morning briefing}
+
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Morning briefing" \
+  --cron "0 7 * * *" \
+  --tz "America/New_York" \
+  --session isolated \
+  --message "Generate today's briefing: weather, calendar, top emails, news summary." \
+  --model opus \
+  --announce \
+  --channel whatsapp \
+  --to "+15551234567"
+\end{lstlisting}
+
+
+This runs at exactly 7:00 AM New York time, uses Opus for quality, and announces a summary directly to WhatsApp.
+
+\subsubsection{Cron example: One-shot reminder}
+
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Meeting reminder" \
+  --at "20m" \
+  --session main \
+  --system-event "Reminder: standup meeting starts in 10 minutes." \
+  --wake now \
+  --delete-after-run
+\end{lstlisting}
+
+
+See \href{/automation/cron-jobs}{Cron jobs} for full CLI reference.
+
+\subsection{Decision Flowchart}
+
+
+\begin{lstlisting}
+Does the task need to run at an EXACT time?
+  YES -> Use cron
+  NO  -> Continue...
+
+Does the task need isolation from main session?
+  YES -> Use cron (isolated)
+  NO  -> Continue...
+
+Can this task be batched with other periodic checks?
+  YES -> Use heartbeat (add to HEARTBEAT.md)
+  NO  -> Use cron
+
+Is this a one-shot reminder?
+  YES -> Use cron with --at
+  NO  -> Continue...
+
+Does it need a different model or thinking level?
+  YES -> Use cron (isolated) with --model/--thinking
+  NO  -> Use heartbeat
+\end{lstlisting}
+
+
+\subsection{Combining Both}
+
+
+The most efficient setup uses \textbf{both}:
+
+\begin{enumerate}
+  \item \textbf{Heartbeat} handles routine monitoring (inbox, calendar, notifications) in one batched turn every 30 minutes.
+  \item \textbf{Cron} handles precise schedules (daily reports, weekly reviews) and one-shot reminders.
+\end{enumerate}
+
+
+\subsubsection{Example: Efficient automation setup}
+
+
+\textbf{HEARTBEAT.md} (checked every 30 min):
+
+\begin{lstlisting}
+# Heartbeat checklist
+
+- Scan inbox for urgent emails
+- Check calendar for events in next 2h
+- Review any pending tasks
+- Light check-in if quiet for 8+ hours
+\end{lstlisting}
+
+
+\textbf{Cron jobs} (precise timing):
+
+\begin{lstlisting}[language=bash]
+# Daily morning briefing at 7am
+openclaw cron add --name "Morning brief" --cron "0 7 * * *" --session isolated --message "..." --announce
+
+# Weekly project review on Mondays at 9am
+openclaw cron add --name "Weekly review" --cron "0 9 * * 1" --session isolated --message "..." --model opus
+
+# One-shot reminder
+openclaw cron add --name "Call back" --at "2h" --session main --system-event "Call back the client" --wake now
+\end{lstlisting}
+
+
+\subsection{Lobster: Deterministic workflows with approvals}
+
+
+Lobster is the workflow runtime for \textbf{multi-step tool pipelines} that need deterministic execution and explicit approvals.
+Use it when the task is more than a single agent turn, and you want a resumable workflow with human checkpoints.
+
+\subsubsection{When Lobster fits}
+
+
+\begin{itemize}
+  \item \textbf{Multi-step automation}: You need a fixed pipeline of tool calls, not a one-off prompt.
+  \item \textbf{Approval gates}: Side effects should pause until you approve, then resume.
+  \item \textbf{Resumable runs}: Continue a paused workflow without re-running earlier steps.
+\end{itemize}
+
+
+\subsubsection{How it pairs with heartbeat and cron}
+
+
+\begin{itemize}
+  \item \textbf{Heartbeat/cron} decide \_when\_ a run happens.
+  \item \textbf{Lobster} defines \_what steps\_ happen once the run starts.
+\end{itemize}
+
+
+For scheduled workflows, use cron or heartbeat to trigger an agent turn that calls Lobster.
+For ad-hoc workflows, call Lobster directly.
+
+\subsubsection{Operational notes (from the code)}
+
+
+\begin{itemize}
+  \item Lobster runs as a \textbf{local subprocess} (\texttt{lobster} CLI) in tool mode and returns a \textbf{JSON envelope}.
+  \item If the tool returns \texttt{needs\_approval}, you resume with a \texttt{resumeToken} and \texttt{approve} flag.
+  \item The tool is an \textbf{optional plugin}; enable it additively via \texttt{tools.alsoAllow: ["lobster"]} (recommended).
+  \item Lobster expects the \texttt{lobster} CLI to be available on \texttt{PATH}.
+\end{itemize}
+
+
+See \href{/tools/lobster}{Lobster} for full usage and examples.
+
+\subsection{Main Session vs Isolated Session}
+
+
+Both heartbeat and cron can interact with the main session, but differently:
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|}
+\hline
+ & Heartbeat & Cron (main) & Cron (isolated) \\
+\hline
+Session & Main & Main (via system event) & \texttt{cron:} \\
+\hline
+History & Shared & Shared & Fresh each run \\
+\hline
+Context & Full & Full & None (starts clean) \\
+\hline
+Model & Main session model & Main session model & Can override \\
+\hline
+Output & Delivered if not \texttt{HEARTBEAT\_OK} & Heartbeat prompt + event & Announce summary (default) \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsubsection{When to use main session cron}
+
+
+Use \texttt{--session main} with \texttt{--system-event} when you want:
+
+\begin{itemize}
+  \item The reminder/event to appear in main session context
+  \item The agent to handle it during the next heartbeat with full context
+  \item No separate isolated run
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Check project" \
+  --every "4h" \
+  --session main \
+  --system-event "Time for a project health check" \
+  --wake now
+\end{lstlisting}
+
+
+\subsubsection{When to use isolated cron}
+
+
+Use \texttt{--session isolated} when you want:
+
+\begin{itemize}
+  \item A clean slate without prior context
+  \item Different model or thinking settings
+  \item Announce summaries directly to a channel
+  \item History that doesn't clutter main session
+\end{itemize}
+
+
+\begin{lstlisting}[language=bash]
+openclaw cron add \
+  --name "Deep analysis" \
+  --cron "0 6 * * 0" \
+  --session isolated \
+  --message "Weekly codebase analysis..." \
+  --model opus \
+  --thinking high \
+  --announce
+\end{lstlisting}
+
+
+\subsection{Cost Considerations}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Mechanism & Cost Profile \\
+\hline
+Heartbeat & One turn every N minutes; scales with HEARTBEAT.md size \\
+\hline
+Cron (main) & Adds event to next heartbeat (no isolated turn) \\
+\hline
+Cron (isolated) & Full agent turn per job; can use cheaper model \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\textbf{Tips}:
+
+\begin{itemize}
+  \item Keep \texttt{HEARTBEAT.md} small to minimize token overhead.
+  \item Batch similar checks into heartbeat instead of multiple cron jobs.
+  \item Use \texttt{target: "none"} on heartbeat if you only want internal processing.
+  \item Use isolated cron with a cheaper model for routine tasks.
+\end{itemize}
+
+
+\subsection{Related}
+
+
+\begin{itemize}
+  \item \href{/gateway/heartbeat}{Heartbeat} - full heartbeat configuration
+  \item \href{/automation/cron-jobs}{Cron jobs} - full cron CLI and API reference
+  \item \href{/cli/system}{System} - system events + heartbeat controls
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: automation/gmail-pubsub.md ===
+\section{Gmail Pub/Sub -> OpenClaw}
+
+
+Goal: Gmail watch -> Pub/Sub push -> \texttt{gog gmail watch serve} -> OpenClaw webhook.
+
+\subsection{Prereqs}
+
+
+\begin{itemize}
+  \item \texttt{gcloud} installed and logged in (\href{https://docs.cloud.google.com/sdk/docs/install-sdk}{install guide}).
+  \item \texttt{gog} (gogcli) installed and authorized for the Gmail account (\href{https://gogcli.sh/}{gogcli.sh}).
+  \item OpenClaw hooks enabled (see \href{/automation/webhook}{Webhooks}).
+  \item \texttt{tailscale} logged in (\href{https://tailscale.com/}{tailscale.com}). Supported setup uses Tailscale Funnel for the public HTTPS endpoint.
+\end{itemize}
+
+Other tunnel services can work, but are DIY/unsupported and require manual wiring.
+Right now, Tailscale is what we support.
+
+Example hook config (enable Gmail preset mapping):
+
+\begin{lstlisting}[language=json]
+{
+  hooks: {
+    enabled: true,
+    token: "OPENCLAW_HOOK_TOKEN",
+    path: "/hooks",
+    presets: ["gmail"],
+  },
+}
+\end{lstlisting}
+
+
+To deliver the Gmail summary to a chat surface, override the preset with a mapping
+that sets \texttt{deliver} + optional \texttt{channel}/\texttt{to}:
+
+\begin{lstlisting}[language=json]
+{
+  hooks: {
+    enabled: true,
+    token: "OPENCLAW_HOOK_TOKEN",
+    presets: ["gmail"],
+    mappings: [
+      {
+        match: { path: "gmail" },
+        action: "agent",
+        wakeMode: "now",
+        name: "Gmail",
+        sessionKey: "hook:gmail:{{messages[0].id}}",
+        messageTemplate: "New email from {{messages[0].from}}\nSubject: {{messages[0].subject}}\n{{messages[0].snippet}}\n{{messages[0].body}}",
+        model: "openai/gpt-5.2-mini",
+        deliver: true,
+        channel: "last",
+        // to: "+15551234567"
+      },
+    ],
+  },
+}
+\end{lstlisting}
+
+
+If you want a fixed channel, set \texttt{channel} + \texttt{to}. Otherwise \texttt{channel: "last"}
+uses the last delivery route (falls back to WhatsApp).
+
+To force a cheaper model for Gmail runs, set \texttt{model} in the mapping
+(\texttt{provider/model} or alias). If you enforce \texttt{agents.defaults.models}, include it there.
+
+To set a default model and thinking level specifically for Gmail hooks, add
+\texttt{hooks.gmail.model} / \texttt{hooks.gmail.thinking} in your config:
+
+\begin{lstlisting}[language=json]
+{
+  hooks: {
+    gmail: {
+      model: "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+      thinking: "off",
+    },
+  },
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Per-hook \texttt{model}/\texttt{thinking} in the mapping still overrides these defaults.
+  \item Fallback order: \texttt{hooks.gmail.model} → \texttt{agents.defaults.model.fallbacks} → primary (auth/rate-limit/timeouts).
+  \item If \texttt{agents.defaults.models} is set, the Gmail model must be in the allowlist.
+  \item Gmail hook content is wrapped with external-content safety boundaries by default.
+\end{itemize}
+
+To disable (dangerous), set \texttt{hooks.gmail.allowUnsafeExternalContent: true}.
+
+To customize payload handling further, add \texttt{hooks.mappings} or a JS/TS transform module
+under \texttt{\textasciitilde{}/.openclaw/hooks/transforms} (see \href{/automation/webhook}{Webhooks}).
+
+\subsection{Wizard (recommended)}
+
+
+Use the OpenClaw helper to wire everything together (installs deps on macOS via brew):
+
+\begin{lstlisting}[language=bash]
+openclaw webhooks gmail setup \
+  --account openclaw@gmail.com
+\end{lstlisting}
+
+
+Defaults:
+
+\begin{itemize}
+  \item Uses Tailscale Funnel for the public push endpoint.
+  \item Writes \texttt{hooks.gmail} config for \texttt{openclaw webhooks gmail run}.
+  \item Enables the Gmail hook preset (\texttt{hooks.presets: ["gmail"]}).
+\end{itemize}
+
+
+Path note: when \texttt{tailscale.mode} is enabled, OpenClaw automatically sets
+\texttt{hooks.gmail.serve.path} to \texttt{/} and keeps the public path at
+\texttt{hooks.gmail.tailscale.path} (default \texttt{/gmail-pubsub}) because Tailscale
+strips the set-path prefix before proxying.
+If you need the backend to receive the prefixed path, set
+\texttt{hooks.gmail.tailscale.target} (or \texttt{--tailscale-target}) to a full URL like
+\texttt{http://127.0.0.1:8788/gmail-pubsub} and match \texttt{hooks.gmail.serve.path}.
+
+Want a custom endpoint? Use \texttt{--push-endpoint } or \texttt{--tailscale off}.
+
+Platform note: on macOS the wizard installs \texttt{gcloud}, \texttt{gogcli}, and \texttt{tailscale}
+via Homebrew; on Linux install them manually first.
+
+Gateway auto-start (recommended):
+
+\begin{itemize}
+  \item When \texttt{hooks.enabled=true} and \texttt{hooks.gmail.account} is set, the Gateway starts
+\end{itemize}
+
+\texttt{gog gmail watch serve} on boot and auto-renews the watch.
+\begin{itemize}
+  \item Set \texttt{OPENCLAW\_SKIP\_GMAIL\_WATCHER=1} to opt out (useful if you run the daemon yourself).
+  \item Do not run the manual daemon at the same time, or you will hit
+\end{itemize}
+
+\texttt{listen tcp 127.0.0.1:8788: bind: address already in use}.
+
+Manual daemon (starts \texttt{gog gmail watch serve} + auto-renew):
+
+\begin{lstlisting}[language=bash]
+openclaw webhooks gmail run
+\end{lstlisting}
+
+
+\subsection{One-time setup}
+
+
+\begin{enumerate}
+  \item Select the GCP project \textbf{that owns the OAuth client} used by \texttt{gog}.
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+gcloud auth login
+gcloud config set project <project-id>
+\end{lstlisting}
+
+
+Note: Gmail watch requires the Pub/Sub topic to live in the same project as the OAuth client.
+
+\begin{enumerate}
+  \item Enable APIs:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+gcloud services enable gmail.googleapis.com pubsub.googleapis.com
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Create a topic:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+gcloud pubsub topics create gog-gmail-watch
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Allow Gmail push to publish:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+gcloud pubsub topics add-iam-policy-binding gog-gmail-watch \
+  --member=serviceAccount:gmail-api-push@system.gserviceaccount.com \
+  --role=roles/pubsub.publisher
+\end{lstlisting}
+
+
+\subsection{Start the watch}
+
+
+\begin{lstlisting}[language=bash]
+gog gmail watch start \
+  --account openclaw@gmail.com \
+  --label INBOX \
+  --topic projects/<project-id>/topics/gog-gmail-watch
+\end{lstlisting}
+
+
+Save the \texttt{history\_id} from the output (for debugging).
+
+\subsection{Run the push handler}
+
+
+Local example (shared token auth):
+
+\begin{lstlisting}[language=bash]
+gog gmail watch serve \
+  --account openclaw@gmail.com \
+  --bind 127.0.0.1 \
+  --port 8788 \
+  --path /gmail-pubsub \
+  --token <shared> \
+  --hook-url http://127.0.0.1:18789/hooks/gmail \
+  --hook-token OPENCLAW_HOOK_TOKEN \
+  --include-body \
+  --max-bytes 20000
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{--token} protects the push endpoint (\texttt{x-gog-token} or \texttt{?token=}).
+  \item \texttt{--hook-url} points to OpenClaw \texttt{/hooks/gmail} (mapped; isolated run + summary to main).
+  \item \texttt{--include-body} and \texttt{--max-bytes} control the body snippet sent to OpenClaw.
+\end{itemize}
+
+
+Recommended: \texttt{openclaw webhooks gmail run} wraps the same flow and auto-renews the watch.
+
+\subsection{Expose the handler (advanced, unsupported)}
+
+
+If you need a non-Tailscale tunnel, wire it manually and use the public URL in the push
+subscription (unsupported, no guardrails):
+
+\begin{lstlisting}[language=bash]
+cloudflared tunnel --url http://127.0.0.1:8788 --no-autoupdate
+\end{lstlisting}
+
+
+Use the generated URL as the push endpoint:
+
+\begin{lstlisting}[language=bash]
+gcloud pubsub subscriptions create gog-gmail-watch-push \
+  --topic gog-gmail-watch \
+  --push-endpoint "https://<public-url>/gmail-pubsub?token=<shared>"
+\end{lstlisting}
+
+
+Production: use a stable HTTPS endpoint and configure Pub/Sub OIDC JWT, then run:
+
+\begin{lstlisting}[language=bash]
+gog gmail watch serve --verify-oidc --oidc-email <svc@...>
+\end{lstlisting}
+
+
+\subsection{Test}
+
+
+Send a message to the watched inbox:
+
+\begin{lstlisting}[language=bash]
+gog gmail send \
+  --account openclaw@gmail.com \
+  --to openclaw@gmail.com \
+  --subject "watch test" \
+  --body "ping"
+\end{lstlisting}
+
+
+Check watch state and history:
+
+\begin{lstlisting}[language=bash]
+gog gmail watch status --account openclaw@gmail.com
+gog gmail history --account openclaw@gmail.com --since <historyId>
+\end{lstlisting}
+
+
+\subsection{Troubleshooting}
+
+
+\begin{itemize}
+  \item \texttt{Invalid topicName}: project mismatch (topic not in the OAuth client project).
+  \item \texttt{User not authorized}: missing \texttt{roles/pubsub.publisher} on the topic.
+  \item Empty messages: Gmail push only provides \texttt{historyId}; fetch via \texttt{gog gmail history}.
+\end{itemize}
+
+
+\subsection{Cleanup}
+
+
+\begin{lstlisting}[language=bash]
+gog gmail watch stop --account openclaw@gmail.com
+gcloud pubsub subscriptions delete gog-gmail-watch-push
+gcloud pubsub topics delete gog-gmail-watch
+\end{lstlisting}
+
+
+
+\clearpage
+
+% === Source file: automation/hooks.md ===
+\section{Hooks}
+
+
+Hooks provide an extensible event-driven system for automating actions in response to agent commands and events. Hooks are automatically discovered from directories and can be managed via CLI commands, similar to how skills work in OpenClaw.
+
+\subsection{Getting Oriented}
+
+
+Hooks are small scripts that run when something happens. There are two kinds:
+
+\begin{itemize}
+  \item \textbf{Hooks} (this page): run inside the Gateway when agent events fire, like \texttt{/new}, \texttt{/reset}, \texttt{/stop}, or lifecycle events.
+  \item \textbf{Webhooks}: external HTTP webhooks that let other systems trigger work in OpenClaw. See \href{/automation/webhook}{Webhook Hooks} or use \texttt{openclaw webhooks} for Gmail helper commands.
+\end{itemize}
+
+
+Hooks can also be bundled inside plugins; see \href{/tools/plugin\#plugin-hooks}{Plugins}.
+
+Common uses:
+
+\begin{itemize}
+  \item Save a memory snapshot when you reset a session
+  \item Keep an audit trail of commands for troubleshooting or compliance
+  \item Trigger follow-up automation when a session starts or ends
+  \item Write files into the agent workspace or call external APIs when events fire
+\end{itemize}
+
+
+If you can write a small TypeScript function, you can write a hook. Hooks are discovered automatically, and you enable or disable them via the CLI.
+
+\subsection{Overview}
+
+
+The hooks system allows you to:
+
+\begin{itemize}
+  \item Save session context to memory when \texttt{/new} is issued
+  \item Log all commands for auditing
+  \item Trigger custom automations on agent lifecycle events
+  \item Extend OpenClaw's behavior without modifying core code
+\end{itemize}
+
+
+\subsection{Getting Started}
+
+
+\subsubsection{Bundled Hooks}
+
+
+OpenClaw ships with four bundled hooks that are automatically discovered:
+
+\begin{itemize}
+  \item \textbf{💾 session-memory}: Saves session context to your agent workspace (default \texttt{\textasciitilde{}/.openclaw/workspace/memory/}) when you issue \texttt{/new}
+  \item \textbf{📎 bootstrap-extra-files}: Injects additional workspace bootstrap files from configured glob/path patterns during \texttt{agent:bootstrap}
+  \item \textbf{📝 command-logger}: Logs all command events to \texttt{\textasciitilde{}/.openclaw/logs/commands.log}
+  \item \textbf{🚀 boot-md}: Runs \texttt{BOOT.md} when the gateway starts (requires internal hooks enabled)
+\end{itemize}
+
+
+List available hooks:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks list
+\end{lstlisting}
+
+
+Enable a hook:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable session-memory
+\end{lstlisting}
+
+
+Check hook status:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks check
+\end{lstlisting}
+
+
+Get detailed information:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks info session-memory
+\end{lstlisting}
+
+
+\subsubsection{Onboarding}
+
+
+During onboarding (\texttt{openclaw onboard}), you'll be prompted to enable recommended hooks. The wizard automatically discovers eligible hooks and presents them for selection.
+
+\subsection{Hook Discovery}
+
+
+Hooks are automatically discovered from three directories (in order of precedence):
+
+\begin{enumerate}
+  \item \textbf{Workspace hooks}: \texttt{/hooks/} (per-agent, highest precedence)
+  \item \textbf{Managed hooks}: \texttt{\textasciitilde{}/.openclaw/hooks/} (user-installed, shared across workspaces)
+  \item \textbf{Bundled hooks}: \texttt{/dist/hooks/bundled/} (shipped with OpenClaw)
+\end{enumerate}
+
+
+Managed hook directories can be either a \textbf{single hook} or a \textbf{hook pack} (package directory).
+
+Each hook is a directory containing:
+
+\begin{lstlisting}
+my-hook/
+├── HOOK.md          # Metadata + documentation
+└── handler.ts       # Handler implementation
+\end{lstlisting}
+
+
+\subsection{Hook Packs (npm/archives)}
+
+
+Hook packs are standard npm packages that export one or more hooks via \texttt{openclaw.hooks} in
+\texttt{package.json}. Install them with:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks install <path-or-spec>
+\end{lstlisting}
+
+
+Npm specs are registry-only (package name + optional version/tag). Git/URL/file specs are rejected.
+
+Example \texttt{package.json}:
+
+\begin{lstlisting}[language=json]
+{
+  "name": "@acme/my-hooks",
+  "version": "0.1.0",
+  "openclaw": {
+    "hooks": ["./hooks/my-hook", "./hooks/other-hook"]
+  }
+}
+\end{lstlisting}
+
+
+Each entry points to a hook directory containing \texttt{HOOK.md} and \texttt{handler.ts} (or \texttt{index.ts}).
+Hook packs can ship dependencies; they will be installed under \texttt{\textasciitilde{}/.openclaw/hooks/}.
+Each \texttt{openclaw.hooks} entry must stay inside the package directory after symlink
+resolution; entries that escape are rejected.
+
+Security note: \texttt{openclaw hooks install} installs dependencies with \texttt{npm install --ignore-scripts}
+(no lifecycle scripts). Keep hook pack dependency trees "pure JS/TS" and avoid packages that rely
+on \texttt{postinstall} builds.
+
+\subsection{Hook Structure}
+
+
+\subsubsection{HOOK.md Format}
+
+
+The \texttt{HOOK.md} file contains metadata in YAML frontmatter plus Markdown documentation:
+
+\begin{lstlisting}
+---
+name: my-hook
+description: "Short description of what this hook does"
+homepage: https://docs.openclaw.ai/automation/hooks#my-hook
+metadata:
+  { "openclaw": { "emoji": "🔗", "events": ["command:new"], "requires": { "bins": ["node"] } } }
+---
+
+# My Hook
+
+Detailed documentation goes here...
+
+## What It Does
+
+- Listens for `/new` commands
+- Performs some action
+- Logs the result
+
+## Requirements
+
+- Node.js must be installed
+
+## Configuration
+
+No configuration needed.
+\end{lstlisting}
+
+
+\subsubsection{Metadata Fields}
+
+
+The \texttt{metadata.openclaw} object supports:
+
+\begin{itemize}
+  \item \textbf{\texttt{emoji}}: Display emoji for CLI (e.g., \texttt{"💾"})
+  \item \textbf{\texttt{events}}: Array of events to listen for (e.g., \texttt{["command:new", "command:reset"]})
+  \item \textbf{\texttt{export}}: Named export to use (defaults to \texttt{"default"})
+  \item \textbf{\texttt{homepage}}: Documentation URL
+  \item \textbf{\texttt{requires}}: Optional requirements
+  \item \textbf{\texttt{bins}}: Required binaries on PATH (e.g., \texttt{["git", "node"]})
+  \item \textbf{\texttt{anyBins}}: At least one of these binaries must be present
+  \item \textbf{\texttt{env}}: Required environment variables
+  \item \textbf{\texttt{config}}: Required config paths (e.g., \texttt{["workspace.dir"]})
+  \item \textbf{\texttt{os}}: Required platforms (e.g., \texttt{["darwin", "linux"]})
+  \item \textbf{\texttt{always}}: Bypass eligibility checks (boolean)
+  \item \textbf{\texttt{install}}: Installation methods (for bundled hooks: \texttt{[\{"id":"bundled","kind":"bundled"\}]})
+\end{itemize}
+
+
+\subsubsection{Handler Implementation}
+
+
+The \texttt{handler.ts} file exports a \texttt{HookHandler} function:
+
+\begin{lstlisting}[language=typescript]
+const myHandler = async (event) => {
+  // Only trigger on 'new' command
+  if (event.type !== "command" || event.action !== "new") {
+    return;
+  }
+
+  console.log(`[my-hook] New command triggered`);
+  console.log(`  Session: ${event.sessionKey}`);
+  console.log(`  Timestamp: ${event.timestamp.toISOString()}`);
+
+  // Your custom logic here
+
+  // Optionally send message to user
+  event.messages.push("✨ My hook executed!");
+};
+
+export default myHandler;
+\end{lstlisting}
+
+
+\paragraph{Event Context}
+
+
+Each event includes:
+
+\begin{lstlisting}[language=typescript]
+{
+  type: 'command' | 'session' | 'agent' | 'gateway' | 'message',
+  action: string,              // e.g., 'new', 'reset', 'stop', 'received', 'sent'
+  sessionKey: string,          // Session identifier
+  timestamp: Date,             // When the event occurred
+  messages: string[],          // Push messages here to send to user
+  context: {
+    // Command events:
+    sessionEntry?: SessionEntry,
+    sessionId?: string,
+    sessionFile?: string,
+    commandSource?: string,    // e.g., 'whatsapp', 'telegram'
+    senderId?: string,
+    workspaceDir?: string,
+    bootstrapFiles?: WorkspaceBootstrapFile[],
+    cfg?: OpenClawConfig,
+    // Message events (see Message Events section for full details):
+    from?: string,             // message:received
+    to?: string,               // message:sent
+    content?: string,
+    channelId?: string,
+    success?: boolean,         // message:sent
+  }
+}
+\end{lstlisting}
+
+
+\subsection{Event Types}
+
+
+\subsubsection{Command Events}
+
+
+Triggered when agent commands are issued:
+
+\begin{itemize}
+  \item \textbf{\texttt{command}}: All command events (general listener)
+  \item \textbf{\texttt{command:new}}: When \texttt{/new} command is issued
+  \item \textbf{\texttt{command:reset}}: When \texttt{/reset} command is issued
+  \item \textbf{\texttt{command:stop}}: When \texttt{/stop} command is issued
+\end{itemize}
+
+
+\subsubsection{Agent Events}
+
+
+\begin{itemize}
+  \item \textbf{\texttt{agent:bootstrap}}: Before workspace bootstrap files are injected (hooks may mutate \texttt{context.bootstrapFiles})
+\end{itemize}
+
+
+\subsubsection{Gateway Events}
+
+
+Triggered when the gateway starts:
+
+\begin{itemize}
+  \item \textbf{\texttt{gateway:startup}}: After channels start and hooks are loaded
+\end{itemize}
+
+
+\subsubsection{Message Events}
+
+
+Triggered when messages are received or sent:
+
+\begin{itemize}
+  \item \textbf{\texttt{message}}: All message events (general listener)
+  \item \textbf{\texttt{message:received}}: When an inbound message is received from any channel. Fires early in processing before media understanding. Content may contain raw placeholders like `` for media attachments that haven't been processed yet.
+  \item \textbf{\texttt{message:transcribed}}: When a message has been fully processed, including audio transcription and link understanding. At this point, \texttt{transcript} contains the full transcript text for audio messages. Use this hook when you need access to transcribed audio content.
+  \item \textbf{\texttt{message:preprocessed}}: Fires for every message after all media + link understanding completes, giving hooks access to the fully enriched body (transcripts, image descriptions, link summaries) before the agent sees it.
+  \item \textbf{\texttt{message:sent}}: When an outbound message is successfully sent
+\end{itemize}
+
+
+\paragraph{Message Event Context}
+
+
+Message events include rich context about the message:
+
+\begin{lstlisting}[language=typescript]
+// message:received context
+{
+  from: string,           // Sender identifier (phone number, user ID, etc.)
+  content: string,        // Message content
+  timestamp?: number,     // Unix timestamp when received
+  channelId: string,      // Channel (e.g., "whatsapp", "telegram", "discord")
+  accountId?: string,     // Provider account ID for multi-account setups
+  conversationId?: string, // Chat/conversation ID
+  messageId?: string,     // Message ID from the provider
+  metadata?: {            // Additional provider-specific data
+    to?: string,
+    provider?: string,
+    surface?: string,
+    threadId?: string,
+    senderId?: string,
+    senderName?: string,
+    senderUsername?: string,
+    senderE164?: string,
+  }
+}
+
+// message:sent context
+{
+  to: string,             // Recipient identifier
+  content: string,        // Message content that was sent
+  success: boolean,       // Whether the send succeeded
+  error?: string,         // Error message if sending failed
+  channelId: string,      // Channel (e.g., "whatsapp", "telegram", "discord")
+  accountId?: string,     // Provider account ID
+  conversationId?: string, // Chat/conversation ID
+  messageId?: string,     // Message ID returned by the provider
+  isGroup?: boolean,      // Whether this outbound message belongs to a group/channel context
+  groupId?: string,       // Group/channel identifier for correlation with message:received
+}
+
+// message:transcribed context
+{
+  body?: string,          // Raw inbound body before enrichment
+  bodyForAgent?: string,  // Enriched body visible to the agent
+  transcript: string,     // Audio transcript text
+  channelId: string,      // Channel (e.g., "telegram", "whatsapp")
+  conversationId?: string,
+  messageId?: string,
+}
+
+// message:preprocessed context
+{
+  body?: string,          // Raw inbound body
+  bodyForAgent?: string,  // Final enriched body after media/link understanding
+  transcript?: string,    // Transcript when audio was present
+  channelId: string,      // Channel (e.g., "telegram", "whatsapp")
+  conversationId?: string,
+  messageId?: string,
+  isGroup?: boolean,
+  groupId?: string,
+}
+\end{lstlisting}
+
+
+\paragraph{Example: Message Logger Hook}
+
+
+\begin{lstlisting}[language=typescript]
+const isMessageReceivedEvent = (event: { type: string; action: string }) =>
+  event.type === "message" && event.action === "received";
+const isMessageSentEvent = (event: { type: string; action: string }) =>
+  event.type === "message" && event.action === "sent";
+
+const handler = async (event) => {
+  if (isMessageReceivedEvent(event as { type: string; action: string })) {
+    console.log(`[message-logger] Received from ${event.context.from}: ${event.context.content}`);
+  } else if (isMessageSentEvent(event as { type: string; action: string })) {
+    console.log(`[message-logger] Sent to ${event.context.to}: ${event.context.content}`);
+  }
+};
+
+export default handler;
+\end{lstlisting}
+
+
+\subsubsection{Tool Result Hooks (Plugin API)}
+
+
+These hooks are not event-stream listeners; they let plugins synchronously adjust tool results before OpenClaw persists them.
+
+\begin{itemize}
+  \item \textbf{\texttt{tool\_result\_persist}}: transform tool results before they are written to the session transcript. Must be synchronous; return the updated tool result payload or \texttt{undefined} to keep it as-is. See \href{/concepts/agent-loop}{Agent Loop}.
+\end{itemize}
+
+
+\subsubsection{Future Events}
+
+
+Planned event types:
+
+\begin{itemize}
+  \item \textbf{\texttt{session:start}}: When a new session begins
+  \item \textbf{\texttt{session:end}}: When a session ends
+  \item \textbf{\texttt{agent:error}}: When an agent encounters an error
+\end{itemize}
+
+
+\subsection{Creating Custom Hooks}
+
+
+\subsubsection{1. Choose Location}
+
+
+\begin{itemize}
+  \item \textbf{Workspace hooks} (\texttt{/hooks/}): Per-agent, highest precedence
+  \item \textbf{Managed hooks} (\texttt{\textasciitilde{}/.openclaw/hooks/}): Shared across workspaces
+\end{itemize}
+
+
+\subsubsection{2. Create Directory Structure}
+
+
+\begin{lstlisting}[language=bash]
+mkdir -p ~/.openclaw/hooks/my-hook
+cd ~/.openclaw/hooks/my-hook
+\end{lstlisting}
+
+
+\subsubsection{3. Create HOOK.md}
+
+
+\begin{lstlisting}
+---
+name: my-hook
+description: "Does something useful"
+metadata: { "openclaw": { "emoji": "🎯", "events": ["command:new"] } }
+---
+
+# My Custom Hook
+
+This hook does something useful when you issue `/new`.
+\end{lstlisting}
+
+
+\subsubsection{4. Create handler.ts}
+
+
+\begin{lstlisting}[language=typescript]
+const handler = async (event) => {
+  if (event.type !== "command" || event.action !== "new") {
+    return;
+  }
+
+  console.log("[my-hook] Running!");
+  // Your logic here
+};
+
+export default handler;
+\end{lstlisting}
+
+
+\subsubsection{5. Enable and Test}
+
+
+\begin{lstlisting}[language=bash]
+# Verify hook is discovered
+openclaw hooks list
+
+# Enable it
+openclaw hooks enable my-hook
+
+# Restart your gateway process (menu bar app restart on macOS, or restart your dev process)
+
+# Trigger the event
+# Send /new via your messaging channel
+\end{lstlisting}
+
+
+\subsection{Configuration}
+
+
+\subsubsection{New Config Format (Recommended)}
+
+
+\begin{lstlisting}[language=json]
+{
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "session-memory": { "enabled": true },
+        "command-logger": { "enabled": false }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\subsubsection{Per-Hook Configuration}
+
+
+Hooks can have custom configuration:
+
+\begin{lstlisting}[language=json]
+{
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "my-hook": {
+          "enabled": true,
+          "env": {
+            "MY_CUSTOM_VAR": "value"
+          }
+        }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\subsubsection{Extra Directories}
+
+
+Load hooks from additional directories:
+
+\begin{lstlisting}[language=json]
+{
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "load": {
+        "extraDirs": ["/path/to/more/hooks"]
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\subsubsection{Legacy Config Format (Still Supported)}
+
+
+The old config format still works for backwards compatibility:
+
+\begin{lstlisting}[language=json]
+{
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "handlers": [
+        {
+          "event": "command:new",
+          "module": "./hooks/handlers/my-handler.ts",
+          "export": "default"
+        }
+      ]
+    }
+  }
+}
+\end{lstlisting}
+
+
+Note: \texttt{module} must be a workspace-relative path. Absolute paths and traversal outside the workspace are rejected.
+
+\textbf{Migration}: Use the new discovery-based system for new hooks. Legacy handlers are loaded after directory-based hooks.
+
+\subsection{CLI Commands}
+
+
+\subsubsection{List Hooks}
+
+
+\begin{lstlisting}[language=bash]
+# List all hooks
+openclaw hooks list
+
+# Show only eligible hooks
+openclaw hooks list --eligible
+
+# Verbose output (show missing requirements)
+openclaw hooks list --verbose
+
+# JSON output
+openclaw hooks list --json
+\end{lstlisting}
+
+
+\subsubsection{Hook Information}
+
+
+\begin{lstlisting}[language=bash]
+# Show detailed info about a hook
+openclaw hooks info session-memory
+
+# JSON output
+openclaw hooks info session-memory --json
+\end{lstlisting}
+
+
+\subsubsection{Check Eligibility}
+
+
+\begin{lstlisting}[language=bash]
+# Show eligibility summary
+openclaw hooks check
+
+# JSON output
+openclaw hooks check --json
+\end{lstlisting}
+
+
+\subsubsection{Enable/Disable}
+
+
+\begin{lstlisting}[language=bash]
+# Enable a hook
+openclaw hooks enable session-memory
+
+# Disable a hook
+openclaw hooks disable command-logger
+\end{lstlisting}
+
+
+\subsection{Bundled hook reference}
+
+
+\subsubsection{session-memory}
+
+
+Saves session context to memory when you issue \texttt{/new}.
+
+\textbf{Events}: \texttt{command:new}
+
+\textbf{Requirements}: \texttt{workspace.dir} must be configured
+
+\textbf{Output}: \texttt{/memory/YYYY-MM-DD-slug.md} (defaults to \texttt{\textasciitilde{}/.openclaw/workspace})
+
+\textbf{What it does}:
+
+\begin{enumerate}
+  \item Uses the pre-reset session entry to locate the correct transcript
+  \item Extracts the last 15 lines of conversation
+  \item Uses LLM to generate a descriptive filename slug
+  \item Saves session metadata to a dated memory file
+\end{enumerate}
+
+
+\textbf{Example output}:
+
+\begin{lstlisting}
+# Session: 2026-01-16 14:30:00 UTC
+
+- **Session Key**: agent:main:main
+- **Session ID**: abc123def456
+- **Source**: telegram
+\end{lstlisting}
+
+
+\textbf{Filename examples}:
+
+\begin{itemize}
+  \item \texttt{2026-01-16-vendor-pitch.md}
+  \item \texttt{2026-01-16-api-design.md}
+  \item \texttt{2026-01-16-1430.md} (fallback timestamp if slug generation fails)
+\end{itemize}
+
+
+\textbf{Enable}:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable session-memory
+\end{lstlisting}
+
+
+\subsubsection{bootstrap-extra-files}
+
+
+Injects additional bootstrap files (for example monorepo-local \texttt{AGENTS.md} / \texttt{TOOLS.md}) during \texttt{agent:bootstrap}.
+
+\textbf{Events}: \texttt{agent:bootstrap}
+
+\textbf{Requirements}: \texttt{workspace.dir} must be configured
+
+\textbf{Output}: No files written; bootstrap context is modified in-memory only.
+
+\textbf{Config}:
+
+\begin{lstlisting}[language=json]
+{
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "bootstrap-extra-files": {
+          "enabled": true,
+          "paths": ["packages/*/AGENTS.md", "packages/*/TOOLS.md"]
+        }
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+
+\textbf{Notes}:
+
+\begin{itemize}
+  \item Paths are resolved relative to workspace.
+  \item Files must stay inside workspace (realpath-checked).
+  \item Only recognized bootstrap basenames are loaded.
+  \item Subagent allowlist is preserved (\texttt{AGENTS.md} and \texttt{TOOLS.md} only).
+\end{itemize}
+
+
+\textbf{Enable}:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable bootstrap-extra-files
+\end{lstlisting}
+
+
+\subsubsection{command-logger}
+
+
+Logs all command events to a centralized audit file.
+
+\textbf{Events}: \texttt{command}
+
+\textbf{Requirements}: None
+
+\textbf{Output}: \texttt{\textasciitilde{}/.openclaw/logs/commands.log}
+
+\textbf{What it does}:
+
+\begin{enumerate}
+  \item Captures event details (command action, timestamp, session key, sender ID, source)
+  \item Appends to log file in JSONL format
+  \item Runs silently in the background
+\end{enumerate}
+
+
+\textbf{Example log entries}:
+
+\begin{lstlisting}
+{"timestamp":"2026-01-16T14:30:00.000Z","action":"new","sessionKey":"agent:main:main","senderId":"+1234567890","source":"telegram"}
+{"timestamp":"2026-01-16T15:45:22.000Z","action":"stop","sessionKey":"agent:main:main","senderId":"user@example.com","source":"whatsapp"}
+\end{lstlisting}
+
+
+\textbf{View logs}:
+
+\begin{lstlisting}[language=bash]
+# View recent commands
+tail -n 20 ~/.openclaw/logs/commands.log
+
+# Pretty-print with jq
+cat ~/.openclaw/logs/commands.log | jq .
+
+# Filter by action
+grep '"action":"new"' ~/.openclaw/logs/commands.log | jq .
+\end{lstlisting}
+
+
+\textbf{Enable}:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable command-logger
+\end{lstlisting}
+
+
+\subsubsection{boot-md}
+
+
+Runs \texttt{BOOT.md} when the gateway starts (after channels start).
+Internal hooks must be enabled for this to run.
+
+\textbf{Events}: \texttt{gateway:startup}
+
+\textbf{Requirements}: \texttt{workspace.dir} must be configured
+
+\textbf{What it does}:
+
+\begin{enumerate}
+  \item Reads \texttt{BOOT.md} from your workspace
+  \item Runs the instructions via the agent runner
+  \item Sends any requested outbound messages via the message tool
+\end{enumerate}
+
+
+\textbf{Enable}:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks enable boot-md
+\end{lstlisting}
+
+
+\subsection{Best Practices}
+
+
+\subsubsection{Keep Handlers Fast}
+
+
+Hooks run during command processing. Keep them lightweight:
+
+\begin{lstlisting}[language=typescript]
+// ✓ Good - async work, returns immediately
+const handler: HookHandler = async (event) => {
+  void processInBackground(event); // Fire and forget
+};
+
+// ✗ Bad - blocks command processing
+const handler: HookHandler = async (event) => {
+  await slowDatabaseQuery(event);
+  await evenSlowerAPICall(event);
+};
+\end{lstlisting}
+
+
+\subsubsection{Handle Errors Gracefully}
+
+
+Always wrap risky operations:
+
+\begin{lstlisting}[language=typescript]
+const handler: HookHandler = async (event) => {
+  try {
+    await riskyOperation(event);
+  } catch (err) {
+    console.error("[my-handler] Failed:", err instanceof Error ? err.message : String(err));
+    // Don't throw - let other handlers run
+  }
+};
+\end{lstlisting}
+
+
+\subsubsection{Filter Events Early}
+
+
+Return early if the event isn't relevant:
+
+\begin{lstlisting}[language=typescript]
+const handler: HookHandler = async (event) => {
+  // Only handle 'new' commands
+  if (event.type !== "command" || event.action !== "new") {
+    return;
+  }
+
+  // Your logic here
+};
+\end{lstlisting}
+
+
+\subsubsection{Use Specific Event Keys}
+
+
+Specify exact events in metadata when possible:
+
+\begin{lstlisting}[language=yaml]
+metadata: { "openclaw": { "events": ["command:new"] } } # Specific
+\end{lstlisting}
+
+
+Rather than:
+
+\begin{lstlisting}[language=yaml]
+metadata: { "openclaw": { "events": ["command"] } } # General - more overhead
+\end{lstlisting}
+
+
+\subsection{Debugging}
+
+
+\subsubsection{Enable Hook Logging}
+
+
+The gateway logs hook loading at startup:
+
+\begin{lstlisting}
+Registered hook: session-memory -> command:new
+Registered hook: bootstrap-extra-files -> agent:bootstrap
+Registered hook: command-logger -> command
+Registered hook: boot-md -> gateway:startup
+\end{lstlisting}
+
+
+\subsubsection{Check Discovery}
+
+
+List all discovered hooks:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks list --verbose
+\end{lstlisting}
+
+
+\subsubsection{Check Registration}
+
+
+In your handler, log when it's called:
+
+\begin{lstlisting}[language=typescript]
+const handler: HookHandler = async (event) => {
+  console.log("[my-handler] Triggered:", event.type, event.action);
+  // Your logic
+};
+\end{lstlisting}
+
+
+\subsubsection{Verify Eligibility}
+
+
+Check why a hook isn't eligible:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks info my-hook
+\end{lstlisting}
+
+
+Look for missing requirements in the output.
+
+\subsection{Testing}
+
+
+\subsubsection{Gateway Logs}
+
+
+Monitor gateway logs to see hook execution:
+
+\begin{lstlisting}[language=bash]
+# macOS
+./scripts/clawlog.sh -f
+
+# Other platforms
+tail -f ~/.openclaw/gateway.log
+\end{lstlisting}
+
+
+\subsubsection{Test Hooks Directly}
+
+
+Test your handlers in isolation:
+
+\begin{lstlisting}[language=typescript]
+import { test } from "vitest";
+import myHandler from "./hooks/my-hook/handler.js";
+
+test("my handler works", async () => {
+  const event = {
+    type: "command",
+    action: "new",
+    sessionKey: "test-session",
+    timestamp: new Date(),
+    messages: [],
+    context: { foo: "bar" },
+  };
+
+  await myHandler(event);
+
+  // Assert side effects
+});
+\end{lstlisting}
+
+
+\subsection{Architecture}
+
+
+\subsubsection{Core Components}
+
+
+\begin{itemize}
+  \item \textbf{\texttt{src/hooks/types.ts}}: Type definitions
+  \item \textbf{\texttt{src/hooks/workspace.ts}}: Directory scanning and loading
+  \item \textbf{\texttt{src/hooks/frontmatter.ts}}: HOOK.md metadata parsing
+  \item \textbf{\texttt{src/hooks/config.ts}}: Eligibility checking
+  \item \textbf{\texttt{src/hooks/hooks-status.ts}}: Status reporting
+  \item \textbf{\texttt{src/hooks/loader.ts}}: Dynamic module loader
+  \item \textbf{\texttt{src/cli/hooks-cli.ts}}: CLI commands
+  \item \textbf{\texttt{src/gateway/server-startup.ts}}: Loads hooks at gateway start
+  \item \textbf{\texttt{src/auto-reply/reply/commands-core.ts}}: Triggers command events
+\end{itemize}
+
+
+\subsubsection{Discovery Flow}
+
+
+\begin{lstlisting}
+Gateway startup
+    ↓
+Scan directories (workspace → managed → bundled)
+    ↓
+Parse HOOK.md files
+    ↓
+Check eligibility (bins, env, config, os)
+    ↓
+Load handlers from eligible hooks
+    ↓
+Register handlers for events
+\end{lstlisting}
+
+
+\subsubsection{Event Flow}
+
+
+\begin{lstlisting}
+User sends /new
+    ↓
+Command validation
+    ↓
+Create hook event
+    ↓
+Trigger hook (all registered handlers)
+    ↓
+Command processing continues
+    ↓
+Session reset
+\end{lstlisting}
+
+
+\subsection{Troubleshooting}
+
+
+\subsubsection{Hook Not Discovered}
+
+
+\begin{enumerate}
+  \item Check directory structure:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+   ls -la ~/.openclaw/hooks/my-hook/
+   # Should show: HOOK.md, handler.ts
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Verify HOOK.md format:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+   cat ~/.openclaw/hooks/my-hook/HOOK.md
+   # Should have YAML frontmatter with name and metadata
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item List all discovered hooks:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+   openclaw hooks list
+\end{lstlisting}
+
+
+\subsubsection{Hook Not Eligible}
+
+
+Check requirements:
+
+\begin{lstlisting}[language=bash]
+openclaw hooks info my-hook
+\end{lstlisting}
+
+
+Look for missing:
+
+\begin{itemize}
+  \item Binaries (check PATH)
+  \item Environment variables
+  \item Config values
+  \item OS compatibility
+\end{itemize}
+
+
+\subsubsection{Hook Not Executing}
+
+
+\begin{enumerate}
+  \item Verify hook is enabled:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+   openclaw hooks list
+   # Should show ✓ next to enabled hooks
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Restart your gateway process so hooks reload.
+\end{enumerate}
+
+
+\begin{enumerate}
+  \item Check gateway logs for errors:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+   ./scripts/clawlog.sh | grep hook
+\end{lstlisting}
+
+
+\subsubsection{Handler Errors}
+
+
+Check for TypeScript/import errors:
+
+\begin{lstlisting}[language=bash]
+# Test import directly
+node -e "import('./path/to/handler.ts').then(console.log)"
+\end{lstlisting}
+
+
+\subsection{Migration Guide}
+
+
+\subsubsection{From Legacy Config to Discovery}
+
+
+\textbf{Before}:
+
+\begin{lstlisting}[language=json]
+{
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "handlers": [
+        {
+          "event": "command:new",
+          "module": "./hooks/handlers/my-handler.ts"
+        }
+      ]
+    }
+  }
+}
+\end{lstlisting}
+
+
+\textbf{After}:
+
+\begin{enumerate}
+  \item Create hook directory:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+   mkdir -p ~/.openclaw/hooks/my-hook
+   mv ./hooks/handlers/my-handler.ts ~/.openclaw/hooks/my-hook/handler.ts
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Create HOOK.md:
+\end{enumerate}
+
+
+\begin{lstlisting}
+   ---
+   name: my-hook
+   description: "My custom hook"
+   metadata: { "openclaw": { "emoji": "🎯", "events": ["command:new"] } }
+   ---
+
+   # My Hook
+
+   Does something useful.
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Update config:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=json]
+   {
+     "hooks": {
+       "internal": {
+         "enabled": true,
+         "entries": {
+           "my-hook": { "enabled": true }
+         }
+       }
+     }
+   }
+\end{lstlisting}
+
+
+\begin{enumerate}
+  \item Verify and restart your gateway process:
+\end{enumerate}
+
+
+\begin{lstlisting}[language=bash]
+   openclaw hooks list
+   # Should show: 🎯 my-hook ✓
+\end{lstlisting}
+
+
+\textbf{Benefits of migration}:
+
+\begin{itemize}
+  \item Automatic discovery
+  \item CLI management
+  \item Eligibility checking
+  \item Better documentation
+  \item Consistent structure
+\end{itemize}
+
+
+\subsection{See Also}
+
+
+\begin{itemize}
+  \item \href{/cli/hooks}{CLI Reference: hooks}
+  \item \href{https://github.com/openclaw/openclaw/tree/main/src/hooks/bundled}{Bundled Hooks README}
+  \item \href{/automation/webhook}{Webhook Hooks}
+  \item \href{/gateway/configuration\#hooks}{Configuration}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: automation/poll.md ===
+\section{Polls}
+
+
+\subsection{Supported channels}
+
+
+\begin{itemize}
+  \item WhatsApp (web channel)
+  \item Discord
+  \item MS Teams (Adaptive Cards)
+\end{itemize}
+
+
+\subsection{CLI}
+
+
+\begin{lstlisting}[language=bash]
+# WhatsApp
+openclaw message poll --target +15555550123 \
+  --poll-question "Lunch today?" --poll-option "Yes" --poll-option "No" --poll-option "Maybe"
+openclaw message poll --target 123456789@g.us \
+  --poll-question "Meeting time?" --poll-option "10am" --poll-option "2pm" --poll-option "4pm" --poll-multi
+
+# Discord
+openclaw message poll --channel discord --target channel:123456789 \
+  --poll-question "Snack?" --poll-option "Pizza" --poll-option "Sushi"
+openclaw message poll --channel discord --target channel:123456789 \
+  --poll-question "Plan?" --poll-option "A" --poll-option "B" --poll-duration-hours 48
+
+# MS Teams
+openclaw message poll --channel msteams --target conversation:19:abc@thread.tacv2 \
+  --poll-question "Lunch?" --poll-option "Pizza" --poll-option "Sushi"
+\end{lstlisting}
+
+
+Options:
+
+\begin{itemize}
+  \item \texttt{--channel}: \texttt{whatsapp} (default), \texttt{discord}, or \texttt{msteams}
+  \item \texttt{--poll-multi}: allow selecting multiple options
+  \item \texttt{--poll-duration-hours}: Discord-only (defaults to 24 when omitted)
+\end{itemize}
+
+
+\subsection{Gateway RPC}
+
+
+Method: \texttt{poll}
+
+Params:
+
+\begin{itemize}
+  \item \texttt{to} (string, required)
+  \item \texttt{question} (string, required)
+  \item \texttt{options} (string[], required)
+  \item \texttt{maxSelections} (number, optional)
+  \item \texttt{durationHours} (number, optional)
+  \item \texttt{channel} (string, optional, default: \texttt{whatsapp})
+  \item \texttt{idempotencyKey} (string, required)
+\end{itemize}
+
+
+\subsection{Channel differences}
+
+
+\begin{itemize}
+  \item WhatsApp: 2-12 options, \texttt{maxSelections} must be within option count, ignores \texttt{durationHours}.
+  \item Discord: 2-10 options, \texttt{durationHours} clamped to 1-768 hours (default 24). \texttt{maxSelections > 1} enables multi-select; Discord does not support a strict selection count.
+  \item MS Teams: Adaptive Card polls (OpenClaw-managed). No native poll API; \texttt{durationHours} is ignored.
+\end{itemize}
+
+
+\subsection{Agent tool (Message)}
+
+
+Use the \texttt{message} tool with \texttt{poll} action (\texttt{to}, \texttt{pollQuestion}, \texttt{pollOption}, optional \texttt{pollMulti}, \texttt{pollDurationHours}, \texttt{channel}).
+
+Note: Discord has no “pick exactly N” mode; \texttt{pollMulti} maps to multi-select.
+Teams polls are rendered as Adaptive Cards and require the gateway to stay online
+to record votes in \texttt{\textasciitilde{}/.openclaw/msteams-polls.json}.
+
+
+\clearpage
+
+% === Source file: automation/troubleshooting.md ===
+\section{Automation troubleshooting}
+
+
+Use this page for scheduler and delivery issues (\texttt{cron} + \texttt{heartbeat}).
+
+\subsection{Command ladder}
+
+
+\begin{lstlisting}[language=bash]
+openclaw status
+openclaw gateway status
+openclaw logs --follow
+openclaw doctor
+openclaw channels status --probe
+\end{lstlisting}
+
+
+Then run automation checks:
+
+\begin{lstlisting}[language=bash]
+openclaw cron status
+openclaw cron list
+openclaw system heartbeat last
+\end{lstlisting}
+
+
+\subsection{Cron not firing}
+
+
+\begin{lstlisting}[language=bash]
+openclaw cron status
+openclaw cron list
+openclaw cron runs --id <jobId> --limit 20
+openclaw logs --follow
+\end{lstlisting}
+
+
+Good output looks like:
+
+\begin{itemize}
+  \item \texttt{cron status} reports enabled and a future \texttt{nextWakeAtMs}.
+  \item Job is enabled and has a valid schedule/timezone.
+  \item \texttt{cron runs} shows \texttt{ok} or explicit skip reason.
+\end{itemize}
+
+
+Common signatures:
+
+\begin{itemize}
+  \item \texttt{cron: scheduler disabled; jobs will not run automatically} → cron disabled in config/env.
+  \item \texttt{cron: timer tick failed} → scheduler tick crashed; inspect surrounding stack/log context.
+  \item \texttt{reason: not-due} in run output → manual run called without \texttt{--force} and job not due yet.
+\end{itemize}
+
+
+\subsection{Cron fired but no delivery}
+
+
+\begin{lstlisting}[language=bash]
+openclaw cron runs --id <jobId> --limit 20
+openclaw cron list
+openclaw channels status --probe
+openclaw logs --follow
+\end{lstlisting}
+
+
+Good output looks like:
+
+\begin{itemize}
+  \item Run status is \texttt{ok}.
+  \item Delivery mode/target are set for isolated jobs.
+  \item Channel probe reports target channel connected.
+\end{itemize}
+
+
+Common signatures:
+
+\begin{itemize}
+  \item Run succeeded but delivery mode is \texttt{none} → no external message is expected.
+  \item Delivery target missing/invalid (\texttt{channel}/\texttt{to}) → run may succeed internally but skip outbound.
+  \item Channel auth errors (\texttt{unauthorized}, \texttt{missing\_scope}, \texttt{Forbidden}) → delivery blocked by channel credentials/permissions.
+\end{itemize}
+
+
+\subsection{Heartbeat suppressed or skipped}
+
+
+\begin{lstlisting}[language=bash]
+openclaw system heartbeat last
+openclaw logs --follow
+openclaw config get agents.defaults.heartbeat
+openclaw channels status --probe
+\end{lstlisting}
+
+
+Good output looks like:
+
+\begin{itemize}
+  \item Heartbeat enabled with non-zero interval.
+  \item Last heartbeat result is \texttt{ran} (or skip reason is understood).
+\end{itemize}
+
+
+Common signatures:
+
+\begin{itemize}
+  \item \texttt{heartbeat skipped} with \texttt{reason=quiet-hours} → outside \texttt{activeHours}.
+  \item \texttt{requests-in-flight} → main lane busy; heartbeat deferred.
+  \item \texttt{empty-heartbeat-file} → interval heartbeat skipped because \texttt{HEARTBEAT.md} has no actionable content and no tagged cron event is queued.
+  \item \texttt{alerts-disabled} → visibility settings suppress outbound heartbeat messages.
+\end{itemize}
+
+
+\subsection{Timezone and activeHours gotchas}
+
+
+\begin{lstlisting}[language=bash]
+openclaw config get agents.defaults.heartbeat.activeHours
+openclaw config get agents.defaults.heartbeat.activeHours.timezone
+openclaw config get agents.defaults.userTimezone || echo "agents.defaults.userTimezone not set"
+openclaw cron list
+openclaw logs --follow
+\end{lstlisting}
+
+
+Quick rules:
+
+\begin{itemize}
+  \item \texttt{Config path not found: agents.defaults.userTimezone} means the key is unset; heartbeat falls back to host timezone (or \texttt{activeHours.timezone} if set).
+  \item Cron without \texttt{--tz} uses gateway host timezone.
+  \item Heartbeat \texttt{activeHours} uses configured timezone resolution (\texttt{user}, \texttt{local}, or explicit IANA tz).
+  \item ISO timestamps without timezone are treated as UTC for cron \texttt{at} schedules.
+\end{itemize}
+
+
+Common signatures:
+
+\begin{itemize}
+  \item Jobs run at the wrong wall-clock time after host timezone changes.
+  \item Heartbeat always skipped during your daytime because \texttt{activeHours.timezone} is wrong.
+\end{itemize}
+
+
+Related:
+
+\begin{itemize}
+  \item \href{/automation/cron-jobs}{/automation/cron-jobs}
+  \item \href{/gateway/heartbeat}{/gateway/heartbeat}
+  \item \href{/automation/cron-vs-heartbeat}{/automation/cron-vs-heartbeat}
+  \item \href{/concepts/timezone}{/concepts/timezone}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: automation/webhook.md ===
+\section{Webhooks}
+
+
+Gateway can expose a small HTTP webhook endpoint for external triggers.
+
+\subsection{Enable}
+
+
+\begin{lstlisting}[language=json]
+{
+  hooks: {
+    enabled: true,
+    token: "shared-secret",
+    path: "/hooks",
+    // Optional: restrict explicit `agentId` routing to this allowlist.
+    // Omit or include "*" to allow any agent.
+    // Set [] to deny all explicit `agentId` routing.
+    allowedAgentIds: ["hooks", "main"],
+  },
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{hooks.token} is required when \texttt{hooks.enabled=true}.
+  \item \texttt{hooks.path} defaults to \texttt{/hooks}.
+\end{itemize}
+
+
+\subsection{Auth}
+
+
+Every request must include the hook token. Prefer headers:
+
+\begin{itemize}
+  \item \texttt{Authorization: Bearer } (recommended)
+  \item \texttt{x-openclaw-token: }
+  \item Query-string tokens are rejected (\texttt{?token=...} returns \texttt{400}).
+\end{itemize}
+
+
+\subsection{Endpoints}
+
+
+\subsubsection{POST /hooks/wake}
+
+
+Payload:
+
+\begin{lstlisting}[language=json]
+{ "text": "System line", "mode": "now" }
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item \texttt{text} \textbf{required} (string): The description of the event (e.g., "New email received").
+  \item \texttt{mode} optional (\texttt{now} | \texttt{next-heartbeat}): Whether to trigger an immediate heartbeat (default \texttt{now}) or wait for the next periodic check.
+\end{itemize}
+
+
+Effect:
+
+\begin{itemize}
+  \item Enqueues a system event for the \textbf{main} session
+  \item If \texttt{mode=now}, triggers an immediate heartbeat
+\end{itemize}
+
+
+\subsubsection{POST /hooks/agent}
+
+
+Payload:
+
+\begin{lstlisting}[language=json]
+{
+  "message": "Run this",
+  "name": "Email",
+  "agentId": "hooks",
+  "sessionKey": "hook:email:msg-123",
+  "wakeMode": "now",
+  "deliver": true,
+  "channel": "last",
+  "to": "+15551234567",
+  "model": "openai/gpt-5.2-mini",
+  "thinking": "low",
+  "timeoutSeconds": 120
+}
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item \texttt{message} \textbf{required} (string): The prompt or message for the agent to process.
+  \item \texttt{name} optional (string): Human-readable name for the hook (e.g., "GitHub"), used as a prefix in session summaries.
+  \item \texttt{agentId} optional (string): Route this hook to a specific agent. Unknown IDs fall back to the default agent. When set, the hook runs using the resolved agent's workspace and configuration.
+  \item \texttt{sessionKey} optional (string): The key used to identify the agent's session. By default this field is rejected unless \texttt{hooks.allowRequestSessionKey=true}.
+  \item \texttt{wakeMode} optional (\texttt{now} | \texttt{next-heartbeat}): Whether to trigger an immediate heartbeat (default \texttt{now}) or wait for the next periodic check.
+  \item \texttt{deliver} optional (boolean): If \texttt{true}, the agent's response will be sent to the messaging channel. Defaults to \texttt{true}. Responses that are only heartbeat acknowledgments are automatically skipped.
+  \item \texttt{channel} optional (string): The messaging channel for delivery. One of: \texttt{last}, \texttt{whatsapp}, \texttt{telegram}, \texttt{discord}, \texttt{slack}, \texttt{mattermost} (plugin), \texttt{signal}, \texttt{imessage}, \texttt{msteams}. Defaults to \texttt{last}.
+  \item \texttt{to} optional (string): The recipient identifier for the channel (e.g., phone number for WhatsApp/Signal, chat ID for Telegram, channel ID for Discord/Slack/Mattermost (plugin), conversation ID for MS Teams). Defaults to the last recipient in the main session.
+  \item \texttt{model} optional (string): Model override (e.g., \texttt{anthropic/claude-3-5-sonnet} or an alias). Must be in the allowed model list if restricted.
+  \item \texttt{thinking} optional (string): Thinking level override (e.g., \texttt{low}, \texttt{medium}, \texttt{high}).
+  \item \texttt{timeoutSeconds} optional (number): Maximum duration for the agent run in seconds.
+\end{itemize}
+
+
+Effect:
+
+\begin{itemize}
+  \item Runs an \textbf{isolated} agent turn (own session key)
+  \item Always posts a summary into the \textbf{main} session
+  \item If \texttt{wakeMode=now}, triggers an immediate heartbeat
+\end{itemize}
+
+
+\subsection{Session key policy (breaking change)}
+
+
+\texttt{/hooks/agent} payload \texttt{sessionKey} overrides are disabled by default.
+
+\begin{itemize}
+  \item Recommended: set a fixed \texttt{hooks.defaultSessionKey} and keep request overrides off.
+  \item Optional: allow request overrides only when needed, and restrict prefixes.
+\end{itemize}
+
+
+Recommended config:
+
+\begin{lstlisting}[language=json]
+{
+  hooks: {
+    enabled: true,
+    token: "${OPENCLAW_HOOKS_TOKEN}",
+    defaultSessionKey: "hook:ingress",
+    allowRequestSessionKey: false,
+    allowedSessionKeyPrefixes: ["hook:"],
+  },
+}
+\end{lstlisting}
+
+
+Compatibility config (legacy behavior):
+
+\begin{lstlisting}[language=json]
+{
+  hooks: {
+    enabled: true,
+    token: "${OPENCLAW_HOOKS_TOKEN}",
+    allowRequestSessionKey: true,
+    allowedSessionKeyPrefixes: ["hook:"], // strongly recommended
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{POST /hooks/ (mapped)}
+
+
+Custom hook names are resolved via \texttt{hooks.mappings} (see configuration). A mapping can
+turn arbitrary payloads into \texttt{wake} or \texttt{agent} actions, with optional templates or
+code transforms.
+
+Mapping options (summary):
+
+\begin{itemize}
+  \item \texttt{hooks.presets: ["gmail"]} enables the built-in Gmail mapping.
+  \item \texttt{hooks.mappings} lets you define \texttt{match}, \texttt{action}, and templates in config.
+  \item \texttt{hooks.transformsDir} + \texttt{transform.module} loads a JS/TS module for custom logic.
+  \item \texttt{hooks.transformsDir} (if set) must stay within the transforms root under your OpenClaw config directory (typically \texttt{\textasciitilde{}/.openclaw/hooks/transforms}).
+  \item \texttt{transform.module} must resolve within the effective transforms directory (traversal/escape paths are rejected).
+  \item Use \texttt{match.source} to keep a generic ingest endpoint (payload-driven routing).
+  \item TS transforms require a TS loader (e.g. \texttt{bun} or \texttt{tsx}) or precompiled \texttt{.js} at runtime.
+  \item Set \texttt{deliver: true} + \texttt{channel}/\texttt{to} on mappings to route replies to a chat surface
+\end{itemize}
+
+(\texttt{channel} defaults to \texttt{last} and falls back to WhatsApp).
+\begin{itemize}
+  \item \texttt{agentId} routes the hook to a specific agent; unknown IDs fall back to the default agent.
+  \item \texttt{hooks.allowedAgentIds} restricts explicit \texttt{agentId} routing. Omit it (or include \texttt{*}) to allow any agent. Set \texttt{[]} to deny explicit \texttt{agentId} routing.
+  \item \texttt{hooks.defaultSessionKey} sets the default session for hook agent runs when no explicit key is provided.
+  \item \texttt{hooks.allowRequestSessionKey} controls whether \texttt{/hooks/agent} payloads may set \texttt{sessionKey} (default: \texttt{false}).
+  \item \texttt{hooks.allowedSessionKeyPrefixes} optionally restricts explicit \texttt{sessionKey} values from request payloads and mappings.
+  \item \texttt{allowUnsafeExternalContent: true} disables the external content safety wrapper for that hook
+\end{itemize}
+
+(dangerous; only for trusted internal sources).
+\begin{itemize}
+  \item \texttt{openclaw webhooks gmail setup} writes \texttt{hooks.gmail} config for \texttt{openclaw webhooks gmail run}.
+\end{itemize}
+
+See \href{/automation/gmail-pubsub}{Gmail Pub/Sub} for the full Gmail watch flow.
+
+\subsection{Responses}
+
+
+\begin{itemize}
+  \item \texttt{200} for \texttt{/hooks/wake}
+  \item \texttt{200} for \texttt{/hooks/agent} (async run accepted)
+  \item \texttt{401} on auth failure
+  \item \texttt{429} after repeated auth failures from the same client (check \texttt{Retry-After})
+  \item \texttt{400} on invalid payload
+  \item \texttt{413} on oversized payloads
+\end{itemize}
+
+
+\subsection{Examples}
+
+
+\begin{lstlisting}[language=bash]
+curl -X POST http://127.0.0.1:18789/hooks/wake \
+  -H 'Authorization: Bearer SECRET' \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"New email received","mode":"now"}'
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=bash]
+curl -X POST http://127.0.0.1:18789/hooks/agent \
+  -H 'x-openclaw-token: SECRET' \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Summarize inbox","name":"Email","wakeMode":"next-heartbeat"}'
+\end{lstlisting}
+
+
+\subsubsection{Use a different model}
+
+
+Add \texttt{model} to the agent payload (or mapping) to override the model for that run:
+
+\begin{lstlisting}[language=bash]
+curl -X POST http://127.0.0.1:18789/hooks/agent \
+  -H 'x-openclaw-token: SECRET' \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Summarize inbox","name":"Email","model":"openai/gpt-5.2-mini"}'
+\end{lstlisting}
+
+
+If you enforce \texttt{agents.defaults.models}, make sure the override model is included there.
+
+\begin{lstlisting}[language=bash]
+curl -X POST http://127.0.0.1:18789/hooks/gmail \
+  -H 'Authorization: Bearer SECRET' \
+  -H 'Content-Type: application/json' \
+  -d '{"source":"gmail","messages":[{"from":"Ada","subject":"Hello","snippet":"Hi"}]}'
+\end{lstlisting}
+
+
+\subsection{Security}
+
+
+\begin{itemize}
+  \item Keep hook endpoints behind loopback, tailnet, or trusted reverse proxy.
+  \item Use a dedicated hook token; do not reuse gateway auth tokens.
+  \item Repeated auth failures are rate-limited per client address to slow brute-force attempts.
+  \item If you use multi-agent routing, set \texttt{hooks.allowedAgentIds} to limit explicit \texttt{agentId} selection.
+  \item Keep \texttt{hooks.allowRequestSessionKey=false} unless you require caller-selected sessions.
+  \item If you enable request \texttt{sessionKey}, restrict \texttt{hooks.allowedSessionKeyPrefixes} (for example, \texttt{["hook:"]}).
+  \item Avoid including sensitive raw payloads in webhook logs.
+  \item Hook payloads are treated as untrusted and wrapped with safety boundaries by default.
+\end{itemize}
+
+If you must disable this for a specific hook, set \texttt{allowUnsafeExternalContent: true}
+in that hook's mapping (dangerous).
+
+
+\clearpage

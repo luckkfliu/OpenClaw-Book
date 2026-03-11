@@ -1,0 +1,2035 @@
+\chapter{Mobile Nodes}
+
+% === Source file: nodes/audio.md ===
+\section{Audio / Voice Notes — 2026-01-17}
+
+
+\subsection{What works}
+
+
+\begin{itemize}
+  \item \textbf{Media understanding (audio)}: If audio understanding is enabled (or auto‑detected), OpenClaw:
+\end{itemize}
+
+\begin{enumerate}
+  \item Locates the first audio attachment (local path or URL) and downloads it if needed.
+  \item Enforces \texttt{maxBytes} before sending to each model entry.
+  \item Runs the first eligible model entry in order (provider or CLI).
+  \item If it fails or skips (size/timeout), it tries the next entry.
+  \item On success, it replaces \texttt{Body} with an \texttt{[Audio]} block and sets \texttt{\{\{Transcript\}\}}.
+\end{enumerate}
+
+\begin{itemize}
+  \item \textbf{Command parsing}: When transcription succeeds, \texttt{CommandBody}/\texttt{RawBody} are set to the transcript so slash commands still work.
+  \item \textbf{Verbose logging}: In \texttt{--verbose}, we log when transcription runs and when it replaces the body.
+\end{itemize}
+
+
+\subsection{Auto-detection (default)}
+
+
+If you \textbf{don’t configure models} and \texttt{tools.media.audio.enabled} is \textbf{not} set to \texttt{false},
+OpenClaw auto-detects in this order and stops at the first working option:
+
+\begin{enumerate}
+  \item \textbf{Local CLIs} (if installed)
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{sherpa-onnx-offline} (requires \texttt{SHERPA\_ONNX\_MODEL\_DIR} with encoder/decoder/joiner/tokens)
+  \item \texttt{whisper-cli} (from \texttt{whisper-cpp}; uses \texttt{WHISPER\_CPP\_MODEL} or the bundled tiny model)
+  \item \texttt{whisper} (Python CLI; downloads models automatically)
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{Gemini CLI} (\texttt{gemini}) using \texttt{read\_many\_files}
+  \item \textbf{Provider keys} (OpenAI → Groq → Deepgram → Google)
+\end{enumerate}
+
+
+To disable auto-detection, set \texttt{tools.media.audio.enabled: false}.
+To customize, set \texttt{tools.media.audio.models}.
+Note: Binary detection is best-effort across macOS/Linux/Windows; ensure the CLI is on \texttt{PATH} (we expand \texttt{\textasciitilde{}}), or set an explicit CLI model with a full command path.
+
+\subsection{Config examples}
+
+
+\subsubsection{Provider + CLI fallback (OpenAI + Whisper CLI)}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        maxBytes: 20971520,
+        models: [
+          { provider: "openai", model: "gpt-4o-mini-transcribe" },
+          {
+            type: "cli",
+            command: "whisper",
+            args: ["--model", "base", "{{MediaPath}}"],
+            timeoutSeconds: 45,
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Provider-only with scope gating}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        scope: {
+          default: "allow",
+          rules: [{ action: "deny", match: { chatType: "group" } }],
+        },
+        models: [{ provider: "openai", model: "gpt-4o-mini-transcribe" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Provider-only (Deepgram)}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [{ provider: "deepgram", model: "nova-3" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Provider-only (Mistral Voxtral)}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [{ provider: "mistral", model: "voxtral-mini-latest" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Echo transcript to chat (opt-in)}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        echoTranscript: true, // default is false
+        echoFormat: '📝 "{transcript}"', // optional, supports {transcript}
+        models: [{ provider: "openai", model: "gpt-4o-mini-transcribe" }],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Notes \& limits}
+
+
+\begin{itemize}
+  \item Provider auth follows the standard model auth order (auth profiles, env vars, \texttt{models.providers.*.apiKey}).
+  \item Deepgram picks up \texttt{DEEPGRAM\_API\_KEY} when \texttt{provider: "deepgram"} is used.
+  \item Deepgram setup details: \href{/providers/deepgram}{Deepgram (audio transcription)}.
+  \item Mistral setup details: \href{/providers/mistral}{Mistral}.
+  \item Audio providers can override \texttt{baseUrl}, \texttt{headers}, and \texttt{providerOptions} via \texttt{tools.media.audio}.
+  \item Default size cap is 20MB (\texttt{tools.media.audio.maxBytes}). Oversize audio is skipped for that model and the next entry is tried.
+  \item Tiny/empty audio files below 1024 bytes are skipped before provider/CLI transcription.
+  \item Default \texttt{maxChars} for audio is \textbf{unset} (full transcript). Set \texttt{tools.media.audio.maxChars} or per-entry \texttt{maxChars} to trim output.
+  \item OpenAI auto default is \texttt{gpt-4o-mini-transcribe}; set \texttt{model: "gpt-4o-transcribe"} for higher accuracy.
+  \item Use \texttt{tools.media.audio.attachments} to process multiple voice notes (\texttt{mode: "all"} + \texttt{maxAttachments}).
+  \item Transcript is available to templates as \texttt{\{\{Transcript\}\}}.
+  \item \texttt{tools.media.audio.echoTranscript} is off by default; enable it to send transcript confirmation back to the originating chat before agent processing.
+  \item \texttt{tools.media.audio.echoFormat} customizes the echo text (placeholder: \texttt{\{transcript\}}).
+  \item CLI stdout is capped (5MB); keep CLI output concise.
+\end{itemize}
+
+
+\subsubsection{Proxy environment support}
+
+
+Provider-based audio transcription honors standard outbound proxy env vars:
+
+\begin{itemize}
+  \item \texttt{HTTPS\_PROXY}
+  \item \texttt{HTTP\_PROXY}
+  \item \texttt{https\_proxy}
+  \item \texttt{http\_proxy}
+\end{itemize}
+
+
+If no proxy env vars are set, direct egress is used. If proxy config is malformed, OpenClaw logs a warning and falls back to direct fetch.
+
+\subsection{Mention Detection in Groups}
+
+
+When \texttt{requireMention: true} is set for a group chat, OpenClaw now transcribes audio \textbf{before} checking for mentions. This allows voice notes to be processed even when they contain mentions.
+
+\textbf{How it works:}
+
+\begin{enumerate}
+  \item If a voice message has no text body and the group requires mentions, OpenClaw performs a "preflight" transcription.
+  \item The transcript is checked for mention patterns (e.g., \texttt{@BotName}, emoji triggers).
+  \item If a mention is found, the message proceeds through the full reply pipeline.
+  \item The transcript is used for mention detection so voice notes can pass the mention gate.
+\end{enumerate}
+
+
+\textbf{Fallback behavior:}
+
+\begin{itemize}
+  \item If transcription fails during preflight (timeout, API error, etc.), the message is processed based on text-only mention detection.
+  \item This ensures that mixed messages (text + audio) are never incorrectly dropped.
+\end{itemize}
+
+
+\textbf{Opt-out per Telegram group/topic:}
+
+\begin{itemize}
+  \item Set \texttt{channels.telegram.groups..disableAudioPreflight: true} to skip preflight transcript mention checks for that group.
+  \item Set \texttt{channels.telegram.groups..topics..disableAudioPreflight} to override per-topic (\texttt{true} to skip, \texttt{false} to force-enable).
+  \item Default is \texttt{false} (preflight enabled when mention-gated conditions match).
+\end{itemize}
+
+
+\textbf{Example:} A user sends a voice note saying "Hey @Claude, what's the weather?" in a Telegram group with \texttt{requireMention: true}. The voice note is transcribed, the mention is detected, and the agent replies.
+
+\subsection{Gotchas}
+
+
+\begin{itemize}
+  \item Scope rules use first-match wins. \texttt{chatType} is normalized to \texttt{direct}, \texttt{group}, or \texttt{room}.
+  \item Ensure your CLI exits 0 and prints plain text; JSON needs to be massaged via \texttt{jq -r .text}.
+  \item For \texttt{parakeet-mlx}, if you pass \texttt{--output-dir}, OpenClaw reads \texttt{/.txt} when \texttt{--output-format} is \texttt{txt} (or omitted); non-\texttt{txt} output formats fall back to stdout parsing.
+  \item Keep timeouts reasonable (\texttt{timeoutSeconds}, default 60s) to avoid blocking the reply queue.
+  \item Preflight transcription only processes the \textbf{first} audio attachment for mention detection. Additional audio is processed during the main media understanding phase.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: nodes/camera.md ===
+\section{Camera capture (agent)}
+
+
+OpenClaw supports \textbf{camera capture} for agent workflows:
+
+\begin{itemize}
+  \item \textbf{iOS node} (paired via Gateway): capture a \textbf{photo} (\texttt{jpg}) or \textbf{short video clip} (\texttt{mp4}, with optional audio) via \texttt{node.invoke}.
+  \item \textbf{Android node} (paired via Gateway): capture a \textbf{photo} (\texttt{jpg}) or \textbf{short video clip} (\texttt{mp4}, with optional audio) via \texttt{node.invoke}.
+  \item \textbf{macOS app} (node via Gateway): capture a \textbf{photo} (\texttt{jpg}) or \textbf{short video clip} (\texttt{mp4}, with optional audio) via \texttt{node.invoke}.
+\end{itemize}
+
+
+All camera access is gated behind \textbf{user-controlled settings}.
+
+\subsection{iOS node}
+
+
+\subsubsection{User setting (default on)}
+
+
+\begin{itemize}
+  \item iOS Settings tab → \textbf{Camera} → \textbf{Allow Camera} (\texttt{camera.enabled})
+  \item Default: \textbf{on} (missing key is treated as enabled).
+  \item When off: \texttt{camera.*} commands return \texttt{CAMERA\_DISABLED}.
+\end{itemize}
+
+
+\subsubsection{Commands (via Gateway node.invoke)}
+
+
+\begin{itemize}
+  \item \texttt{camera.list}
+  \item Response payload:
+  \item \texttt{devices}: array of \texttt{\{ id, name, position, deviceType \}}
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{camera.snap}
+  \item Params:
+  \item \texttt{facing}: \texttt{front|back} (default: \texttt{front})
+  \item \texttt{maxWidth}: number (optional; default \texttt{1600} on the iOS node)
+  \item \texttt{quality}: \texttt{0..1} (optional; default \texttt{0.9})
+  \item \texttt{format}: currently \texttt{jpg}
+  \item \texttt{delayMs}: number (optional; default \texttt{0})
+  \item \texttt{deviceId}: string (optional; from \texttt{camera.list})
+  \item Response payload:
+  \item \texttt{format: "jpg"}
+  \item \texttt{base64: "<...>"}
+  \item \texttt{width}, \texttt{height}
+  \item Payload guard: photos are recompressed to keep the base64 payload under 5 MB.
+\end{itemize}
+
+
+\begin{itemize}
+  \item \texttt{camera.clip}
+  \item Params:
+  \item \texttt{facing}: \texttt{front|back} (default: \texttt{front})
+  \item \texttt{durationMs}: number (default \texttt{3000}, clamped to a max of \texttt{60000})
+  \item \texttt{includeAudio}: boolean (default \texttt{true})
+  \item \texttt{format}: currently \texttt{mp4}
+  \item \texttt{deviceId}: string (optional; from \texttt{camera.list})
+  \item Response payload:
+  \item \texttt{format: "mp4"}
+  \item \texttt{base64: "<...>"}
+  \item \texttt{durationMs}
+  \item \texttt{hasAudio}
+\end{itemize}
+
+
+\subsubsection{Foreground requirement}
+
+
+Like \texttt{canvas.\textit{}, the iOS node only allows \texttt{camera.}} commands in the \textbf{foreground}. Background invocations return \texttt{NODE\_BACKGROUND\_UNAVAILABLE}.
+
+\subsubsection{CLI helper (temp files + MEDIA)}
+
+
+The easiest way to get attachments is via the CLI helper, which writes decoded media to a temp file and prints \texttt{MEDIA:}.
+
+Examples:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes camera snap --node <id>               # default: both front + back (2 MEDIA lines)
+openclaw nodes camera snap --node <id> --facing front
+openclaw nodes camera clip --node <id> --duration 3000
+openclaw nodes camera clip --node <id> --no-audio
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{nodes camera snap} defaults to \textbf{both} facings to give the agent both views.
+  \item Output files are temporary (in the OS temp directory) unless you build your own wrapper.
+\end{itemize}
+
+
+\subsection{Android node}
+
+
+\subsubsection{Android user setting (default on)}
+
+
+\begin{itemize}
+  \item Android Settings sheet → \textbf{Camera} → \textbf{Allow Camera} (\texttt{camera.enabled})
+  \item Default: \textbf{on} (missing key is treated as enabled).
+  \item When off: \texttt{camera.*} commands return \texttt{CAMERA\_DISABLED}.
+\end{itemize}
+
+
+\subsubsection{Permissions}
+
+
+\begin{itemize}
+  \item Android requires runtime permissions:
+  \item \texttt{CAMERA} for both \texttt{camera.snap} and \texttt{camera.clip}.
+  \item \texttt{RECORD\_AUDIO} for \texttt{camera.clip} when \texttt{includeAudio=true}.
+\end{itemize}
+
+
+If permissions are missing, the app will prompt when possible; if denied, \texttt{camera.*} requests fail with a
+\texttt{*\_PERMISSION\_REQUIRED} error.
+
+\subsubsection{Android foreground requirement}
+
+
+Like \texttt{canvas.\textit{}, the Android node only allows \texttt{camera.}} commands in the \textbf{foreground}. Background invocations return \texttt{NODE\_BACKGROUND\_UNAVAILABLE}.
+
+\subsubsection{Android commands (via Gateway node.invoke)}
+
+
+\begin{itemize}
+  \item \texttt{camera.list}
+  \item Response payload:
+  \item \texttt{devices}: array of \texttt{\{ id, name, position, deviceType \}}
+\end{itemize}
+
+
+\subsubsection{Payload guard}
+
+
+Photos are recompressed to keep the base64 payload under 5 MB.
+
+\subsection{macOS app}
+
+
+\subsubsection{User setting (default off)}
+
+
+The macOS companion app exposes a checkbox:
+
+\begin{itemize}
+  \item \textbf{Settings → General → Allow Camera} (\texttt{openclaw.cameraEnabled})
+  \item Default: \textbf{off}
+  \item When off: camera requests return “Camera disabled by user”.
+\end{itemize}
+
+
+\subsubsection{CLI helper (node invoke)}
+
+
+Use the main \texttt{openclaw} CLI to invoke camera commands on the macOS node.
+
+Examples:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes camera list --node <id>            # list camera ids
+openclaw nodes camera snap --node <id>            # prints MEDIA:<path>
+openclaw nodes camera snap --node <id> --max-width 1280
+openclaw nodes camera snap --node <id> --delay-ms 2000
+openclaw nodes camera snap --node <id> --device-id <id>
+openclaw nodes camera clip --node <id> --duration 10s          # prints MEDIA:<path>
+openclaw nodes camera clip --node <id> --duration-ms 3000      # prints MEDIA:<path> (legacy flag)
+openclaw nodes camera clip --node <id> --device-id <id>
+openclaw nodes camera clip --node <id> --no-audio
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{openclaw nodes camera snap} defaults to \texttt{maxWidth=1600} unless overridden.
+  \item On macOS, \texttt{camera.snap} waits \texttt{delayMs} (default 2000ms) after warm-up/exposure settle before capturing.
+  \item Photo payloads are recompressed to keep base64 under 5 MB.
+\end{itemize}
+
+
+\subsection{Safety + practical limits}
+
+
+\begin{itemize}
+  \item Camera and microphone access trigger the usual OS permission prompts (and require usage strings in Info.plist).
+  \item Video clips are capped (currently \texttt{<= 60s}) to avoid oversized node payloads (base64 overhead + message limits).
+\end{itemize}
+
+
+\subsection{macOS screen video (OS-level)}
+
+
+For \_screen\_ video (not camera), use the macOS companion:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes screen record --node <id> --duration 10s --fps 15   # prints MEDIA:<path>
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Requires macOS \textbf{Screen Recording} permission (TCC).
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: nodes/images.md ===
+\section{Image \& Media Support — 2025-12-05}
+
+
+The WhatsApp channel runs via \textbf{Baileys Web}. This document captures the current media handling rules for send, gateway, and agent replies.
+
+\subsection{Goals}
+
+
+\begin{itemize}
+  \item Send media with optional captions via \texttt{openclaw message send --media}.
+  \item Allow auto-replies from the web inbox to include media alongside text.
+  \item Keep per-type limits sane and predictable.
+\end{itemize}
+
+
+\subsection{CLI Surface}
+
+
+\begin{itemize}
+  \item \texttt{openclaw message send --media  [--message ]}
+  \item \texttt{--media} optional; caption can be empty for media-only sends.
+  \item \texttt{--dry-run} prints the resolved payload; \texttt{--json} emits \texttt{\{ channel, to, messageId, mediaUrl, caption \}}.
+\end{itemize}
+
+
+\subsection{WhatsApp Web channel behavior}
+
+
+\begin{itemize}
+  \item Input: local file path \textbf{or} HTTP(S) URL.
+  \item Flow: load into a Buffer, detect media kind, and build the correct payload:
+  \item \textbf{Images:} resize \& recompress to JPEG (max side 2048px) targeting \texttt{agents.defaults.mediaMaxMb} (default 5 MB), capped at 6 MB.
+  \item \textbf{Audio/Voice/Video:} pass-through up to 16 MB; audio is sent as a voice note (\texttt{ptt: true}).
+  \item \textbf{Documents:} anything else, up to 100 MB, with filename preserved when available.
+  \item WhatsApp GIF-style playback: send an MP4 with \texttt{gifPlayback: true} (CLI: \texttt{--gif-playback}) so mobile clients loop inline.
+  \item MIME detection prefers magic bytes, then headers, then file extension.
+  \item Caption comes from \texttt{--message} or \texttt{reply.text}; empty caption is allowed.
+  \item Logging: non-verbose shows \texttt{↩️}/\texttt{✅}; verbose includes size and source path/URL.
+\end{itemize}
+
+
+\subsection{Auto-Reply Pipeline}
+
+
+\begin{itemize}
+  \item \texttt{getReplyFromConfig} returns \texttt{\{ text?, mediaUrl?, mediaUrls? \}}.
+  \item When media is present, the web sender resolves local paths or URLs using the same pipeline as \texttt{openclaw message send}.
+  \item Multiple media entries are sent sequentially if provided.
+\end{itemize}
+
+
+\subsection{Inbound Media to Commands (Pi)}
+
+
+\begin{itemize}
+  \item When inbound web messages include media, OpenClaw downloads to a temp file and exposes templating variables:
+  \item \texttt{\{\{MediaUrl\}\}} pseudo-URL for the inbound media.
+  \item \texttt{\{\{MediaPath\}\}} local temp path written before running the command.
+  \item When a per-session Docker sandbox is enabled, inbound media is copied into the sandbox workspace and \texttt{MediaPath}/\texttt{MediaUrl} are rewritten to a relative path like \texttt{media/inbound/}.
+  \item Media understanding (if configured via \texttt{tools.media.*} or shared \texttt{tools.media.models}) runs before templating and can insert \texttt{[Image]}, \texttt{[Audio]}, and \texttt{[Video]} blocks into \texttt{Body}.
+  \item Audio sets \texttt{\{\{Transcript\}\}} and uses the transcript for command parsing so slash commands still work.
+  \item Video and image descriptions preserve any caption text for command parsing.
+  \item By default only the first matching image/audio/video attachment is processed; set \texttt{tools.media..attachments} to process multiple attachments.
+\end{itemize}
+
+
+\subsection{Limits \& Errors}
+
+
+\textbf{Outbound send caps (WhatsApp web send)}
+
+\begin{itemize}
+  \item Images: \textasciitilde{}6 MB cap after recompression.
+  \item Audio/voice/video: 16 MB cap; documents: 100 MB cap.
+  \item Oversize or unreadable media → clear error in logs and the reply is skipped.
+\end{itemize}
+
+
+\textbf{Media understanding caps (transcription/description)}
+
+\begin{itemize}
+  \item Image default: 10 MB (\texttt{tools.media.image.maxBytes}).
+  \item Audio default: 20 MB (\texttt{tools.media.audio.maxBytes}).
+  \item Video default: 50 MB (\texttt{tools.media.video.maxBytes}).
+  \item Oversize media skips understanding, but replies still go through with the original body.
+\end{itemize}
+
+
+\subsection{Notes for Tests}
+
+
+\begin{itemize}
+  \item Cover send + reply flows for image/audio/document cases.
+  \item Validate recompression for images (size bound) and voice-note flag for audio.
+  \item Ensure multi-media replies fan out as sequential sends.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: nodes/index.md ===
+\section{Nodes}
+
+
+A \textbf{node} is a companion device (macOS/iOS/Android/headless) that connects to the Gateway \textbf{WebSocket} (same port as operators) with \texttt{role: "node"} and exposes a command surface (e.g. \texttt{canvas.\textit{}, \texttt{camera.}}, \texttt{device.\textit{}, \texttt{notifications.}}, \texttt{system.*}) via \texttt{node.invoke}. Protocol details: \href{/gateway/protocol}{Gateway protocol}.
+
+Legacy transport: \href{/gateway/bridge-protocol}{Bridge protocol} (TCP JSONL; deprecated/removed for current nodes).
+
+macOS can also run in \textbf{node mode}: the menubar app connects to the Gateway’s WS server and exposes its local canvas/camera commands as a node (so \texttt{openclaw nodes …} works against this Mac).
+
+Notes:
+
+\begin{itemize}
+  \item Nodes are \textbf{peripherals}, not gateways. They don’t run the gateway service.
+  \item Telegram/WhatsApp/etc. messages land on the \textbf{gateway}, not on nodes.
+  \item Troubleshooting runbook: \href{/nodes/troubleshooting}{/nodes/troubleshooting}
+\end{itemize}
+
+
+\subsection{Pairing + status}
+
+
+\textbf{WS nodes use device pairing.} Nodes present a device identity during \texttt{connect}; the Gateway
+creates a device pairing request for \texttt{role: node}. Approve via the devices CLI (or UI).
+
+Quick CLI:
+
+\begin{lstlisting}[language=bash]
+openclaw devices list
+openclaw devices approve <requestId>
+openclaw devices reject <requestId>
+openclaw nodes status
+openclaw nodes describe --node <idOrNameOrIp>
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{nodes status} marks a node as \textbf{paired} when its device pairing role includes \texttt{node}.
+  \item \texttt{node.pair.*} (CLI: \texttt{openclaw nodes pending/approve/reject}) is a separate gateway-owned
+\end{itemize}
+
+node pairing store; it does \textbf{not} gate the WS \texttt{connect} handshake.
+
+\subsection{Remote node host (system.run)}
+
+
+Use a \textbf{node host} when your Gateway runs on one machine and you want commands
+to execute on another. The model still talks to the \textbf{gateway}; the gateway
+forwards \texttt{exec} calls to the \textbf{node host} when \texttt{host=node} is selected.
+
+\subsubsection{What runs where}
+
+
+\begin{itemize}
+  \item \textbf{Gateway host}: receives messages, runs the model, routes tool calls.
+  \item \textbf{Node host}: executes \texttt{system.run}/\texttt{system.which} on the node machine.
+  \item \textbf{Approvals}: enforced on the node host via \texttt{\textasciitilde{}/.openclaw/exec-approvals.json}.
+\end{itemize}
+
+
+\subsubsection{Start a node host (foreground)}
+
+
+On the node machine:
+
+\begin{lstlisting}[language=bash]
+openclaw node run --host <gateway-host> --port 18789 --display-name "Build Node"
+\end{lstlisting}
+
+
+\subsubsection{Remote gateway via SSH tunnel (loopback bind)}
+
+
+If the Gateway binds to loopback (\texttt{gateway.bind=loopback}, default in local mode),
+remote node hosts cannot connect directly. Create an SSH tunnel and point the
+node host at the local end of the tunnel.
+
+Example (node host -> gateway host):
+
+\begin{lstlisting}[language=bash]
+# Terminal A (keep running): forward local 18790 -> gateway 127.0.0.1:18789
+ssh -N -L 18790:127.0.0.1:18789 user@gateway-host
+
+# Terminal B: export the gateway token and connect through the tunnel
+export OPENCLAW_GATEWAY_TOKEN="<gateway-token>"
+openclaw node run --host 127.0.0.1 --port 18790 --display-name "Build Node"
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item The token is \texttt{gateway.auth.token} from the gateway config (\texttt{\textasciitilde{}/.openclaw/openclaw.json} on the gateway host).
+  \item \texttt{openclaw node run} reads \texttt{OPENCLAW\_GATEWAY\_TOKEN} for auth.
+\end{itemize}
+
+
+\subsubsection{Start a node host (service)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw node install --host <gateway-host> --port 18789 --display-name "Build Node"
+openclaw node restart
+\end{lstlisting}
+
+
+\subsubsection{Pair + name}
+
+
+On the gateway host:
+
+\begin{lstlisting}[language=bash]
+openclaw devices list
+openclaw devices approve <requestId>
+openclaw nodes status
+\end{lstlisting}
+
+
+Naming options:
+
+\begin{itemize}
+  \item \texttt{--display-name} on \texttt{openclaw node run} / \texttt{openclaw node install} (persists in \texttt{\textasciitilde{}/.openclaw/node.json} on the node).
+  \item \texttt{openclaw nodes rename --node  --name "Build Node"} (gateway override).
+\end{itemize}
+
+
+\subsubsection{Allowlist the commands}
+
+
+Exec approvals are \textbf{per node host}. Add allowlist entries from the gateway:
+
+\begin{lstlisting}[language=bash]
+openclaw approvals allowlist add --node <id|name|ip> "/usr/bin/uname"
+openclaw approvals allowlist add --node <id|name|ip> "/usr/bin/sw_vers"
+\end{lstlisting}
+
+
+Approvals live on the node host at \texttt{\textasciitilde{}/.openclaw/exec-approvals.json}.
+
+\subsubsection{Point exec at the node}
+
+
+Configure defaults (gateway config):
+
+\begin{lstlisting}[language=bash]
+openclaw config set tools.exec.host node
+openclaw config set tools.exec.security allowlist
+openclaw config set tools.exec.node "<id-or-name>"
+\end{lstlisting}
+
+
+Or per session:
+
+\begin{lstlisting}
+/exec host=node security=allowlist node=<id-or-name>
+\end{lstlisting}
+
+
+Once set, any \texttt{exec} call with \texttt{host=node} runs on the node host (subject to the
+node allowlist/approvals).
+
+Related:
+
+\begin{itemize}
+  \item \href{/cli/node}{Node host CLI}
+  \item \href{/tools/exec}{Exec tool}
+  \item \href{/tools/exec-approvals}{Exec approvals}
+\end{itemize}
+
+
+\subsection{Invoking commands}
+
+
+Low-level (raw RPC):
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node <idOrNameOrIp> --command canvas.eval --params '{"javaScript":"location.href"}'
+\end{lstlisting}
+
+
+Higher-level helpers exist for the common “give the agent a MEDIA attachment” workflows.
+
+\subsection{Screenshots (canvas snapshots)}
+
+
+If the node is showing the Canvas (WebView), \texttt{canvas.snapshot} returns \texttt{\{ format, base64 \}}.
+
+CLI helper (writes to a temp file and prints \texttt{MEDIA:}):
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas snapshot --node <idOrNameOrIp> --format png
+openclaw nodes canvas snapshot --node <idOrNameOrIp> --format jpg --max-width 1200 --quality 0.9
+\end{lstlisting}
+
+
+\subsubsection{Canvas controls}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas present --node <idOrNameOrIp> --target https://example.com
+openclaw nodes canvas hide --node <idOrNameOrIp>
+openclaw nodes canvas navigate https://example.com --node <idOrNameOrIp>
+openclaw nodes canvas eval --node <idOrNameOrIp> --js "document.title"
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{canvas present} accepts URLs or local file paths (\texttt{--target}), plus optional \texttt{--x/--y/--width/--height} for positioning.
+  \item \texttt{canvas eval} accepts inline JS (\texttt{--js}) or a positional arg.
+\end{itemize}
+
+
+\subsubsection{A2UI (Canvas)}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes canvas a2ui push --node <idOrNameOrIp> --text "Hello"
+openclaw nodes canvas a2ui push --node <idOrNameOrIp> --jsonl ./payload.jsonl
+openclaw nodes canvas a2ui reset --node <idOrNameOrIp>
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Only A2UI v0.8 JSONL is supported (v0.9/createSurface is rejected).
+\end{itemize}
+
+
+\subsection{Photos + videos (node camera)}
+
+
+Photos (\texttt{jpg}):
+
+\begin{lstlisting}[language=bash]
+openclaw nodes camera list --node <idOrNameOrIp>
+openclaw nodes camera snap --node <idOrNameOrIp>            # default: both facings (2 MEDIA lines)
+openclaw nodes camera snap --node <idOrNameOrIp> --facing front
+\end{lstlisting}
+
+
+Video clips (\texttt{mp4}):
+
+\begin{lstlisting}[language=bash]
+openclaw nodes camera clip --node <idOrNameOrIp> --duration 10s
+openclaw nodes camera clip --node <idOrNameOrIp> --duration 3000 --no-audio
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item The node must be \textbf{foregrounded} for \texttt{canvas.\textit{} and \texttt{camera.}} (background calls return \texttt{NODE\_BACKGROUND\_UNAVAILABLE}).
+  \item Clip duration is clamped (currently \texttt{<= 60s}) to avoid oversized base64 payloads.
+  \item Android will prompt for \texttt{CAMERA}/\texttt{RECORD\_AUDIO} permissions when possible; denied permissions fail with \texttt{*\_PERMISSION\_REQUIRED}.
+\end{itemize}
+
+
+\subsection{Screen recordings (nodes)}
+
+
+Nodes expose \texttt{screen.record} (mp4). Example:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes screen record --node <idOrNameOrIp> --duration 10s --fps 10
+openclaw nodes screen record --node <idOrNameOrIp> --duration 10s --fps 10 --no-audio
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{screen.record} requires the node app to be foregrounded.
+  \item Android will show the system screen-capture prompt before recording.
+  \item Screen recordings are clamped to \texttt{<= 60s}.
+  \item \texttt{--no-audio} disables microphone capture (supported on iOS/Android; macOS uses system capture audio).
+  \item Use \texttt{--screen } to select a display when multiple screens are available.
+\end{itemize}
+
+
+\subsection{Location (nodes)}
+
+
+Nodes expose \texttt{location.get} when Location is enabled in settings.
+
+CLI helper:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes location get --node <idOrNameOrIp>
+openclaw nodes location get --node <idOrNameOrIp> --accuracy precise --max-age 15000 --location-timeout 10000
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Location is \textbf{off by default}.
+  \item “Always” requires system permission; background fetch is best-effort.
+  \item The response includes lat/lon, accuracy (meters), and timestamp.
+\end{itemize}
+
+
+\subsection{SMS (Android nodes)}
+
+
+Android nodes can expose \texttt{sms.send} when the user grants \textbf{SMS} permission and the device supports telephony.
+
+Low-level invoke:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node <idOrNameOrIp> --command sms.send --params '{"to":"+15555550123","message":"Hello from OpenClaw"}'
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item The permission prompt must be accepted on the Android device before the capability is advertised.
+  \item Wi-Fi-only devices without telephony will not advertise \texttt{sms.send}.
+\end{itemize}
+
+
+\subsection{Android device + personal data commands}
+
+
+Android nodes can advertise additional command families when the corresponding capabilities are enabled.
+
+Available families:
+
+\begin{itemize}
+  \item \texttt{device.status}, \texttt{device.info}, \texttt{device.permissions}, \texttt{device.health}
+  \item \texttt{notifications.list}, \texttt{notifications.actions}
+  \item \texttt{photos.latest}
+  \item \texttt{contacts.search}, \texttt{contacts.add}
+  \item \texttt{calendar.events}, \texttt{calendar.add}
+  \item \texttt{motion.activity}, \texttt{motion.pedometer}
+  \item \texttt{app.update}
+\end{itemize}
+
+
+Example invokes:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes invoke --node <idOrNameOrIp> --command device.status --params '{}'
+openclaw nodes invoke --node <idOrNameOrIp> --command notifications.list --params '{}'
+openclaw nodes invoke --node <idOrNameOrIp> --command photos.latest --params '{"limit":1}'
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Motion commands are capability-gated by available sensors.
+  \item \texttt{app.update} is permission + policy gated by the node runtime.
+\end{itemize}
+
+
+\subsection{System commands (node host / mac node)}
+
+
+The macOS node exposes \texttt{system.run}, \texttt{system.notify}, and \texttt{system.execApprovals.get/set}.
+The headless node host exposes \texttt{system.run}, \texttt{system.which}, and \texttt{system.execApprovals.get/set}.
+
+Examples:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes run --node <idOrNameOrIp> -- echo "Hello from mac node"
+openclaw nodes notify --node <idOrNameOrIp> --title "Ping" --body "Gateway ready"
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item \texttt{system.run} returns stdout/stderr/exit code in the payload.
+  \item \texttt{system.notify} respects notification permission state on the macOS app.
+  \item Unrecognized node \texttt{platform} / \texttt{deviceFamily} metadata uses a conservative default allowlist that excludes \texttt{system.run} and \texttt{system.which}. If you intentionally need those commands for an unknown platform, add them explicitly via \texttt{gateway.nodes.allowCommands}.
+  \item \texttt{system.run} supports \texttt{--cwd}, \texttt{--env KEY=VAL}, \texttt{--command-timeout}, and \texttt{--needs-screen-recording}.
+  \item For shell wrappers (\texttt{bash|sh|zsh ... -c/-lc}), request-scoped \texttt{--env} values are reduced to an explicit allowlist (\texttt{TERM}, \texttt{LANG}, \texttt{LC\_*}, \texttt{COLORTERM}, \texttt{NO\_COLOR}, \texttt{FORCE\_COLOR}).
+  \item For allow-always decisions in allowlist mode, known dispatch wrappers (\texttt{env}, \texttt{nice}, \texttt{nohup}, \texttt{stdbuf}, \texttt{timeout}) persist inner executable paths instead of wrapper paths. If unwrapping is not safe, no allowlist entry is persisted automatically.
+  \item On Windows node hosts in allowlist mode, shell-wrapper runs via \texttt{cmd.exe /c} require approval (allowlist entry alone does not auto-allow the wrapper form).
+  \item \texttt{system.notify} supports \texttt{--priority } and \texttt{--delivery }.
+  \item Node hosts ignore \texttt{PATH} overrides and strip dangerous startup/shell keys (\texttt{DYLD\_\textit{}, \texttt{LD\_}}, \texttt{NODE\_OPTIONS}, \texttt{PYTHON\textit{}, \texttt{PERL}}, \texttt{RUBYOPT}, \texttt{SHELLOPTS}, \texttt{PS4}). If you need extra PATH entries, configure the node host service environment (or install tools in standard locations) instead of passing \texttt{PATH} via \texttt{--env}.
+  \item On macOS node mode, \texttt{system.run} is gated by exec approvals in the macOS app (Settings → Exec approvals).
+\end{itemize}
+
+Ask/allowlist/full behave the same as the headless node host; denied prompts return \texttt{SYSTEM\_RUN\_DENIED}.
+\begin{itemize}
+  \item On headless node host, \texttt{system.run} is gated by exec approvals (\texttt{\textasciitilde{}/.openclaw/exec-approvals.json}).
+\end{itemize}
+
+
+\subsection{Exec node binding}
+
+
+When multiple nodes are available, you can bind exec to a specific node.
+This sets the default node for \texttt{exec host=node} (and can be overridden per agent).
+
+Global default:
+
+\begin{lstlisting}[language=bash]
+openclaw config set tools.exec.node "node-id-or-name"
+\end{lstlisting}
+
+
+Per-agent override:
+
+\begin{lstlisting}[language=bash]
+openclaw config get agents.list
+openclaw config set agents.list[0].tools.exec.node "node-id-or-name"
+\end{lstlisting}
+
+
+Unset to allow any node:
+
+\begin{lstlisting}[language=bash]
+openclaw config unset tools.exec.node
+openclaw config unset agents.list[0].tools.exec.node
+\end{lstlisting}
+
+
+\subsection{Permissions map}
+
+
+Nodes may include a \texttt{permissions} map in \texttt{node.list} / \texttt{node.describe}, keyed by permission name (e.g. \texttt{screenRecording}, \texttt{accessibility}) with boolean values (\texttt{true} = granted).
+
+\subsection{Headless node host (cross-platform)}
+
+
+OpenClaw can run a \textbf{headless node host} (no UI) that connects to the Gateway
+WebSocket and exposes \texttt{system.run} / \texttt{system.which}. This is useful on Linux/Windows
+or for running a minimal node alongside a server.
+
+Start it:
+
+\begin{lstlisting}[language=bash]
+openclaw node run --host <gateway-host> --port 18789
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Pairing is still required (the Gateway will show a device pairing prompt).
+  \item The node host stores its node id, token, display name, and gateway connection info in \texttt{\textasciitilde{}/.openclaw/node.json}.
+  \item Exec approvals are enforced locally via \texttt{\textasciitilde{}/.openclaw/exec-approvals.json}
+\end{itemize}
+
+(see \href{/tools/exec-approvals}{Exec approvals}).
+\begin{itemize}
+  \item On macOS, the headless node host executes \texttt{system.run} locally by default. Set
+\end{itemize}
+
+\texttt{OPENCLAW\_NODE\_EXEC\_HOST=app} to route \texttt{system.run} through the companion app exec host; add
+\texttt{OPENCLAW\_NODE\_EXEC\_FALLBACK=0} to require the app host and fail closed if it is unavailable.
+\begin{itemize}
+  \item Add \texttt{--tls} / \texttt{--tls-fingerprint} when the Gateway WS uses TLS.
+\end{itemize}
+
+
+\subsection{Mac node mode}
+
+
+\begin{itemize}
+  \item The macOS menubar app connects to the Gateway WS server as a node (so \texttt{openclaw nodes …} works against this Mac).
+  \item In remote mode, the app opens an SSH tunnel for the Gateway port and connects to \texttt{localhost}.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: nodes/location-command.md ===
+\section{Location command (nodes)}
+
+
+\subsection{TL;DR}
+
+
+\begin{itemize}
+  \item \texttt{location.get} is a node command (via \texttt{node.invoke}).
+  \item Off by default.
+  \item Settings use a selector: Off / While Using / Always.
+  \item Separate toggle: Precise Location.
+\end{itemize}
+
+
+\subsection{Why a selector (not just a switch)}
+
+
+OS permissions are multi-level. We can expose a selector in-app, but the OS still decides the actual grant.
+
+\begin{itemize}
+  \item iOS/macOS: user can choose \textbf{While Using} or \textbf{Always} in system prompts/Settings. App can request upgrade, but OS may require Settings.
+  \item Android: background location is a separate permission; on Android 10+ it often requires a Settings flow.
+  \item Precise location is a separate grant (iOS 14+ “Precise”, Android “fine” vs “coarse”).
+\end{itemize}
+
+
+Selector in UI drives our requested mode; actual grant lives in OS settings.
+
+\subsection{Settings model}
+
+
+Per node device:
+
+\begin{itemize}
+  \item \texttt{location.enabledMode}: \texttt{off | whileUsing | always}
+  \item \texttt{location.preciseEnabled}: bool
+\end{itemize}
+
+
+UI behavior:
+
+\begin{itemize}
+  \item Selecting \texttt{whileUsing} requests foreground permission.
+  \item Selecting \texttt{always} first ensures \texttt{whileUsing}, then requests background (or sends user to Settings if required).
+  \item If OS denies requested level, revert to the highest granted level and show status.
+\end{itemize}
+
+
+\subsection{Permissions mapping (node.permissions)}
+
+
+Optional. macOS node reports \texttt{location} via the permissions map; iOS/Android may omit it.
+
+\subsection{Command: location.get}
+
+
+Called via \texttt{node.invoke}.
+
+Params (suggested):
+
+\begin{lstlisting}[language=json]
+{
+  "timeoutMs": 10000,
+  "maxAgeMs": 15000,
+  "desiredAccuracy": "coarse|balanced|precise"
+}
+\end{lstlisting}
+
+
+Response payload:
+
+\begin{lstlisting}[language=json]
+{
+  "lat": 48.20849,
+  "lon": 16.37208,
+  "accuracyMeters": 12.5,
+  "altitudeMeters": 182.0,
+  "speedMps": 0.0,
+  "headingDeg": 270.0,
+  "timestamp": "2026-01-03T12:34:56.000Z",
+  "isPrecise": true,
+  "source": "gps|wifi|cell|unknown"
+}
+\end{lstlisting}
+
+
+Errors (stable codes):
+
+\begin{itemize}
+  \item \texttt{LOCATION\_DISABLED}: selector is off.
+  \item \texttt{LOCATION\_PERMISSION\_REQUIRED}: permission missing for requested mode.
+  \item \texttt{LOCATION\_BACKGROUND\_UNAVAILABLE}: app is backgrounded but only While Using allowed.
+  \item \texttt{LOCATION\_TIMEOUT}: no fix in time.
+  \item \texttt{LOCATION\_UNAVAILABLE}: system failure / no providers.
+\end{itemize}
+
+
+\subsection{Background behavior (future)}
+
+
+Goal: model can request location even when node is backgrounded, but only when:
+
+\begin{itemize}
+  \item User selected \textbf{Always}.
+  \item OS grants background location.
+  \item App is allowed to run in background for location (iOS background mode / Android foreground service or special allowance).
+\end{itemize}
+
+
+Push-triggered flow (future):
+
+\begin{enumerate}
+  \item Gateway sends a push to the node (silent push or FCM data).
+  \item Node wakes briefly and requests location from the device.
+  \item Node forwards payload to Gateway.
+\end{enumerate}
+
+
+Notes:
+
+\begin{itemize}
+  \item iOS: Always permission + background location mode required. Silent push may be throttled; expect intermittent failures.
+  \item Android: background location may require a foreground service; otherwise, expect denial.
+\end{itemize}
+
+
+\subsection{Model/tooling integration}
+
+
+\begin{itemize}
+  \item Tool surface: \texttt{nodes} tool adds \texttt{location\_get} action (node required).
+  \item CLI: \texttt{openclaw nodes location get --node }.
+  \item Agent guidelines: only call when user enabled location and understands the scope.
+\end{itemize}
+
+
+\subsection{UX copy (suggested)}
+
+
+\begin{itemize}
+  \item Off: “Location sharing is disabled.”
+  \item While Using: “Only when OpenClaw is open.”
+  \item Always: “Allow background location. Requires system permission.”
+  \item Precise: “Use precise GPS location. Toggle off to share approximate location.”
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: nodes/media-understanding.md ===
+\section{Media Understanding (Inbound) — 2026-01-17}
+
+
+OpenClaw can \textbf{summarize inbound media} (image/audio/video) before the reply pipeline runs. It auto‑detects when local tools or provider keys are available, and can be disabled or customized. If understanding is off, models still receive the original files/URLs as usual.
+
+\subsection{Goals}
+
+
+\begin{itemize}
+  \item Optional: pre‑digest inbound media into short text for faster routing + better command parsing.
+  \item Preserve original media delivery to the model (always).
+  \item Support \textbf{provider APIs} and \textbf{CLI fallbacks}.
+  \item Allow multiple models with ordered fallback (error/size/timeout).
+\end{itemize}
+
+
+\subsection{High‑level behavior}
+
+
+\begin{enumerate}
+  \item Collect inbound attachments (\texttt{MediaPaths}, \texttt{MediaUrls}, \texttt{MediaTypes}).
+  \item For each enabled capability (image/audio/video), select attachments per policy (default: \textbf{first}).
+  \item Choose the first eligible model entry (size + capability + auth).
+  \item If a model fails or the media is too large, \textbf{fall back to the next entry}.
+  \item On success:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{Body} becomes \texttt{[Image]}, \texttt{[Audio]}, or \texttt{[Video]} block.
+  \item Audio sets \texttt{\{\{Transcript\}\}}; command parsing uses caption text when present,
+\end{itemize}
+
+otherwise the transcript.
+\begin{itemize}
+  \item Captions are preserved as \texttt{User text:} inside the block.
+\end{itemize}
+
+
+If understanding fails or is disabled, \textbf{the reply flow continues} with the original body + attachments.
+
+\subsection{Config overview}
+
+
+\texttt{tools.media} supports \textbf{shared models} plus per‑capability overrides:
+
+\begin{itemize}
+  \item \texttt{tools.media.models}: shared model list (use \texttt{capabilities} to gate).
+  \item \texttt{tools.media.image} / \texttt{tools.media.audio} / \texttt{tools.media.video}:
+  \item defaults (\texttt{prompt}, \texttt{maxChars}, \texttt{maxBytes}, \texttt{timeoutSeconds}, \texttt{language})
+  \item provider overrides (\texttt{baseUrl}, \texttt{headers}, \texttt{providerOptions})
+  \item Deepgram audio options via \texttt{tools.media.audio.providerOptions.deepgram}
+  \item audio transcript echo controls (\texttt{echoTranscript}, default \texttt{false}; \texttt{echoFormat})
+  \item optional \textbf{per‑capability \texttt{models} list} (preferred before shared models)
+  \item \texttt{attachments} policy (\texttt{mode}, \texttt{maxAttachments}, \texttt{prefer})
+  \item \texttt{scope} (optional gating by channel/chatType/session key)
+  \item \texttt{tools.media.concurrency}: max concurrent capability runs (default \textbf{2}).
+\end{itemize}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      models: [
+        /* shared list */
+      ],
+      image: {
+        /* optional overrides */
+      },
+      audio: {
+        /* optional overrides */
+        echoTranscript: true,
+        echoFormat: '📝 "{transcript}"',
+      },
+      video: {
+        /* optional overrides */
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Model entries}
+
+
+Each \texttt{models[]} entry can be \textbf{provider} or \textbf{CLI}:
+
+\begin{lstlisting}[language=json]
+{
+  type: "provider", // default if omitted
+  provider: "openai",
+  model: "gpt-5.2",
+  prompt: "Describe the image in <= 500 chars.",
+  maxChars: 500,
+  maxBytes: 10485760,
+  timeoutSeconds: 60,
+  capabilities: ["image"], // optional, used for multi‑modal entries
+  profile: "vision-profile",
+  preferredProfile: "vision-fallback",
+}
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=json]
+{
+  type: "cli",
+  command: "gemini",
+  args: [
+    "-m",
+    "gemini-3-flash",
+    "--allowed-tools",
+    "read_file",
+    "Read the media at {{MediaPath}} and describe it in <= {{MaxChars}} characters.",
+  ],
+  maxChars: 500,
+  maxBytes: 52428800,
+  timeoutSeconds: 120,
+  capabilities: ["video", "image"],
+}
+\end{lstlisting}
+
+
+CLI templates can also use:
+
+\begin{itemize}
+  \item \texttt{\{\{MediaDir\}\}} (directory containing the media file)
+  \item \texttt{\{\{OutputDir\}\}} (scratch dir created for this run)
+  \item \texttt{\{\{OutputBase\}\}} (scratch file base path, no extension)
+\end{itemize}
+
+
+\subsection{Defaults and limits}
+
+
+Recommended defaults:
+
+\begin{itemize}
+  \item \texttt{maxChars}: \textbf{500} for image/video (short, command‑friendly)
+  \item \texttt{maxChars}: \textbf{unset} for audio (full transcript unless you set a limit)
+  \item \texttt{maxBytes}:
+  \item image: \textbf{10MB}
+  \item audio: \textbf{20MB}
+  \item video: \textbf{50MB}
+\end{itemize}
+
+
+Rules:
+
+\begin{itemize}
+  \item If media exceeds \texttt{maxBytes}, that model is skipped and the \textbf{next model is tried}.
+  \item Audio files smaller than \textbf{1024 bytes} are treated as empty/corrupt and skipped before provider/CLI transcription.
+  \item If the model returns more than \texttt{maxChars}, output is trimmed.
+  \item \texttt{prompt} defaults to simple “Describe the \{media\}.” plus the \texttt{maxChars} guidance (image/video only).
+  \item If \texttt{.enabled: true} but no models are configured, OpenClaw tries the
+\end{itemize}
+
+\textbf{active reply model} when its provider supports the capability.
+
+\subsubsection{Auto-detect media understanding (default)}
+
+
+If \texttt{tools.media..enabled} is \textbf{not} set to \texttt{false} and you haven’t
+configured models, OpenClaw auto-detects in this order and **stops at the first
+working option**:
+
+\begin{enumerate}
+  \item \textbf{Local CLIs} (audio only; if installed)
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{sherpa-onnx-offline} (requires \texttt{SHERPA\_ONNX\_MODEL\_DIR} with encoder/decoder/joiner/tokens)
+  \item \texttt{whisper-cli} (\texttt{whisper-cpp}; uses \texttt{WHISPER\_CPP\_MODEL} or the bundled tiny model)
+  \item \texttt{whisper} (Python CLI; downloads models automatically)
+\end{itemize}
+
+\begin{enumerate}
+  \item \textbf{Gemini CLI} (\texttt{gemini}) using \texttt{read\_many\_files}
+  \item \textbf{Provider keys}
+\end{enumerate}
+
+\begin{itemize}
+  \item Audio: OpenAI → Groq → Deepgram → Google
+  \item Image: OpenAI → Anthropic → Google → MiniMax
+  \item Video: Google
+\end{itemize}
+
+
+To disable auto-detection, set:
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: false,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Note: Binary detection is best-effort across macOS/Linux/Windows; ensure the CLI is on \texttt{PATH} (we expand \texttt{\textasciitilde{}}), or set an explicit CLI model with a full command path.
+
+\subsubsection{Proxy environment support (provider models)}
+
+
+When provider-based \textbf{audio} and \textbf{video} media understanding is enabled, OpenClaw
+honors standard outbound proxy environment variables for provider HTTP calls:
+
+\begin{itemize}
+  \item \texttt{HTTPS\_PROXY}
+  \item \texttt{HTTP\_PROXY}
+  \item \texttt{https\_proxy}
+  \item \texttt{http\_proxy}
+\end{itemize}
+
+
+If no proxy env vars are set, media understanding uses direct egress.
+If the proxy value is malformed, OpenClaw logs a warning and falls back to direct
+fetch.
+
+\subsection{Capabilities (optional)}
+
+
+If you set \texttt{capabilities}, the entry only runs for those media types. For shared
+lists, OpenClaw can infer defaults:
+
+\begin{itemize}
+  \item \texttt{openai}, \texttt{anthropic}, \texttt{minimax}: \textbf{image}
+  \item \texttt{google} (Gemini API): \textbf{image + audio + video}
+  \item \texttt{groq}: \textbf{audio}
+  \item \texttt{deepgram}: \textbf{audio}
+\end{itemize}
+
+
+For CLI entries, \textbf{set \texttt{capabilities} explicitly} to avoid surprising matches.
+If you omit \texttt{capabilities}, the entry is eligible for the list it appears in.
+
+\subsection{Provider support matrix (OpenClaw integrations)}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Capability & Provider integration & Notes \\
+\hline
+Image & OpenAI / Anthropic / Google / others via \texttt{pi-ai} & Any image-capable model in the registry works. \\
+\hline
+Audio & OpenAI, Groq, Deepgram, Google, Mistral & Provider transcription (Whisper/Deepgram/Gemini/Voxtral). \\
+\hline
+Video & Google (Gemini API) & Provider video understanding. \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Model selection guidance}
+
+
+\begin{itemize}
+  \item Prefer the strongest latest-generation model available for each media capability when quality and safety matter.
+  \item For tool-enabled agents handling untrusted inputs, avoid older/weaker media models.
+  \item Keep at least one fallback per capability for availability (quality model + faster/cheaper model).
+  \item CLI fallbacks (\texttt{whisper-cli}, \texttt{whisper}, \texttt{gemini}) are useful when provider APIs are unavailable.
+  \item \texttt{parakeet-mlx} note: with \texttt{--output-dir}, OpenClaw reads \texttt{/.txt} when output format is \texttt{txt} (or unspecified); non-\texttt{txt} formats fall back to stdout.
+\end{itemize}
+
+
+\subsection{Attachment policy}
+
+
+Per‑capability \texttt{attachments} controls which attachments are processed:
+
+\begin{itemize}
+  \item \texttt{mode}: \texttt{first} (default) or \texttt{all}
+  \item \texttt{maxAttachments}: cap the number processed (default \textbf{1})
+  \item \texttt{prefer}: \texttt{first}, \texttt{last}, \texttt{path}, \texttt{url}
+\end{itemize}
+
+
+When \texttt{mode: "all"}, outputs are labeled \texttt{[Image 1/2]}, \texttt{[Audio 2/2]}, etc.
+
+\subsection{Config examples}
+
+
+\subsubsection{1) Shared models list + overrides}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      models: [
+        { provider: "openai", model: "gpt-5.2", capabilities: ["image"] },
+        {
+          provider: "google",
+          model: "gemini-3-flash-preview",
+          capabilities: ["image", "audio", "video"],
+        },
+        {
+          type: "cli",
+          command: "gemini",
+          args: [
+            "-m",
+            "gemini-3-flash",
+            "--allowed-tools",
+            "read_file",
+            "Read the media at {{MediaPath}} and describe it in <= {{MaxChars}} characters.",
+          ],
+          capabilities: ["image", "video"],
+        },
+      ],
+      audio: {
+        attachments: { mode: "all", maxAttachments: 2 },
+      },
+      video: {
+        maxChars: 500,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{2) Audio + Video only (image off)}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [
+          { provider: "openai", model: "gpt-4o-mini-transcribe" },
+          {
+            type: "cli",
+            command: "whisper",
+            args: ["--model", "base", "{{MediaPath}}"],
+          },
+        ],
+      },
+      video: {
+        enabled: true,
+        maxChars: 500,
+        models: [
+          { provider: "google", model: "gemini-3-flash-preview" },
+          {
+            type: "cli",
+            command: "gemini",
+            args: [
+              "-m",
+              "gemini-3-flash",
+              "--allowed-tools",
+              "read_file",
+              "Read the media at {{MediaPath}} and describe it in <= {{MaxChars}} characters.",
+            ],
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{3) Optional image understanding}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      image: {
+        enabled: true,
+        maxBytes: 10485760,
+        maxChars: 500,
+        models: [
+          { provider: "openai", model: "gpt-5.2" },
+          { provider: "anthropic", model: "claude-opus-4-6" },
+          {
+            type: "cli",
+            command: "gemini",
+            args: [
+              "-m",
+              "gemini-3-flash",
+              "--allowed-tools",
+              "read_file",
+              "Read the media at {{MediaPath}} and describe it in <= {{MaxChars}} characters.",
+            ],
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{4) Multi‑modal single entry (explicit capabilities)}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    media: {
+      image: {
+        models: [
+          {
+            provider: "google",
+            model: "gemini-3-pro-preview",
+            capabilities: ["image", "video", "audio"],
+          },
+        ],
+      },
+      audio: {
+        models: [
+          {
+            provider: "google",
+            model: "gemini-3-pro-preview",
+            capabilities: ["image", "video", "audio"],
+          },
+        ],
+      },
+      video: {
+        models: [
+          {
+            provider: "google",
+            model: "gemini-3-pro-preview",
+            capabilities: ["image", "video", "audio"],
+          },
+        ],
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Status output}
+
+
+When media understanding runs, \texttt{/status} includes a short summary line:
+
+\begin{lstlisting}
+📎 Media: image ok (openai/gpt-5.2) · audio skipped (maxBytes)
+\end{lstlisting}
+
+
+This shows per‑capability outcomes and the chosen provider/model when applicable.
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Understanding is \textbf{best‑effort}. Errors do not block replies.
+  \item Attachments are still passed to models even when understanding is disabled.
+  \item Use \texttt{scope} to limit where understanding runs (e.g. only DMs).
+\end{itemize}
+
+
+\subsection{Related docs}
+
+
+\begin{itemize}
+  \item \href{/gateway/configuration}{Configuration}
+  \item \href{/nodes/images}{Image \& Media Support}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: nodes/talk.md ===
+\section{Talk Mode}
+
+
+Talk mode is a continuous voice conversation loop:
+
+\begin{enumerate}
+  \item Listen for speech
+  \item Send transcript to the model (main session, chat.send)
+  \item Wait for the response
+  \item Speak it via ElevenLabs (streaming playback)
+\end{enumerate}
+
+
+\subsection{Behavior (macOS)}
+
+
+\begin{itemize}
+  \item \textbf{Always-on overlay} while Talk mode is enabled.
+  \item \textbf{Listening → Thinking → Speaking} phase transitions.
+  \item On a \textbf{short pause} (silence window), the current transcript is sent.
+  \item Replies are \textbf{written to WebChat} (same as typing).
+  \item \textbf{Interrupt on speech} (default on): if the user starts talking while the assistant is speaking, we stop playback and note the interruption timestamp for the next prompt.
+\end{itemize}
+
+
+\subsection{Voice directives in replies}
+
+
+The assistant may prefix its reply with a \textbf{single JSON line} to control voice:
+
+\begin{lstlisting}[language=json]
+{ "voice": "<voice-id>", "once": true }
+\end{lstlisting}
+
+
+Rules:
+
+\begin{itemize}
+  \item First non-empty line only.
+  \item Unknown keys are ignored.
+  \item \texttt{once: true} applies to the current reply only.
+  \item Without \texttt{once}, the voice becomes the new default for Talk mode.
+  \item The JSON line is stripped before TTS playback.
+\end{itemize}
+
+
+Supported keys:
+
+\begin{itemize}
+  \item \texttt{voice} / \texttt{voice\_id} / \texttt{voiceId}
+  \item \texttt{model} / \texttt{model\_id} / \texttt{modelId}
+  \item \texttt{speed}, \texttt{rate} (WPM), \texttt{stability}, \texttt{similarity}, \texttt{style}, \texttt{speakerBoost}
+  \item \texttt{seed}, \texttt{normalize}, \texttt{lang}, \texttt{output\_format}, \texttt{latency\_tier}
+  \item \texttt{once}
+\end{itemize}
+
+
+\subsection{Config (\textasciitilde{}/.openclaw/openclaw.json)}
+
+
+\begin{lstlisting}[language=json]
+{
+  talk: {
+    voiceId: "elevenlabs_voice_id",
+    modelId: "eleven_v3",
+    outputFormat: "mp3_44100_128",
+    apiKey: "elevenlabs_api_key",
+    interruptOnSpeech: true,
+  },
+}
+\end{lstlisting}
+
+
+Defaults:
+
+\begin{itemize}
+  \item \texttt{interruptOnSpeech}: true
+  \item \texttt{voiceId}: falls back to \texttt{ELEVENLABS\_VOICE\_ID} / \texttt{SAG\_VOICE\_ID} (or first ElevenLabs voice when API key is available)
+  \item \texttt{modelId}: defaults to \texttt{eleven\_v3} when unset
+  \item \texttt{apiKey}: falls back to \texttt{ELEVENLABS\_API\_KEY} (or gateway shell profile if available)
+  \item \texttt{outputFormat}: defaults to \texttt{pcm\_44100} on macOS/iOS and \texttt{pcm\_24000} on Android (set \texttt{mp3\_*} to force MP3 streaming)
+\end{itemize}
+
+
+\subsection{macOS UI}
+
+
+\begin{itemize}
+  \item Menu bar toggle: \textbf{Talk}
+  \item Config tab: \textbf{Talk Mode} group (voice id + interrupt toggle)
+  \item Overlay:
+  \item \textbf{Listening}: cloud pulses with mic level
+  \item \textbf{Thinking}: sinking animation
+  \item \textbf{Speaking}: radiating rings
+  \item Click cloud: stop speaking
+  \item Click X: exit Talk mode
+\end{itemize}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item Requires Speech + Microphone permissions.
+  \item Uses \texttt{chat.send} against session key \texttt{main}.
+  \item TTS uses ElevenLabs streaming API with \texttt{ELEVENLABS\_API\_KEY} and incremental playback on macOS/iOS/Android for lower latency.
+  \item \texttt{stability} for \texttt{eleven\_v3} is validated to \texttt{0.0}, \texttt{0.5}, or \texttt{1.0}; other models accept \texttt{0..1}.
+  \item \texttt{latency\_tier} is validated to \texttt{0..4} when set.
+  \item Android supports \texttt{pcm\_16000}, \texttt{pcm\_22050}, \texttt{pcm\_24000}, and \texttt{pcm\_44100} output formats for low-latency AudioTrack streaming.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: nodes/troubleshooting.md ===
+\section{Node troubleshooting}
+
+
+Use this page when a node is visible in status but node tools fail.
+
+\subsection{Command ladder}
+
+
+\begin{lstlisting}[language=bash]
+openclaw status
+openclaw gateway status
+openclaw logs --follow
+openclaw doctor
+openclaw channels status --probe
+\end{lstlisting}
+
+
+Then run node specific checks:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes status
+openclaw nodes describe --node <idOrNameOrIp>
+openclaw approvals get --node <idOrNameOrIp>
+\end{lstlisting}
+
+
+Healthy signals:
+
+\begin{itemize}
+  \item Node is connected and paired for role \texttt{node}.
+  \item \texttt{nodes describe} includes the capability you are calling.
+  \item Exec approvals show expected mode/allowlist.
+\end{itemize}
+
+
+\subsection{Foreground requirements}
+
+
+\texttt{canvas.\textit{}, \texttt{camera.}}, and \texttt{screen.*} are foreground only on iOS/Android nodes.
+
+Quick check and fix:
+
+\begin{lstlisting}[language=bash]
+openclaw nodes describe --node <idOrNameOrIp>
+openclaw nodes canvas snapshot --node <idOrNameOrIp>
+openclaw logs --follow
+\end{lstlisting}
+
+
+If you see \texttt{NODE\_BACKGROUND\_UNAVAILABLE}, bring the node app to the foreground and retry.
+
+\subsection{Permissions matrix}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+Capability & iOS & Android & macOS node app & Typical failure code \\
+\hline
+\texttt{camera.snap}, \texttt{camera.clip} & Camera (+ mic for clip audio) & Camera (+ mic for clip audio) & Camera (+ mic for clip audio) & \texttt{*\_PERMISSION\_REQUIRED} \\
+\hline
+\texttt{screen.record} & Screen Recording (+ mic optional) & Screen capture prompt (+ mic optional) & Screen Recording & \texttt{*\_PERMISSION\_REQUIRED} \\
+\hline
+\texttt{location.get} & While Using or Always (depends on mode) & Foreground/Background location based on mode & Location permission & \texttt{LOCATION\_PERMISSION\_REQUIRED} \\
+\hline
+\texttt{system.run} & n/a (node host path) & n/a (node host path) & Exec approvals required & \texttt{SYSTEM\_RUN\_DENIED} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Pairing versus approvals}
+
+
+These are different gates:
+
+\begin{enumerate}
+  \item \textbf{Device pairing}: can this node connect to the gateway?
+  \item \textbf{Exec approvals}: can this node run a specific shell command?
+\end{enumerate}
+
+
+Quick checks:
+
+\begin{lstlisting}[language=bash]
+openclaw devices list
+openclaw nodes status
+openclaw approvals get --node <idOrNameOrIp>
+openclaw approvals allowlist add --node <idOrNameOrIp> "/usr/bin/uname"
+\end{lstlisting}
+
+
+If pairing is missing, approve the node device first.
+If pairing is fine but \texttt{system.run} fails, fix exec approvals/allowlist.
+
+\subsection{Common node error codes}
+
+
+\begin{itemize}
+  \item \texttt{NODE\_BACKGROUND\_UNAVAILABLE} → app is backgrounded; bring it foreground.
+  \item \texttt{CAMERA\_DISABLED} → camera toggle disabled in node settings.
+  \item \texttt{*\_PERMISSION\_REQUIRED} → OS permission missing/denied.
+  \item \texttt{LOCATION\_DISABLED} → location mode is off.
+  \item \texttt{LOCATION\_PERMISSION\_REQUIRED} → requested location mode not granted.
+  \item \texttt{LOCATION\_BACKGROUND\_UNAVAILABLE} → app is backgrounded but only While Using permission exists.
+  \item \texttt{SYSTEM\_RUN\_DENIED: approval required} → exec request needs explicit approval.
+  \item \texttt{SYSTEM\_RUN\_DENIED: allowlist miss} → command blocked by allowlist mode.
+\end{itemize}
+
+On Windows node hosts, shell-wrapper forms like \texttt{cmd.exe /c ...} are treated as allowlist misses in
+allowlist mode unless approved via ask flow.
+
+\subsection{Fast recovery loop}
+
+
+\begin{lstlisting}[language=bash]
+openclaw nodes status
+openclaw nodes describe --node <idOrNameOrIp>
+openclaw approvals get --node <idOrNameOrIp>
+openclaw logs --follow
+\end{lstlisting}
+
+
+If still stuck:
+
+\begin{itemize}
+  \item Re-approve device pairing.
+  \item Re-open node app (foreground).
+  \item Re-grant OS permissions.
+  \item Recreate/adjust exec approval policy.
+\end{itemize}
+
+
+Related:
+
+\begin{itemize}
+  \item \href{/nodes/index}{/nodes/index}
+  \item \href{/nodes/camera}{/nodes/camera}
+  \item \href{/nodes/location-command}{/nodes/location-command}
+  \item \href{/tools/exec-approvals}{/tools/exec-approvals}
+  \item \href{/gateway/pairing}{/gateway/pairing}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: nodes/voicewake.md ===
+\section{Voice Wake (Global Wake Words)}
+
+
+OpenClaw treats \textbf{wake words as a single global list} owned by the \textbf{Gateway}.
+
+\begin{itemize}
+  \item There are \textbf{no per-node custom wake words}.
+  \item \textbf{Any node/app UI may edit} the list; changes are persisted by the Gateway and broadcast to everyone.
+  \item macOS and iOS keep local \textbf{Voice Wake enabled/disabled} toggles (local UX + permissions differ).
+  \item Android currently keeps Voice Wake off and uses a manual mic flow in the Voice tab.
+\end{itemize}
+
+
+\subsection{Storage (Gateway host)}
+
+
+Wake words are stored on the gateway machine at:
+
+\begin{itemize}
+  \item \texttt{\textasciitilde{}/.openclaw/settings/voicewake.json}
+\end{itemize}
+
+
+Shape:
+
+\begin{lstlisting}[language=json]
+{ "triggers": ["openclaw", "claude", "computer"], "updatedAtMs": 1730000000000 }
+\end{lstlisting}
+
+
+\subsection{Protocol}
+
+
+\subsubsection{Methods}
+
+
+\begin{itemize}
+  \item \texttt{voicewake.get} → \texttt{\{ triggers: string[] \}}
+  \item \texttt{voicewake.set} with params \texttt{\{ triggers: string[] \}} → \texttt{\{ triggers: string[] \}}
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item Triggers are normalized (trimmed, empties dropped). Empty lists fall back to defaults.
+  \item Limits are enforced for safety (count/length caps).
+\end{itemize}
+
+
+\subsubsection{Events}
+
+
+\begin{itemize}
+  \item \texttt{voicewake.changed} payload \texttt{\{ triggers: string[] \}}
+\end{itemize}
+
+
+Who receives it:
+
+\begin{itemize}
+  \item All WebSocket clients (macOS app, WebChat, etc.)
+  \item All connected nodes (iOS/Android), and also on node connect as an initial “current state” push.
+\end{itemize}
+
+
+\subsection{Client behavior}
+
+
+\subsubsection{macOS app}
+
+
+\begin{itemize}
+  \item Uses the global list to gate \texttt{VoiceWakeRuntime} triggers.
+  \item Editing “Trigger words” in Voice Wake settings calls \texttt{voicewake.set} and then relies on the broadcast to keep other clients in sync.
+\end{itemize}
+
+
+\subsubsection{iOS node}
+
+
+\begin{itemize}
+  \item Uses the global list for \texttt{VoiceWakeManager} trigger detection.
+  \item Editing Wake Words in Settings calls \texttt{voicewake.set} (over the Gateway WS) and also keeps local wake-word detection responsive.
+\end{itemize}
+
+
+\subsubsection{Android node}
+
+
+\begin{itemize}
+  \item Voice Wake is currently disabled in Android runtime/Settings.
+  \item Android voice uses manual mic capture in the Voice tab instead of wake-word triggers.
+\end{itemize}
+
+
+
+\clearpage

@@ -715,3 +715,2185 @@ Recall 应支持：
 
 
 \clearpage
+% === 源文件: experiments/plans/acp-thread-bound-agents.md ===
+\section{ACP Thread Bound Agents}
+
+
+\subsection{Overview}
+
+
+This plan defines how OpenClaw should support ACP coding agents in thread-capable channels (Discord first) with production-level lifecycle and recovery.
+
+Related document:
+
+\begin{itemize}
+  \item \href{/experiments/plans/acp-unified-streaming-refactor}{Unified Runtime Streaming Refactor Plan}
+\end{itemize}
+
+
+Target user experience:
+
+\begin{itemize}
+  \item a user spawns or focuses an ACP session into a thread
+  \item user messages in that thread route to the bound ACP session
+  \item agent output streams back to the same thread persona
+  \item session can be persistent or one shot with explicit cleanup controls
+\end{itemize}
+
+
+\subsection{Decision summary}
+
+
+Long term recommendation is a hybrid architecture:
+
+\begin{itemize}
+  \item OpenClaw core owns ACP control plane concerns
+  \item session identity and metadata
+  \item thread binding and routing decisions
+  \item delivery invariants and duplicate suppression
+  \item lifecycle cleanup and recovery semantics
+  \item ACP runtime backend is pluggable
+  \item first backend is an acpx-backed plugin service
+  \item runtime does ACP transport, queueing, cancel, reconnect
+\end{itemize}
+
+
+OpenClaw should not reimplement ACP transport internals in core.
+OpenClaw should not rely on a pure plugin-only interception path for routing.
+
+\subsection{North-star architecture (holy grail)}
+
+
+Treat ACP as a first-class control plane in OpenClaw, with pluggable runtime adapters.
+
+Non-negotiable invariants:
+
+\begin{itemize}
+  \item every ACP thread binding references a valid ACP session record
+  \item every ACP session has explicit lifecycle state (\texttt{creating}, \texttt{idle}, \texttt{running}, \texttt{cancelling}, \texttt{closed}, \texttt{error})
+  \item every ACP run has explicit run state (\texttt{queued}, \texttt{running}, \texttt{completed}, \texttt{failed}, \texttt{cancelled})
+  \item spawn, bind, and initial enqueue are atomic
+  \item command retries are idempotent (no duplicate runs or duplicate Discord outputs)
+  \item bound-thread channel output is a projection of ACP run events, never ad-hoc side effects
+\end{itemize}
+
+
+Long-term ownership model:
+
+\begin{itemize}
+  \item \texttt{AcpSessionManager} is the single ACP writer and orchestrator
+  \item manager lives in gateway process first; can be moved to a dedicated sidecar later behind the same interface
+  \item per ACP session key, manager owns one in-memory actor (serialized command execution)
+  \item adapters (\texttt{acpx}, future backends) are transport/runtime implementations only
+\end{itemize}
+
+
+Long-term persistence model:
+
+\begin{itemize}
+  \item move ACP control-plane state to a dedicated SQLite store (WAL mode) under OpenClaw state dir
+  \item keep \texttt{SessionEntry.acp} as compatibility projection during migration, not source-of-truth
+  \item store ACP events append-only to support replay, crash recovery, and deterministic delivery
+\end{itemize}
+
+
+\subsubsection{Delivery strategy (bridge to holy-grail)}
+
+
+\begin{itemize}
+  \item short-term bridge
+  \item keep current thread binding mechanics and existing ACP config surface
+  \item fix metadata-gap bugs and route ACP turns through a single core ACP branch
+  \item add idempotency keys and fail-closed routing checks immediately
+  \item long-term cutover
+  \item move ACP source-of-truth to control-plane DB + actors
+  \item make bound-thread delivery purely event-projection based
+  \item remove legacy fallback behavior that depends on opportunistic session-entry metadata
+\end{itemize}
+
+
+\subsection{Why not pure plugin only}
+
+
+Current plugin hooks are not sufficient for end to end ACP session routing without core changes.
+
+\begin{itemize}
+  \item inbound routing from thread binding resolves to a session key in core dispatch first
+  \item message hooks are fire-and-forget and cannot short-circuit the main reply path
+  \item plugin commands are good for control operations but not for replacing core per-turn dispatch flow
+\end{itemize}
+
+
+Result:
+
+\begin{itemize}
+  \item ACP runtime can be pluginized
+  \item ACP routing branch must exist in core
+\end{itemize}
+
+
+\subsection{Existing foundation to reuse}
+
+
+Already implemented and should remain canonical:
+
+\begin{itemize}
+  \item thread binding target supports \texttt{subagent} and \texttt{acp}
+  \item inbound thread routing override resolves by binding before normal dispatch
+  \item outbound thread identity via webhook in reply delivery
+  \item \texttt{/focus} and \texttt{/unfocus} flow with ACP target compatibility
+  \item persistent binding store with restore on startup
+  \item unbind lifecycle on archive, delete, unfocus, reset, and delete
+\end{itemize}
+
+
+This plan extends that foundation rather than replacing it.
+
+\subsection{Architecture}
+
+
+\subsubsection{Boundary model}
+
+
+Core (must be in OpenClaw core):
+
+\begin{itemize}
+  \item ACP session-mode dispatch branch in the reply pipeline
+  \item delivery arbitration to avoid parent plus thread duplication
+  \item ACP control-plane persistence (with \texttt{SessionEntry.acp} compatibility projection during migration)
+  \item lifecycle unbind and runtime detach semantics tied to session reset/delete
+\end{itemize}
+
+
+Plugin backend (acpx implementation):
+
+\begin{itemize}
+  \item ACP runtime worker supervision
+  \item acpx process invocation and event parsing
+  \item ACP command handlers (\texttt{/acp ...}) and operator UX
+  \item backend-specific config defaults and diagnostics
+\end{itemize}
+
+
+\subsubsection{Runtime ownership model}
+
+
+\begin{itemize}
+  \item one gateway process owns ACP orchestration state
+  \item ACP execution runs in supervised child processes via acpx backend
+  \item process strategy is long lived per active ACP session key, not per message
+\end{itemize}
+
+
+This avoids startup cost on every prompt and keeps cancel and reconnect semantics reliable.
+
+\subsubsection{Core runtime contract}
+
+
+Add a core ACP runtime contract so routing code does not depend on CLI details and can switch backends without changing dispatch logic:
+
+\begin{lstlisting}[language=typescript]
+export type AcpRuntimePromptMode = "prompt" | "steer";
+
+export type AcpRuntimeHandle = {
+  sessionKey: string;
+  backend: string;
+  runtimeSessionName: string;
+};
+
+export type AcpRuntimeEvent =
+  | { type: "text_delta"; stream: "output" | "thought"; text: string }
+  | { type: "tool_call"; name: string; argumentsText: string }
+  | { type: "done"; usage?: Record<string, number> }
+  | { type: "error"; code: string; message: string; retryable?: boolean };
+
+export interface AcpRuntime {
+  ensureSession(input: {
+    sessionKey: string;
+    agent: string;
+    mode: "persistent" | "oneshot";
+    cwd?: string;
+    env?: Record<string, string>;
+    idempotencyKey: string;
+  }): Promise<AcpRuntimeHandle>;
+
+  submit(input: {
+    handle: AcpRuntimeHandle;
+    text: string;
+    mode: AcpRuntimePromptMode;
+    idempotencyKey: string;
+  }): Promise<{ runtimeRunId: string }>;
+
+  stream(input: {
+    handle: AcpRuntimeHandle;
+    runtimeRunId: string;
+    onEvent: (event: AcpRuntimeEvent) => Promise<void> | void;
+    signal?: AbortSignal;
+  }): Promise<void>;
+
+  cancel(input: {
+    handle: AcpRuntimeHandle;
+    runtimeRunId?: string;
+    reason?: string;
+    idempotencyKey: string;
+  }): Promise<void>;
+
+  close(input: { handle: AcpRuntimeHandle; reason: string; idempotencyKey: string }): Promise<void>;
+
+  health?(): Promise<{ ok: boolean; details?: string }>;
+}
+\end{lstlisting}
+
+
+Implementation detail:
+
+\begin{itemize}
+  \item first backend: \texttt{AcpxRuntime} shipped as a plugin service
+  \item core resolves runtime via registry and fails with explicit operator error when no ACP runtime backend is available
+\end{itemize}
+
+
+\subsubsection{Control-plane data model and persistence}
+
+
+Long-term source-of-truth is a dedicated ACP SQLite database (WAL mode), for transactional updates and crash-safe recovery:
+
+\begin{itemize}
+  \item \texttt{acp\_sessions}
+  \item \texttt{session\_key} (pk), \texttt{backend}, \texttt{agent}, \texttt{mode}, \texttt{cwd}, \texttt{state}, \texttt{created\_at}, \texttt{updated\_at}, \texttt{last\_error}
+  \item \texttt{acp\_runs}
+  \item \texttt{run\_id} (pk), \texttt{session\_key} (fk), \texttt{state}, \texttt{requester\_message\_id}, \texttt{idempotency\_key}, \texttt{started\_at}, \texttt{ended\_at}, \texttt{error\_code}, \texttt{error\_message}
+  \item \texttt{acp\_bindings}
+  \item \texttt{binding\_key} (pk), \texttt{thread\_id}, \texttt{channel\_id}, \texttt{account\_id}, \texttt{session\_key} (fk), \texttt{expires\_at}, \texttt{bound\_at}
+  \item \texttt{acp\_events}
+  \item \texttt{event\_id} (pk), \texttt{run\_id} (fk), \texttt{seq}, \texttt{kind}, \texttt{payload\_json}, \texttt{created\_at}
+  \item \texttt{acp\_delivery\_checkpoint}
+  \item \texttt{run\_id} (pk/fk), \texttt{last\_event\_seq}, \texttt{last\_discord\_message\_id}, \texttt{updated\_at}
+  \item \texttt{acp\_idempotency}
+  \item \texttt{scope}, \texttt{idempotency\_key}, \texttt{result\_json}, \texttt{created\_at}, unique \texttt{(scope, idempotency\_key)}
+\end{itemize}
+
+
+\begin{lstlisting}[language=typescript]
+export type AcpSessionMeta = {
+  backend: string;
+  agent: string;
+  runtimeSessionName: string;
+  mode: "persistent" | "oneshot";
+  cwd?: string;
+  state: "idle" | "running" | "error";
+  lastActivityAt: number;
+  lastError?: string;
+};
+\end{lstlisting}
+
+
+Storage rules:
+
+\begin{itemize}
+  \item keep \texttt{SessionEntry.acp} as a compatibility projection during migration
+  \item process ids and sockets stay in memory only
+  \item durable lifecycle and run status live in ACP DB, not generic session JSON
+  \item if runtime owner dies, gateway rehydrates from ACP DB and resumes from checkpoints
+\end{itemize}
+
+
+\subsubsection{Routing and delivery}
+
+
+Inbound:
+
+\begin{itemize}
+  \item keep current thread binding lookup as first routing step
+  \item if bound target is ACP session, route to ACP runtime branch instead of \texttt{getReplyFromConfig}
+  \item explicit \texttt{/acp steer} command uses \texttt{mode: "steer"}
+\end{itemize}
+
+
+Outbound:
+
+\begin{itemize}
+  \item ACP event stream is normalized to OpenClaw reply chunks
+  \item delivery target is resolved through existing bound destination path
+  \item when a bound thread is active for that session turn, parent channel completion is suppressed
+\end{itemize}
+
+
+Streaming policy:
+
+\begin{itemize}
+  \item stream partial output with coalescing window
+  \item configurable min interval and max chunk bytes to stay under Discord rate limits
+  \item final message always emitted on completion or failure
+\end{itemize}
+
+
+\subsubsection{State machines and transaction boundaries}
+
+
+Session state machine:
+
+\begin{itemize}
+  \item \texttt{creating -> idle -> running -> idle}
+  \item \texttt{running -> cancelling -> idle | error}
+  \item \texttt{idle -> closed}
+  \item \texttt{error -> idle | closed}
+\end{itemize}
+
+
+Run state machine:
+
+\begin{itemize}
+  \item \texttt{queued -> running -> completed}
+  \item \texttt{running -> failed | cancelled}
+  \item \texttt{queued -> cancelled}
+\end{itemize}
+
+
+Required transaction boundaries:
+
+\begin{itemize}
+  \item spawn transaction
+  \item create ACP session row
+  \item create/update ACP thread binding row
+  \item enqueue initial run row
+  \item close transaction
+  \item mark session closed
+  \item delete/expire binding rows
+  \item write final close event
+  \item cancel transaction
+  \item mark target run cancelling/cancelled with idempotency key
+\end{itemize}
+
+
+No partial success is allowed across these boundaries.
+
+\subsubsection{Per-session actor model}
+
+
+\texttt{AcpSessionManager} runs one actor per ACP session key:
+
+\begin{itemize}
+  \item actor mailbox serializes \texttt{submit}, \texttt{cancel}, \texttt{close}, and \texttt{stream} side effects
+  \item actor owns runtime handle hydration and runtime adapter process lifecycle for that session
+  \item actor writes run events in-order (\texttt{seq}) before any Discord delivery
+  \item actor updates delivery checkpoints after successful outbound send
+\end{itemize}
+
+
+This removes cross-turn races and prevents duplicate or out-of-order thread output.
+
+\subsubsection{Idempotency and delivery projection}
+
+
+All external ACP actions must carry idempotency keys:
+
+\begin{itemize}
+  \item spawn idempotency key
+  \item prompt/steer idempotency key
+  \item cancel idempotency key
+  \item close idempotency key
+\end{itemize}
+
+
+Delivery rules:
+
+\begin{itemize}
+  \item Discord messages are derived from \texttt{acp\_events} plus \texttt{acp\_delivery\_checkpoint}
+  \item retries resume from checkpoint without re-sending already delivered chunks
+  \item final reply emission is exactly-once per run from projection logic
+\end{itemize}
+
+
+\subsubsection{Recovery and self-healing}
+
+
+On gateway start:
+
+\begin{itemize}
+  \item load non-terminal ACP sessions (\texttt{creating}, \texttt{idle}, \texttt{running}, \texttt{cancelling}, \texttt{error})
+  \item recreate actors lazily on first inbound event or eagerly under configured cap
+  \item reconcile any \texttt{running} runs missing heartbeats and mark \texttt{failed} or recover via adapter
+\end{itemize}
+
+
+On inbound Discord thread message:
+
+\begin{itemize}
+  \item if binding exists but ACP session is missing, fail closed with explicit stale-binding message
+  \item optionally auto-unbind stale binding after operator-safe validation
+  \item never silently route stale ACP bindings to normal LLM path
+\end{itemize}
+
+
+\subsubsection{Lifecycle and safety}
+
+
+Supported operations:
+
+\begin{itemize}
+  \item cancel current run: \texttt{/acp cancel}
+  \item unbind thread: \texttt{/unfocus}
+  \item close ACP session: \texttt{/acp close}
+  \item auto close idle sessions by effective TTL
+\end{itemize}
+
+
+TTL policy:
+
+\begin{itemize}
+  \item effective TTL is minimum of
+  \item global/session TTL
+  \item Discord thread binding TTL
+  \item ACP runtime owner TTL
+\end{itemize}
+
+
+Safety controls:
+
+\begin{itemize}
+  \item allowlist ACP agents by name
+  \item restrict workspace roots for ACP sessions
+  \item env allowlist passthrough
+  \item max concurrent ACP sessions per account and globally
+  \item bounded restart backoff for runtime crashes
+\end{itemize}
+
+
+\subsection{Config surface}
+
+
+Core keys:
+
+\begin{itemize}
+  \item \texttt{acp.enabled}
+  \item \texttt{acp.dispatch.enabled} (independent ACP routing kill switch)
+  \item \texttt{acp.backend} (default \texttt{acpx})
+  \item \texttt{acp.defaultAgent}
+  \item \texttt{acp.allowedAgents[]}
+  \item \texttt{acp.maxConcurrentSessions}
+  \item \texttt{acp.stream.coalesceIdleMs}
+  \item \texttt{acp.stream.maxChunkChars}
+  \item \texttt{acp.runtime.ttlMinutes}
+  \item \texttt{acp.controlPlane.store} (\texttt{sqlite} default)
+  \item \texttt{acp.controlPlane.storePath}
+  \item \texttt{acp.controlPlane.recovery.eagerActors}
+  \item \texttt{acp.controlPlane.recovery.reconcileRunningAfterMs}
+  \item \texttt{acp.controlPlane.checkpoint.flushEveryEvents}
+  \item \texttt{acp.controlPlane.checkpoint.flushEveryMs}
+  \item \texttt{acp.idempotency.ttlHours}
+  \item \texttt{channels.discord.threadBindings.spawnAcpSessions}
+\end{itemize}
+
+
+Plugin/backend keys (acpx plugin section):
+
+\begin{itemize}
+  \item backend command/path overrides
+  \item backend env allowlist
+  \item backend per-agent presets
+  \item backend startup/stop timeouts
+  \item backend max inflight runs per session
+\end{itemize}
+
+
+\subsection{Implementation specification}
+
+
+\subsubsection{Control-plane modules (new)}
+
+
+Add dedicated ACP control-plane modules in core:
+
+\begin{itemize}
+  \item \texttt{src/acp/control-plane/manager.ts}
+  \item owns ACP actors, lifecycle transitions, command serialization
+  \item \texttt{src/acp/control-plane/store.ts}
+  \item SQLite schema management, transactions, query helpers
+  \item \texttt{src/acp/control-plane/events.ts}
+  \item typed ACP event definitions and serialization
+  \item \texttt{src/acp/control-plane/checkpoint.ts}
+  \item durable delivery checkpoints and replay cursors
+  \item \texttt{src/acp/control-plane/idempotency.ts}
+  \item idempotency key reservation and response replay
+  \item \texttt{src/acp/control-plane/recovery.ts}
+  \item boot-time reconciliation and actor rehydrate plan
+\end{itemize}
+
+
+Compatibility bridge modules:
+
+\begin{itemize}
+  \item \texttt{src/acp/runtime/session-meta.ts}
+  \item remains temporarily for projection into \texttt{SessionEntry.acp}
+  \item must stop being source-of-truth after migration cutover
+\end{itemize}
+
+
+\subsubsection{Required invariants (must enforce in code)}
+
+
+\begin{itemize}
+  \item ACP session creation and thread bind are atomic (single transaction)
+  \item there is at most one active run per ACP session actor at a time
+  \item event \texttt{seq} is strictly increasing per run
+  \item delivery checkpoint never advances past last committed event
+  \item idempotency replay returns previous success payload for duplicate command keys
+  \item stale/missing ACP metadata cannot route into normal non-ACP reply path
+\end{itemize}
+
+
+\subsubsection{Core touchpoints}
+
+
+Core files to change:
+
+\begin{itemize}
+  \item \texttt{src/auto-reply/reply/dispatch-from-config.ts}
+  \item ACP branch calls \texttt{AcpSessionManager.submit} and event-projection delivery
+  \item remove direct ACP fallback that bypasses control-plane invariants
+  \item \texttt{src/auto-reply/reply/inbound-context.ts} (or nearest normalized context boundary)
+  \item expose normalized routing keys and idempotency seeds for ACP control plane
+  \item \texttt{src/config/sessions/types.ts}
+  \item keep \texttt{SessionEntry.acp} as projection-only compatibility field
+  \item \texttt{src/gateway/server-methods/sessions.ts}
+  \item reset/delete/archive must call ACP manager close/unbind transaction path
+  \item \texttt{src/infra/outbound/bound-delivery-router.ts}
+  \item enforce fail-closed destination behavior for ACP bound session turns
+  \item \texttt{src/discord/monitor/thread-bindings.ts}
+  \item add ACP stale-binding validation helpers wired to control-plane lookups
+  \item \texttt{src/auto-reply/reply/commands-acp.ts}
+  \item route spawn/cancel/close/steer through ACP manager APIs
+  \item \texttt{src/agents/acp-spawn.ts}
+  \item stop ad-hoc metadata writes; call ACP manager spawn transaction
+  \item \texttt{src/plugin-sdk/**} and plugin runtime bridge
+  \item expose ACP backend registration and health semantics cleanly
+\end{itemize}
+
+
+Core files explicitly not replaced:
+
+\begin{itemize}
+  \item \texttt{src/discord/monitor/message-handler.preflight.ts}
+  \item keep thread binding override behavior as the canonical session-key resolver
+\end{itemize}
+
+
+\subsubsection{ACP runtime registry API}
+
+
+Add a core registry module:
+
+\begin{itemize}
+  \item \texttt{src/acp/runtime/registry.ts}
+\end{itemize}
+
+
+Required API:
+
+\begin{lstlisting}[language=typescript]
+export type AcpRuntimeBackend = {
+  id: string;
+  runtime: AcpRuntime;
+  healthy?: () => boolean;
+};
+
+export function registerAcpRuntimeBackend(backend: AcpRuntimeBackend): void;
+export function unregisterAcpRuntimeBackend(id: string): void;
+export function getAcpRuntimeBackend(id?: string): AcpRuntimeBackend | null;
+export function requireAcpRuntimeBackend(id?: string): AcpRuntimeBackend;
+\end{lstlisting}
+
+
+Behavior:
+
+\begin{itemize}
+  \item \texttt{requireAcpRuntimeBackend} throws a typed ACP backend missing error when unavailable
+  \item plugin service registers backend on \texttt{start} and unregisters on \texttt{stop}
+  \item runtime lookups are read-only and process-local
+\end{itemize}
+
+
+\subsubsection{acpx runtime plugin contract (implementation detail)}
+
+
+For the first production backend (\texttt{extensions/acpx}), OpenClaw and acpx are
+connected with a strict command contract:
+
+\begin{itemize}
+  \item backend id: \texttt{acpx}
+  \item plugin service id: \texttt{acpx-runtime}
+  \item runtime handle encoding: \texttt{runtimeSessionName = acpx:v1:}
+  \item encoded payload fields:
+  \item \texttt{name} (acpx named session; uses OpenClaw \texttt{sessionKey})
+  \item \texttt{agent} (acpx agent command)
+  \item \texttt{cwd} (session workspace root)
+  \item \texttt{mode} (\texttt{persistent | oneshot})
+\end{itemize}
+
+
+Command mapping:
+
+\begin{itemize}
+  \item ensure session:
+  \item \texttt{acpx --format json --json-strict --cwd   sessions ensure --name }
+  \item prompt turn:
+  \item \texttt{acpx --format json --json-strict --cwd   prompt --session  --file -}
+  \item cancel:
+  \item \texttt{acpx --format json --json-strict --cwd   cancel --session }
+  \item close:
+  \item \texttt{acpx --format json --json-strict --cwd   sessions close }
+\end{itemize}
+
+
+Streaming:
+
+\begin{itemize}
+  \item OpenClaw consumes ndjson events from \texttt{acpx --format json --json-strict}
+  \item \texttt{text} => \texttt{text\_delta/output}
+  \item \texttt{thought} => \texttt{text\_delta/thought}
+  \item \texttt{tool\_call} => \texttt{tool\_call}
+  \item \texttt{done} => \texttt{done}
+  \item \texttt{error} => \texttt{error}
+\end{itemize}
+
+
+\subsubsection{Session schema patch}
+
+
+Patch \texttt{SessionEntry} in \texttt{src/config/sessions/types.ts}:
+
+\begin{lstlisting}[language=typescript]
+type SessionAcpMeta = {
+  backend: string;
+  agent: string;
+  runtimeSessionName: string;
+  mode: "persistent" | "oneshot";
+  cwd?: string;
+  state: "idle" | "running" | "error";
+  lastActivityAt: number;
+  lastError?: string;
+};
+\end{lstlisting}
+
+
+Persisted field:
+
+\begin{itemize}
+  \item \texttt{SessionEntry.acp?: SessionAcpMeta}
+\end{itemize}
+
+
+Migration rules:
+
+\begin{itemize}
+  \item phase A: dual-write (\texttt{acp} projection + ACP SQLite source-of-truth)
+  \item phase B: read-primary from ACP SQLite, fallback-read from legacy \texttt{SessionEntry.acp}
+  \item phase C: migration command backfills missing ACP rows from valid legacy entries
+  \item phase D: remove fallback-read and keep projection optional for UX only
+  \item legacy fields (\texttt{cliSessionIds}, \texttt{claudeCliSessionId}) remain untouched
+\end{itemize}
+
+
+\subsubsection{Error contract}
+
+
+Add stable ACP error codes and user-facing messages:
+
+\begin{itemize}
+  \item \texttt{ACP\_BACKEND\_MISSING}
+  \item message: \texttt{ACP runtime backend is not configured. Install and enable the acpx runtime plugin.}
+  \item \texttt{ACP\_BACKEND\_UNAVAILABLE}
+  \item message: \texttt{ACP runtime backend is currently unavailable. Try again in a moment.}
+  \item \texttt{ACP\_SESSION\_INIT\_FAILED}
+  \item message: \texttt{Could not initialize ACP session runtime.}
+  \item \texttt{ACP\_TURN\_FAILED}
+  \item message: \texttt{ACP turn failed before completion.}
+\end{itemize}
+
+
+Rules:
+
+\begin{itemize}
+  \item return actionable user-safe message in-thread
+  \item log detailed backend/system error only in runtime logs
+  \item never silently fall back to normal LLM path when ACP routing was explicitly selected
+\end{itemize}
+
+
+\subsubsection{Duplicate delivery arbitration}
+
+
+Single routing rule for ACP bound turns:
+
+\begin{itemize}
+  \item if an active thread binding exists for the target ACP session and requester context, deliver only to that bound thread
+  \item do not also send to parent channel for the same turn
+  \item if bound destination selection is ambiguous, fail closed with explicit error (no implicit parent fallback)
+  \item if no active binding exists, use normal session destination behavior
+\end{itemize}
+
+
+\subsubsection{Observability and operational readiness}
+
+
+Required metrics:
+
+\begin{itemize}
+  \item ACP spawn success/failure count by backend and error code
+  \item ACP run latency percentiles (queue wait, runtime turn time, delivery projection time)
+  \item ACP actor restart count and restart reason
+  \item stale-binding detection count
+  \item idempotency replay hit rate
+  \item Discord delivery retry and rate-limit counters
+\end{itemize}
+
+
+Required logs:
+
+\begin{itemize}
+  \item structured logs keyed by \texttt{sessionKey}, \texttt{runId}, \texttt{backend}, \texttt{threadId}, \texttt{idempotencyKey}
+  \item explicit state transition logs for session and run state machines
+  \item adapter command logs with redaction-safe arguments and exit summary
+\end{itemize}
+
+
+Required diagnostics:
+
+\begin{itemize}
+  \item \texttt{/acp sessions} includes state, active run, last error, and binding status
+  \item \texttt{/acp doctor} (or equivalent) validates backend registration, store health, and stale bindings
+\end{itemize}
+
+
+\subsubsection{Config precedence and effective values}
+
+
+ACP enablement precedence:
+
+\begin{itemize}
+  \item account override: \texttt{channels.discord.accounts..threadBindings.spawnAcpSessions}
+  \item channel override: \texttt{channels.discord.threadBindings.spawnAcpSessions}
+  \item global ACP gate: \texttt{acp.enabled}
+  \item dispatch gate: \texttt{acp.dispatch.enabled}
+  \item backend availability: registered backend for \texttt{acp.backend}
+\end{itemize}
+
+
+Auto-enable behavior:
+
+\begin{itemize}
+  \item when ACP is configured (\texttt{acp.enabled=true}, \texttt{acp.dispatch.enabled=true}, or
+\end{itemize}
+
+\texttt{acp.backend=acpx}), plugin auto-enable marks \texttt{plugins.entries.acpx.enabled=true}
+unless denylisted or explicitly disabled
+
+TTL effective value:
+
+\begin{itemize}
+  \item \texttt{min(session ttl, discord thread binding ttl, acp runtime ttl)}
+\end{itemize}
+
+
+\subsubsection{Test map}
+
+
+Unit tests:
+
+\begin{itemize}
+  \item \texttt{src/acp/runtime/registry.test.ts} (new)
+  \item \texttt{src/auto-reply/reply/dispatch-from-config.acp.test.ts} (new)
+  \item \texttt{src/infra/outbound/bound-delivery-router.test.ts} (extend ACP fail-closed cases)
+  \item \texttt{src/config/sessions/types.test.ts} or nearest session-store tests (ACP metadata persistence)
+\end{itemize}
+
+
+Integration tests:
+
+\begin{itemize}
+  \item \texttt{src/discord/monitor/reply-delivery.test.ts} (bound ACP delivery target behavior)
+  \item \texttt{src/discord/monitor/message-handler.preflight*.test.ts} (bound ACP session-key routing continuity)
+  \item acpx plugin runtime tests in backend package (service register/start/stop + event normalization)
+\end{itemize}
+
+
+Gateway e2e tests:
+
+\begin{itemize}
+  \item \texttt{src/gateway/server.sessions.gateway-server-sessions-a.e2e.test.ts} (extend ACP reset/delete lifecycle coverage)
+  \item ACP thread turn roundtrip e2e for spawn, message, stream, cancel, unfocus, restart recovery
+\end{itemize}
+
+
+\subsubsection{Rollout guard}
+
+
+Add independent ACP dispatch kill switch:
+
+\begin{itemize}
+  \item \texttt{acp.dispatch.enabled} default \texttt{false} for first release
+  \item when disabled:
+  \item ACP spawn/focus control commands may still bind sessions
+  \item ACP dispatch path does not activate
+  \item user receives explicit message that ACP dispatch is disabled by policy
+  \item after canary validation, default can be flipped to \texttt{true} in a later release
+\end{itemize}
+
+
+\subsection{Command and UX plan}
+
+
+\subsubsection{New commands}
+
+
+\begin{itemize}
+  \item \texttt{/acp spawn  [--mode persistent|oneshot] [--thread auto|here|off]}
+  \item \texttt{/acp cancel [session]}
+  \item \texttt{/acp steer }
+  \item \texttt{/acp close [session]}
+  \item \texttt{/acp sessions}
+\end{itemize}
+
+
+\subsubsection{Existing command compatibility}
+
+
+\begin{itemize}
+  \item \texttt{/focus } continues to support ACP targets
+  \item \texttt{/unfocus} keeps current semantics
+  \item \texttt{/session idle} and \texttt{/session max-age} replace the old TTL override
+\end{itemize}
+
+
+\subsection{Phased rollout}
+
+
+\subsubsection{Phase 0 ADR and schema freeze}
+
+
+\begin{itemize}
+  \item ship ADR for ACP control-plane ownership and adapter boundaries
+  \item freeze DB schema (\texttt{acp\_sessions}, \texttt{acp\_runs}, \texttt{acp\_bindings}, \texttt{acp\_events}, \texttt{acp\_delivery\_checkpoint}, \texttt{acp\_idempotency})
+  \item define stable ACP error codes, event contract, and state-transition guards
+\end{itemize}
+
+
+\subsubsection{Phase 1 Control-plane foundation in core}
+
+
+\begin{itemize}
+  \item implement \texttt{AcpSessionManager} and per-session actor runtime
+  \item implement ACP SQLite store and transaction helpers
+  \item implement idempotency store and replay helpers
+  \item implement event append + delivery checkpoint modules
+  \item wire spawn/cancel/close APIs to manager with transactional guarantees
+\end{itemize}
+
+
+\subsubsection{Phase 2 Core routing and lifecycle integration}
+
+
+\begin{itemize}
+  \item route thread-bound ACP turns from dispatch pipeline into ACP manager
+  \item enforce fail-closed routing when ACP binding/session invariants fail
+  \item integrate reset/delete/archive/unfocus lifecycle with ACP close/unbind transactions
+  \item add stale-binding detection and optional auto-unbind policy
+\end{itemize}
+
+
+\subsubsection{Phase 3 acpx backend adapter/plugin}
+
+
+\begin{itemize}
+  \item implement \texttt{acpx} adapter against runtime contract (\texttt{ensureSession}, \texttt{submit}, \texttt{stream}, \texttt{cancel}, \texttt{close})
+  \item add backend health checks and startup/teardown registration
+  \item normalize acpx ndjson events into ACP runtime events
+  \item enforce backend timeouts, process supervision, and restart/backoff policy
+\end{itemize}
+
+
+\subsubsection{Phase 4 Delivery projection and channel UX (Discord first)}
+
+
+\begin{itemize}
+  \item implement event-driven channel projection with checkpoint resume (Discord first)
+  \item coalesce streaming chunks with rate-limit aware flush policy
+  \item guarantee exactly-once final completion message per run
+  \item ship \texttt{/acp spawn}, \texttt{/acp cancel}, \texttt{/acp steer}, \texttt{/acp close}, \texttt{/acp sessions}
+\end{itemize}
+
+
+\subsubsection{Phase 5 Migration and cutover}
+
+
+\begin{itemize}
+  \item introduce dual-write to \texttt{SessionEntry.acp} projection plus ACP SQLite source-of-truth
+  \item add migration utility for legacy ACP metadata rows
+  \item flip read path to ACP SQLite primary
+  \item remove legacy fallback routing that depends on missing \texttt{SessionEntry.acp}
+\end{itemize}
+
+
+\subsubsection{Phase 6 Hardening, SLOs, and scale limits}
+
+
+\begin{itemize}
+  \item enforce concurrency limits (global/account/session), queue policies, and timeout budgets
+  \item add full telemetry, dashboards, and alert thresholds
+  \item chaos-test crash recovery and duplicate-delivery suppression
+  \item publish runbook for backend outage, DB corruption, and stale-binding remediation
+\end{itemize}
+
+
+\subsubsection{Full implementation checklist}
+
+
+\begin{itemize}
+  \item core control-plane modules and tests
+  \item DB migrations and rollback plan
+  \item ACP manager API integration across dispatch and commands
+  \item adapter registration interface in plugin runtime bridge
+  \item acpx adapter implementation and tests
+  \item thread-capable channel delivery projection logic with checkpoint replay (Discord first)
+  \item lifecycle hooks for reset/delete/archive/unfocus
+  \item stale-binding detector and operator-facing diagnostics
+  \item config validation and precedence tests for all new ACP keys
+  \item operational docs and troubleshooting runbook
+\end{itemize}
+
+
+\subsection{Test plan}
+
+
+Unit tests:
+
+\begin{itemize}
+  \item ACP DB transaction boundaries (spawn/bind/enqueue atomicity, cancel, close)
+  \item ACP state-machine transition guards for sessions and runs
+  \item idempotency reservation/replay semantics across all ACP commands
+  \item per-session actor serialization and queue ordering
+  \item acpx event parser and chunk coalescer
+  \item runtime supervisor restart and backoff policy
+  \item config precedence and effective TTL calculation
+  \item core ACP routing branch selection and fail-closed behavior when backend/session is invalid
+\end{itemize}
+
+
+Integration tests:
+
+\begin{itemize}
+  \item fake ACP adapter process for deterministic streaming and cancel behavior
+  \item ACP manager + dispatch integration with transactional persistence
+  \item thread-bound inbound routing to ACP session key
+  \item thread-bound outbound delivery suppresses parent channel duplication
+  \item checkpoint replay recovers after delivery failure and resumes from last event
+  \item plugin service registration and teardown of ACP runtime backend
+\end{itemize}
+
+
+Gateway e2e tests:
+
+\begin{itemize}
+  \item spawn ACP with thread, exchange multi-turn prompts, unfocus
+  \item gateway restart with persisted ACP DB and bindings, then continue same session
+  \item concurrent ACP sessions in multiple threads have no cross-talk
+  \item duplicate command retries (same idempotency key) do not create duplicate runs or replies
+  \item stale-binding scenario yields explicit error and optional auto-clean behavior
+\end{itemize}
+
+
+\subsection{Risks and mitigations}
+
+
+\begin{itemize}
+  \item Duplicate deliveries during transition
+  \item Mitigation: single destination resolver and idempotent event checkpoint
+  \item Runtime process churn under load
+  \item Mitigation: long lived per session owners + concurrency caps + backoff
+  \item Plugin absent or misconfigured
+  \item Mitigation: explicit operator-facing error and fail-closed ACP routing (no implicit fallback to normal session path)
+  \item Config confusion between subagent and ACP gates
+  \item Mitigation: explicit ACP keys and command feedback that includes effective policy source
+  \item Control-plane store corruption or migration bugs
+  \item Mitigation: WAL mode, backup/restore hooks, migration smoke tests, and read-only fallback diagnostics
+  \item Actor deadlocks or mailbox starvation
+  \item Mitigation: watchdog timers, actor health probes, and bounded mailbox depth with rejection telemetry
+\end{itemize}
+
+
+\subsection{Acceptance checklist}
+
+
+\begin{itemize}
+  \item ACP session spawn can create or bind a thread in a supported channel adapter (currently Discord)
+  \item all thread messages route to bound ACP session only
+  \item ACP outputs appear in the same thread identity with streaming or batches
+  \item no duplicate output in parent channel for bound turns
+  \item spawn+bind+initial enqueue are atomic in persistent store
+  \item ACP command retries are idempotent and do not duplicate runs or outputs
+  \item cancel, close, unfocus, archive, reset, and delete perform deterministic cleanup
+  \item crash restart preserves mapping and resumes multi turn continuity
+  \item concurrent thread bound ACP sessions work independently
+  \item ACP backend missing state produces clear actionable error
+  \item stale bindings are detected and surfaced explicitly (with optional safe auto-clean)
+  \item control-plane metrics and diagnostics are available for operators
+  \item new unit, integration, and e2e coverage passes
+\end{itemize}
+
+
+\subsection{Addendum: targeted refactors for current implementation (status)}
+
+
+These are non-blocking follow-ups to keep the ACP path maintainable after the current feature set lands.
+
+\subsubsection{1) Centralize ACP dispatch policy evaluation (completed)}
+
+
+\begin{itemize}
+  \item implemented via shared ACP policy helpers in \texttt{src/acp/policy.ts}
+  \item dispatch, ACP command lifecycle handlers, and ACP spawn path now consume shared policy logic
+\end{itemize}
+
+
+\subsubsection{2) Split ACP command handler by subcommand domain (completed)}
+
+
+\begin{itemize}
+  \item \texttt{src/auto-reply/reply/commands-acp.ts} is now a thin router
+  \item subcommand behavior is split into:
+  \item \texttt{src/auto-reply/reply/commands-acp/lifecycle.ts}
+  \item \texttt{src/auto-reply/reply/commands-acp/runtime-options.ts}
+  \item \texttt{src/auto-reply/reply/commands-acp/diagnostics.ts}
+  \item shared helpers in \texttt{src/auto-reply/reply/commands-acp/shared.ts}
+\end{itemize}
+
+
+\subsubsection{3) Split ACP session manager by responsibility (completed)}
+
+
+\begin{itemize}
+  \item manager is split into:
+  \item \texttt{src/acp/control-plane/manager.ts} (public facade + singleton)
+  \item \texttt{src/acp/control-plane/manager.core.ts} (manager implementation)
+  \item \texttt{src/acp/control-plane/manager.types.ts} (manager types/deps)
+  \item \texttt{src/acp/control-plane/manager.utils.ts} (normalization + helper functions)
+\end{itemize}
+
+
+\subsubsection{4) Optional acpx runtime adapter cleanup}
+
+
+\begin{itemize}
+  \item \texttt{extensions/acpx/src/runtime.ts} can be split into:
+  \item process execution/supervision
+  \item ndjson event parsing/normalization
+  \item runtime API surface (\texttt{submit}, \texttt{cancel}, \texttt{close}, etc.)
+  \item improves testability and makes backend behavior easier to audit
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: experiments/plans/acp-unified-streaming-refactor.md ===
+\section{Unified Runtime Streaming Refactor Plan}
+
+
+\subsection{Objective}
+
+
+Deliver one shared streaming pipeline for \texttt{main}, \texttt{subagent}, and \texttt{acp} so all runtimes get identical coalescing, chunking, delivery ordering, and crash recovery behavior.
+
+\subsection{Why this exists}
+
+
+\begin{itemize}
+  \item Current behavior is split across multiple runtime-specific shaping paths.
+  \item Formatting/coalescing bugs can be fixed in one path but remain in others.
+  \item Delivery consistency, duplicate suppression, and recovery semantics are harder to reason about.
+\end{itemize}
+
+
+\subsection{Target architecture}
+
+
+Single pipeline, runtime-specific adapters:
+
+\begin{enumerate}
+  \item Runtime adapters emit canonical events only.
+  \item Shared stream assembler coalesces and finalizes text/tool/status events.
+  \item Shared channel projector applies channel-specific chunking/formatting once.
+  \item Shared delivery ledger enforces idempotent send/replay semantics.
+  \item Outbound channel adapter executes sends and records delivery checkpoints.
+\end{enumerate}
+
+
+Canonical event contract:
+
+\begin{itemize}
+  \item \texttt{turn\_started}
+  \item \texttt{text\_delta}
+  \item \texttt{block\_final}
+  \item \texttt{tool\_started}
+  \item \texttt{tool\_finished}
+  \item \texttt{status}
+  \item \texttt{turn\_completed}
+  \item \texttt{turn\_failed}
+  \item \texttt{turn\_cancelled}
+\end{itemize}
+
+
+\subsection{Workstreams}
+
+
+\subsubsection{1) Canonical streaming contract}
+
+
+\begin{itemize}
+  \item Define strict event schema + validation in core.
+  \item Add adapter contract tests to guarantee each runtime emits compatible events.
+  \item Reject malformed runtime events early and surface structured diagnostics.
+\end{itemize}
+
+
+\subsubsection{2) Shared stream processor}
+
+
+\begin{itemize}
+  \item Replace runtime-specific coalescer/projector logic with one processor.
+  \item Processor owns text delta buffering, idle flush, max-chunk splitting, and completion flush.
+  \item Move ACP/main/subagent config resolution into one helper to prevent drift.
+\end{itemize}
+
+
+\subsubsection{3) Shared channel projection}
+
+
+\begin{itemize}
+  \item Keep channel adapters dumb: accept finalized blocks and send.
+  \item Move Discord-specific chunking quirks to channel projector only.
+  \item Keep pipeline channel-agnostic before projection.
+\end{itemize}
+
+
+\subsubsection{4) Delivery ledger + replay}
+
+
+\begin{itemize}
+  \item Add per-turn/per-chunk delivery IDs.
+  \item Record checkpoints before and after physical send.
+  \item On restart, replay pending chunks idempotently and avoid duplicates.
+\end{itemize}
+
+
+\subsubsection{5) Migration and cutover}
+
+
+\begin{itemize}
+  \item Phase 1: shadow mode (new pipeline computes output but old path sends; compare).
+  \item Phase 2: runtime-by-runtime cutover (\texttt{acp}, then \texttt{subagent}, then \texttt{main} or reverse by risk).
+  \item Phase 3: delete legacy runtime-specific streaming code.
+\end{itemize}
+
+
+\subsection{Non-goals}
+
+
+\begin{itemize}
+  \item No changes to ACP policy/permissions model in this refactor.
+  \item No channel-specific feature expansion outside projection compatibility fixes.
+  \item No transport/backend redesign (acpx plugin contract remains as-is unless needed for event parity).
+\end{itemize}
+
+
+\subsection{Risks and mitigations}
+
+
+\begin{itemize}
+  \item Risk: behavioral regressions in existing main/subagent paths.
+\end{itemize}
+
+Mitigation: shadow mode diffing + adapter contract tests + channel e2e tests.
+\begin{itemize}
+  \item Risk: duplicate sends during crash recovery.
+\end{itemize}
+
+Mitigation: durable delivery IDs + idempotent replay in delivery adapter.
+\begin{itemize}
+  \item Risk: runtime adapters diverge again.
+\end{itemize}
+
+Mitigation: required shared contract test suite for all adapters.
+
+\subsection{Acceptance criteria}
+
+
+\begin{itemize}
+  \item All runtimes pass shared streaming contract tests.
+  \item Discord ACP/main/subagent produce equivalent spacing/chunking behavior for tiny deltas.
+  \item Crash/restart replay sends no duplicate chunk for the same delivery ID.
+  \item Legacy ACP projector/coalescer path is removed.
+  \item Streaming config resolution is shared and runtime-independent.
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: experiments/plans/browser-evaluate-cdp-refactor.md ===
+\section{Browser Evaluate CDP Refactor Plan}
+
+
+\subsection{Context}
+
+
+\texttt{act:evaluate} executes user provided JavaScript in the page. Today it runs via Playwright
+(\texttt{page.evaluate} or \texttt{locator.evaluate}). Playwright serializes CDP commands per page, so a
+stuck or long running evaluate can block the page command queue and make every later action
+on that tab look "stuck".
+
+PR \#13498 adds a pragmatic safety net (bounded evaluate, abort propagation, and best-effort
+recovery). This document describes a larger refactor that makes \texttt{act:evaluate} inherently
+isolated from Playwright so a stuck evaluate cannot wedge normal Playwright operations.
+
+\subsection{Goals}
+
+
+\begin{itemize}
+  \item \texttt{act:evaluate} cannot permanently block later browser actions on the same tab.
+  \item Timeouts are single source of truth end to end so a caller can rely on a budget.
+  \item Abort and timeout are treated the same way across HTTP and in-process dispatch.
+  \item Element targeting for evaluate is supported without switching everything off Playwright.
+  \item Maintain backward compatibility for existing callers and payloads.
+\end{itemize}
+
+
+\subsection{Non-goals}
+
+
+\begin{itemize}
+  \item Replace all browser actions (click, type, wait, etc.) with CDP implementations.
+  \item Remove the existing safety net introduced in PR \#13498 (it remains a useful fallback).
+  \item Introduce new unsafe capabilities beyond the existing \texttt{browser.evaluateEnabled} gate.
+  \item Add process isolation (worker process/thread) for evaluate. If we still see hard to recover
+\end{itemize}
+
+stuck states after this refactor, that is a follow-up idea.
+
+\subsection{Current Architecture (Why It Gets Stuck)}
+
+
+At a high level:
+
+\begin{itemize}
+  \item Callers send \texttt{act:evaluate} to the browser control service.
+  \item The route handler calls into Playwright to execute the JavaScript.
+  \item Playwright serializes page commands, so an evaluate that never finishes blocks the queue.
+  \item A stuck queue means later click/type/wait operations on the tab can appear to hang.
+\end{itemize}
+
+
+\subsection{Proposed Architecture}
+
+
+\subsubsection{1. Deadline Propagation}
+
+
+Introduce a single budget concept and derive everything from it:
+
+\begin{itemize}
+  \item Caller sets \texttt{timeoutMs} (or a deadline in the future).
+  \item The outer request timeout, route handler logic, and the execution budget inside the page
+\end{itemize}
+
+all use the same budget, with small headroom where needed for serialization overhead.
+\begin{itemize}
+  \item Abort is propagated as an \texttt{AbortSignal} everywhere so cancellation is consistent.
+\end{itemize}
+
+
+Implementation direction:
+
+\begin{itemize}
+  \item Add a small helper (for example \texttt{createBudget(\{ timeoutMs, signal \})}) that returns:
+  \item \texttt{signal}: the linked AbortSignal
+  \item \texttt{deadlineAtMs}: absolute deadline
+  \item \texttt{remainingMs()}: remaining budget for child operations
+  \item Use this helper in:
+  \item \texttt{src/browser/client-fetch.ts} (HTTP and in-process dispatch)
+  \item \texttt{src/node-host/runner.ts} (proxy path)
+  \item browser action implementations (Playwright and CDP)
+\end{itemize}
+
+
+\subsubsection{2. Separate Evaluate Engine (CDP Path)}
+
+
+Add a CDP based evaluate implementation that does not share Playwright's per page command
+queue. The key property is that the evaluate transport is a separate WebSocket connection
+and a separate CDP session attached to the target.
+
+Implementation direction:
+
+\begin{itemize}
+  \item New module, for example \texttt{src/browser/cdp-evaluate.ts}, that:
+  \item Connects to the configured CDP endpoint (browser level socket).
+  \item Uses \texttt{Target.attachToTarget(\{ targetId, flatten: true \})} to get a \texttt{sessionId}.
+  \item Runs either:
+  \item \texttt{Runtime.evaluate} for page level evaluate, or
+  \item \texttt{DOM.resolveNode} plus \texttt{Runtime.callFunctionOn} for element evaluate.
+  \item On timeout or abort:
+  \item Sends \texttt{Runtime.terminateExecution} best-effort for the session.
+  \item Closes the WebSocket and returns a clear error.
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item This still executes JavaScript in the page, so termination can have side effects. The win
+\end{itemize}
+
+is that it does not wedge the Playwright queue, and it is cancelable at the transport
+layer by killing the CDP session.
+
+\subsubsection{3. Ref Story (Element Targeting Without A Full Rewrite)}
+
+
+The hard part is element targeting. CDP needs a DOM handle or \texttt{backendDOMNodeId}, while
+today most browser actions use Playwright locators based on refs from snapshots.
+
+Recommended approach: keep existing refs, but attach an optional CDP resolvable id.
+
+\paragraph{3.1 Extend Stored Ref Info}
+
+
+Extend the stored role ref metadata to optionally include a CDP id:
+
+\begin{itemize}
+  \item Today: \texttt{\{ role, name, nth \}}
+  \item Proposed: \texttt{\{ role, name, nth, backendDOMNodeId?: number \}}
+\end{itemize}
+
+
+This keeps all existing Playwright based actions working and allows CDP evaluate to accept
+the same \texttt{ref} value when the \texttt{backendDOMNodeId} is available.
+
+\paragraph{3.2 Populate backendDOMNodeId At Snapshot Time}
+
+
+When producing a role snapshot:
+
+\begin{enumerate}
+  \item Generate the existing role ref map as today (role, name, nth).
+  \item Fetch the AX tree via CDP (\texttt{Accessibility.getFullAXTree}) and compute a parallel map of
+\end{enumerate}
+
+\texttt{(role, name, nth) -> backendDOMNodeId} using the same duplicate handling rules.
+\begin{enumerate}
+  \item Merge the id back into the stored ref info for the current tab.
+\end{enumerate}
+
+
+If mapping fails for a ref, leave \texttt{backendDOMNodeId} undefined. This makes the feature
+best-effort and safe to roll out.
+
+\paragraph{3.3 Evaluate Behavior With Ref}
+
+
+In \texttt{act:evaluate}:
+
+\begin{itemize}
+  \item If \texttt{ref} is present and has \texttt{backendDOMNodeId}, run element evaluate via CDP.
+  \item If \texttt{ref} is present but has no \texttt{backendDOMNodeId}, fall back to the Playwright path (with
+\end{itemize}
+
+the safety net).
+
+Optional escape hatch:
+
+\begin{itemize}
+  \item Extend the request shape to accept \texttt{backendDOMNodeId} directly for advanced callers (and
+\end{itemize}
+
+for debugging), while keeping \texttt{ref} as the primary interface.
+
+\subsubsection{4. Keep A Last Resort Recovery Path}
+
+
+Even with CDP evaluate, there are other ways to wedge a tab or a connection. Keep the
+existing recovery mechanisms (terminate execution + disconnect Playwright) as a last resort
+for:
+
+\begin{itemize}
+  \item legacy callers
+  \item environments where CDP attach is blocked
+  \item unexpected Playwright edge cases
+\end{itemize}
+
+
+\subsection{Implementation Plan (Single Iteration)}
+
+
+\subsubsection{Deliverables}
+
+
+\begin{itemize}
+  \item A CDP based evaluate engine that runs outside the Playwright per-page command queue.
+  \item A single end-to-end timeout/abort budget used consistently by callers and handlers.
+  \item Ref metadata that can optionally carry \texttt{backendDOMNodeId} for element evaluate.
+  \item \texttt{act:evaluate} prefers the CDP engine when possible and falls back to Playwright when not.
+  \item Tests that prove a stuck evaluate does not wedge later actions.
+  \item Logs/metrics that make failures and fallbacks visible.
+\end{itemize}
+
+
+\subsubsection{Implementation Checklist}
+
+
+\begin{enumerate}
+  \item Add a shared "budget" helper to link \texttt{timeoutMs} + upstream \texttt{AbortSignal} into:
+\end{enumerate}
+
+\begin{itemize}
+  \item a single \texttt{AbortSignal}
+  \item an absolute deadline
+  \item a \texttt{remainingMs()} helper for downstream operations
+\end{itemize}
+
+\begin{enumerate}
+  \item Update all caller paths to use that helper so \texttt{timeoutMs} means the same thing everywhere:
+\end{enumerate}
+
+\begin{itemize}
+  \item \texttt{src/browser/client-fetch.ts} (HTTP and in-process dispatch)
+  \item \texttt{src/node-host/runner.ts} (node proxy path)
+  \item CLI wrappers that call \texttt{/act} (add \texttt{--timeout-ms} to \texttt{browser evaluate})
+\end{itemize}
+
+\begin{enumerate}
+  \item Implement \texttt{src/browser/cdp-evaluate.ts}:
+\end{enumerate}
+
+\begin{itemize}
+  \item connect to the browser-level CDP socket
+  \item \texttt{Target.attachToTarget} to get a \texttt{sessionId}
+  \item run \texttt{Runtime.evaluate} for page evaluate
+  \item run \texttt{DOM.resolveNode} + \texttt{Runtime.callFunctionOn} for element evaluate
+  \item on timeout/abort: best-effort \texttt{Runtime.terminateExecution} then close the socket
+\end{itemize}
+
+\begin{enumerate}
+  \item Extend stored role ref metadata to optionally include \texttt{backendDOMNodeId}:
+\end{enumerate}
+
+\begin{itemize}
+  \item keep existing \texttt{\{ role, name, nth \}} behavior for Playwright actions
+  \item add \texttt{backendDOMNodeId?: number} for CDP element targeting
+\end{itemize}
+
+\begin{enumerate}
+  \item Populate \texttt{backendDOMNodeId} during snapshot creation (best-effort):
+\end{enumerate}
+
+\begin{itemize}
+  \item fetch AX tree via CDP (\texttt{Accessibility.getFullAXTree})
+  \item compute \texttt{(role, name, nth) -> backendDOMNodeId} and merge into the stored ref map
+  \item if mapping is ambiguous or missing, leave the id undefined
+\end{itemize}
+
+\begin{enumerate}
+  \item Update \texttt{act:evaluate} routing:
+\end{enumerate}
+
+\begin{itemize}
+  \item if no \texttt{ref}: always use CDP evaluate
+  \item if \texttt{ref} resolves to a \texttt{backendDOMNodeId}: use CDP element evaluate
+  \item otherwise: fall back to Playwright evaluate (still bounded and abortable)
+\end{itemize}
+
+\begin{enumerate}
+  \item Keep the existing "last resort" recovery path as a fallback, not the default path.
+  \item Add tests:
+\end{enumerate}
+
+\begin{itemize}
+  \item stuck evaluate times out within budget and the next click/type succeeds
+  \item abort cancels evaluate (client disconnect or timeout) and unblocks subsequent actions
+  \item mapping failures cleanly fall back to Playwright
+\end{itemize}
+
+\begin{enumerate}
+  \item Add observability:
+\end{enumerate}
+
+\begin{itemize}
+  \item evaluate duration and timeout counters
+  \item terminateExecution usage
+  \item fallback rate (CDP -> Playwright) and reasons
+\end{itemize}
+
+
+\subsubsection{Acceptance Criteria}
+
+
+\begin{itemize}
+  \item A deliberately hung \texttt{act:evaluate} returns within the caller budget and does not wedge the
+\end{itemize}
+
+tab for later actions.
+\begin{itemize}
+  \item \texttt{timeoutMs} behaves consistently across CLI, agent tool, node proxy, and in-process calls.
+  \item If \texttt{ref} can be mapped to \texttt{backendDOMNodeId}, element evaluate uses CDP; otherwise the
+\end{itemize}
+
+fallback path is still bounded and recoverable.
+
+\subsection{Testing Plan}
+
+
+\begin{itemize}
+  \item Unit tests:
+  \item \texttt{(role, name, nth)} matching logic between role refs and AX tree nodes.
+  \item Budget helper behavior (headroom, remaining time math).
+  \item Integration tests:
+  \item CDP evaluate timeout returns within budget and does not block the next action.
+  \item Abort cancels evaluate and triggers termination best-effort.
+  \item Contract tests:
+  \item Ensure \texttt{BrowserActRequest} and \texttt{BrowserActResponse} remain compatible.
+\end{itemize}
+
+
+\subsection{Risks And Mitigations}
+
+
+\begin{itemize}
+  \item Mapping is imperfect:
+  \item Mitigation: best-effort mapping, fallback to Playwright evaluate, and add debug tooling.
+  \item \texttt{Runtime.terminateExecution} has side effects:
+  \item Mitigation: only use on timeout/abort and document the behavior in errors.
+  \item Extra overhead:
+  \item Mitigation: only fetch AX tree when snapshots are requested, cache per target, and keep
+\end{itemize}
+
+CDP session short lived.
+\begin{itemize}
+  \item Extension relay limitations:
+  \item Mitigation: use browser level attach APIs when per page sockets are not available, and
+\end{itemize}
+
+keep the current Playwright path as fallback.
+
+\subsection{Open Questions}
+
+
+\begin{itemize}
+  \item Should the new engine be configurable as \texttt{playwright}, \texttt{cdp}, or \texttt{auto}?
+  \item Do we want to expose a new "nodeRef" format for advanced users, or keep \texttt{ref} only?
+  \item How should frame snapshots and selector scoped snapshots participate in AX mapping?
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: experiments/plans/pty-process-supervision.md ===
+\section{PTY and Process Supervision Plan}
+
+
+\subsection{1. Problem and goal}
+
+
+We need one reliable lifecycle for long-running command execution across:
+
+\begin{itemize}
+  \item \texttt{exec} foreground runs
+  \item \texttt{exec} background runs
+  \item \texttt{process} follow up actions (\texttt{poll}, \texttt{log}, \texttt{send-keys}, \texttt{paste}, \texttt{submit}, \texttt{kill}, \texttt{remove})
+  \item CLI agent runner subprocesses
+\end{itemize}
+
+
+The goal is not just to support PTY. The goal is predictable ownership, cancellation, timeout, and cleanup with no unsafe process matching heuristics.
+
+\subsection{2. Scope and boundaries}
+
+
+\begin{itemize}
+  \item Keep implementation internal in \texttt{src/process/supervisor}.
+  \item Do not create a new package for this.
+  \item Keep current behavior compatibility where practical.
+  \item Do not broaden scope to terminal replay or tmux style session persistence.
+\end{itemize}
+
+
+\subsection{3. Implemented in this branch}
+
+
+\subsubsection{Supervisor baseline already present}
+
+
+\begin{itemize}
+  \item Supervisor module is in place under \texttt{src/process/supervisor/*}.
+  \item Exec runtime and CLI runner are already routed through supervisor spawn and wait.
+  \item Registry finalization is idempotent.
+\end{itemize}
+
+
+\subsubsection{This pass completed}
+
+
+\begin{enumerate}
+  \item Explicit PTY command contract
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{SpawnInput} is now a discriminated union in \texttt{src/process/supervisor/types.ts}.
+  \item PTY runs require \texttt{ptyCommand} instead of reusing generic \texttt{argv}.
+  \item Supervisor no longer rebuilds PTY command strings from argv joins in \texttt{src/process/supervisor/supervisor.ts}.
+  \item Exec runtime now passes \texttt{ptyCommand} directly in \texttt{src/agents/bash-tools.exec-runtime.ts}.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Process layer type decoupling
+\end{enumerate}
+
+
+\begin{itemize}
+  \item Supervisor types no longer import \texttt{SessionStdin} from agents.
+  \item Process local stdin contract lives in \texttt{src/process/supervisor/types.ts} (\texttt{ManagedRunStdin}).
+  \item Adapters now depend only on process level types:
+  \item \texttt{src/process/supervisor/adapters/child.ts}
+  \item \texttt{src/process/supervisor/adapters/pty.ts}
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Process tool lifecycle ownership improvement
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{src/agents/bash-tools.process.ts} now requests cancellation through supervisor first.
+  \item \texttt{process kill/remove} now use process-tree fallback termination when supervisor lookup misses.
+  \item \texttt{remove} keeps deterministic remove behavior by dropping running session entries immediately after termination is requested.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Single source watchdog defaults
+\end{enumerate}
+
+
+\begin{itemize}
+  \item Added shared defaults in \texttt{src/agents/cli-watchdog-defaults.ts}.
+  \item \texttt{src/agents/cli-backends.ts} consumes the shared defaults.
+  \item \texttt{src/agents/cli-runner/reliability.ts} consumes the same shared defaults.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Dead helper cleanup
+\end{enumerate}
+
+
+\begin{itemize}
+  \item Removed unused \texttt{killSession} helper path from \texttt{src/agents/bash-tools.shared.ts}.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Direct supervisor path tests added
+\end{enumerate}
+
+
+\begin{itemize}
+  \item Added \texttt{src/agents/bash-tools.process.supervisor.test.ts} to cover kill and remove routing through supervisor cancellation.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Reliability gap fixes completed
+\end{enumerate}
+
+
+\begin{itemize}
+  \item \texttt{src/agents/bash-tools.process.ts} now falls back to real OS-level process termination when supervisor lookup misses.
+  \item \texttt{src/process/supervisor/adapters/child.ts} now uses process-tree termination semantics for default cancel/timeout kill paths.
+  \item Added shared process-tree utility in \texttt{src/process/kill-tree.ts}.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item PTY contract edge-case coverage added
+\end{enumerate}
+
+
+\begin{itemize}
+  \item Added \texttt{src/process/supervisor/supervisor.pty-command.test.ts} for verbatim PTY command forwarding and empty-command rejection.
+  \item Added \texttt{src/process/supervisor/adapters/child.test.ts} for process-tree kill behavior in child adapter cancellation.
+\end{itemize}
+
+
+\subsection{4. Remaining gaps and decisions}
+
+
+\subsubsection{Reliability status}
+
+
+The two required reliability gaps for this pass are now closed:
+
+\begin{itemize}
+  \item \texttt{process kill/remove} now has a real OS termination fallback when supervisor lookup misses.
+  \item child cancel/timeout now uses process-tree kill semantics for default kill path.
+  \item Regression tests were added for both behaviors.
+\end{itemize}
+
+
+\subsubsection{Durability and startup reconciliation}
+
+
+Restart behavior is now explicitly defined as in-memory lifecycle only.
+
+\begin{itemize}
+  \item \texttt{reconcileOrphans()} remains a no-op in \texttt{src/process/supervisor/supervisor.ts} by design.
+  \item Active runs are not recovered after process restart.
+  \item This boundary is intentional for this implementation pass to avoid partial persistence risks.
+\end{itemize}
+
+
+\subsubsection{Maintainability follow-ups}
+
+
+\begin{enumerate}
+  \item \texttt{runExecProcess} in \texttt{src/agents/bash-tools.exec-runtime.ts} still handles multiple responsibilities and can be split into focused helpers in a follow-up.
+\end{enumerate}
+
+
+\subsection{5. Implementation plan}
+
+
+The implementation pass for required reliability and contract items is complete.
+
+Completed:
+
+\begin{itemize}
+  \item \texttt{process kill/remove} fallback real termination
+  \item process-tree cancellation for child adapter default kill path
+  \item regression tests for fallback kill and child adapter kill path
+  \item PTY command edge-case tests under explicit \texttt{ptyCommand}
+  \item explicit in-memory restart boundary with \texttt{reconcileOrphans()} no-op by design
+\end{itemize}
+
+
+Optional follow-up:
+
+\begin{itemize}
+  \item split \texttt{runExecProcess} into focused helpers with no behavior drift
+\end{itemize}
+
+
+\subsection{6. File map}
+
+
+\subsubsection{Process supervisor}
+
+
+\begin{itemize}
+  \item \texttt{src/process/supervisor/types.ts} updated with discriminated spawn input and process local stdin contract.
+  \item \texttt{src/process/supervisor/supervisor.ts} updated to use explicit \texttt{ptyCommand}.
+  \item \texttt{src/process/supervisor/adapters/child.ts} and \texttt{src/process/supervisor/adapters/pty.ts} decoupled from agent types.
+  \item \texttt{src/process/supervisor/registry.ts} idempotent finalize unchanged and retained.
+\end{itemize}
+
+
+\subsubsection{Exec and process integration}
+
+
+\begin{itemize}
+  \item \texttt{src/agents/bash-tools.exec-runtime.ts} updated to pass PTY command explicitly and keep fallback path.
+  \item \texttt{src/agents/bash-tools.process.ts} updated to cancel via supervisor with real process-tree fallback termination.
+  \item \texttt{src/agents/bash-tools.shared.ts} removed direct kill helper path.
+\end{itemize}
+
+
+\subsubsection{CLI reliability}
+
+
+\begin{itemize}
+  \item \texttt{src/agents/cli-watchdog-defaults.ts} added as shared baseline.
+  \item \texttt{src/agents/cli-backends.ts} and \texttt{src/agents/cli-runner/reliability.ts} now consume same defaults.
+\end{itemize}
+
+
+\subsection{7. Validation run in this pass}
+
+
+Unit tests:
+
+\begin{itemize}
+  \item \texttt{pnpm vitest src/process/supervisor/registry.test.ts}
+  \item \texttt{pnpm vitest src/process/supervisor/supervisor.test.ts}
+  \item \texttt{pnpm vitest src/process/supervisor/supervisor.pty-command.test.ts}
+  \item \texttt{pnpm vitest src/process/supervisor/adapters/child.test.ts}
+  \item \texttt{pnpm vitest src/agents/cli-backends.test.ts}
+  \item \texttt{pnpm vitest src/agents/bash-tools.exec.pty-cleanup.test.ts}
+  \item \texttt{pnpm vitest src/agents/bash-tools.process.poll-timeout.test.ts}
+  \item \texttt{pnpm vitest src/agents/bash-tools.process.supervisor.test.ts}
+  \item \texttt{pnpm vitest src/process/exec.test.ts}
+\end{itemize}
+
+
+E2E targets:
+
+\begin{itemize}
+  \item \texttt{pnpm vitest src/agents/cli-runner.test.ts}
+  \item \texttt{pnpm vitest run src/agents/bash-tools.exec.pty-fallback.test.ts src/agents/bash-tools.exec.background-abort.test.ts src/agents/bash-tools.process.send-keys.test.ts}
+\end{itemize}
+
+
+Typecheck note:
+
+\begin{itemize}
+  \item Use \texttt{pnpm build} (and \texttt{pnpm check} for full lint/docs gate) in this repo. Older notes that mention \texttt{pnpm tsgo} are obsolete.
+\end{itemize}
+
+
+\subsection{8. Operational guarantees preserved}
+
+
+\begin{itemize}
+  \item Exec env hardening behavior is unchanged.
+  \item Approval and allowlist flow is unchanged.
+  \item Output sanitization and output caps are unchanged.
+  \item PTY adapter still guarantees wait settlement on forced kill and listener disposal.
+\end{itemize}
+
+
+\subsection{9. Definition of done}
+
+
+\begin{enumerate}
+  \item Supervisor is lifecycle owner for managed runs.
+  \item PTY spawn uses explicit command contract with no argv reconstruction.
+  \item Process layer has no type dependency on agent layer for supervisor stdin contracts.
+  \item Watchdog defaults are single source.
+  \item Targeted unit and e2e tests remain green.
+  \item Restart durability boundary is explicitly documented or fully implemented.
+\end{enumerate}
+
+
+\subsection{10. Summary}
+
+
+The branch now has a coherent and safer supervision shape:
+
+\begin{itemize}
+  \item explicit PTY contract
+  \item cleaner process layering
+  \item supervisor driven cancellation path for process operations
+  \item real fallback termination when supervisor lookup misses
+  \item process-tree cancellation for child-run default kill paths
+  \item unified watchdog defaults
+  \item explicit in-memory restart boundary (no orphan reconciliation across restart in this pass)
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: experiments/plans/session-binding-channel-agnostic.md ===
+\section{Session Binding Channel Agnostic Plan}
+
+
+\subsection{Overview}
+
+
+This document defines the long term channel agnostic session binding model and the concrete scope for the next implementation iteration.
+
+Goal:
+
+\begin{itemize}
+  \item make subagent bound session routing a core capability
+  \item keep channel specific behavior in adapters
+  \item avoid regressions in normal Discord behavior
+\end{itemize}
+
+
+\subsection{Why this exists}
+
+
+Current behavior mixes:
+
+\begin{itemize}
+  \item completion content policy
+  \item destination routing policy
+  \item Discord specific details
+\end{itemize}
+
+
+This caused edge cases such as:
+
+\begin{itemize}
+  \item duplicate main and thread delivery under concurrent runs
+  \item stale token usage on reused binding managers
+  \item missing activity accounting for webhook sends
+\end{itemize}
+
+
+\subsection{Iteration 1 scope}
+
+
+This iteration is intentionally limited.
+
+\subsubsection{1. Add channel agnostic core interfaces}
+
+
+Add core types and service interfaces for bindings and routing.
+
+Proposed core types:
+
+\begin{lstlisting}[language=typescript]
+export type BindingTargetKind = "subagent" | "session";
+export type BindingStatus = "active" | "ending" | "ended";
+
+export type ConversationRef = {
+  channel: string;
+  accountId: string;
+  conversationId: string;
+  parentConversationId?: string;
+};
+
+export type SessionBindingRecord = {
+  bindingId: string;
+  targetSessionKey: string;
+  targetKind: BindingTargetKind;
+  conversation: ConversationRef;
+  status: BindingStatus;
+  boundAt: number;
+  expiresAt?: number;
+  metadata?: Record<string, unknown>;
+};
+\end{lstlisting}
+
+
+Core service contract:
+
+\begin{lstlisting}[language=typescript]
+export interface SessionBindingService {
+  bind(input: {
+    targetSessionKey: string;
+    targetKind: BindingTargetKind;
+    conversation: ConversationRef;
+    metadata?: Record<string, unknown>;
+    ttlMs?: number;
+  }): Promise<SessionBindingRecord>;
+
+  listBySession(targetSessionKey: string): SessionBindingRecord[];
+  resolveByConversation(ref: ConversationRef): SessionBindingRecord | null;
+  touch(bindingId: string, at?: number): void;
+  unbind(input: {
+    bindingId?: string;
+    targetSessionKey?: string;
+    reason: string;
+  }): Promise<SessionBindingRecord[]>;
+}
+\end{lstlisting}
+
+
+\subsubsection{2. Add one core delivery router for subagent completions}
+
+
+Add a single destination resolution path for completion events.
+
+Router contract:
+
+\begin{lstlisting}[language=typescript]
+export interface BoundDeliveryRouter {
+  resolveDestination(input: {
+    eventKind: "task_completion";
+    targetSessionKey: string;
+    requester?: ConversationRef;
+    failClosed: boolean;
+  }): {
+    binding: SessionBindingRecord | null;
+    mode: "bound" | "fallback";
+    reason: string;
+  };
+}
+\end{lstlisting}
+
+
+For this iteration:
+
+\begin{itemize}
+  \item only \texttt{task\_completion} is routed through this new path
+  \item existing paths for other event kinds remain as-is
+\end{itemize}
+
+
+\subsubsection{3. Keep Discord as adapter}
+
+
+Discord remains the first adapter implementation.
+
+Adapter responsibilities:
+
+\begin{itemize}
+  \item create/reuse thread conversations
+  \item send bound messages via webhook or channel send
+  \item validate thread state (archived/deleted)
+  \item map adapter metadata (webhook identity, thread ids)
+\end{itemize}
+
+
+\subsubsection{4. Fix currently known correctness issues}
+
+
+Required in this iteration:
+
+\begin{itemize}
+  \item refresh token usage when reusing existing thread binding manager
+  \item record outbound activity for webhook based Discord sends
+  \item stop implicit main channel fallback when a bound thread destination is selected for session mode completion
+\end{itemize}
+
+
+\subsubsection{5. Preserve current runtime safety defaults}
+
+
+No behavior change for users with thread bound spawn disabled.
+
+Defaults stay:
+
+\begin{itemize}
+  \item \texttt{channels.discord.threadBindings.spawnSubagentSessions = false}
+\end{itemize}
+
+
+Result:
+
+\begin{itemize}
+  \item normal Discord users stay on current behavior
+  \item new core path affects only bound session completion routing where enabled
+\end{itemize}
+
+
+\subsection{Not in iteration 1}
+
+
+Explicitly deferred:
+
+\begin{itemize}
+  \item ACP binding targets (\texttt{targetKind: "acp"})
+  \item new channel adapters beyond Discord
+  \item global replacement of all delivery paths (\texttt{spawn\_ack}, future \texttt{subagent\_message})
+  \item protocol level changes
+  \item store migration/versioning redesign for all binding persistence
+\end{itemize}
+
+
+Notes on ACP:
+
+\begin{itemize}
+  \item interface design keeps room for ACP
+  \item ACP implementation is not started in this iteration
+\end{itemize}
+
+
+\subsection{Routing invariants}
+
+
+These invariants are mandatory for iteration 1.
+
+\begin{itemize}
+  \item destination selection and content generation are separate steps
+  \item if session mode completion resolves to an active bound destination, delivery must target that destination
+  \item no hidden reroute from bound destination to main channel
+  \item fallback behavior must be explicit and observable
+\end{itemize}
+
+
+\subsection{Compatibility and rollout}
+
+
+Compatibility target:
+
+\begin{itemize}
+  \item no regression for users with thread bound spawning off
+  \item no change to non-Discord channels in this iteration
+\end{itemize}
+
+
+Rollout:
+
+\begin{enumerate}
+  \item Land interfaces and router behind current feature gates.
+  \item Route Discord completion mode bound deliveries through router.
+  \item Keep legacy path for non-bound flows.
+  \item Verify with targeted tests and canary runtime logs.
+\end{enumerate}
+
+
+\subsection{Tests required in iteration 1}
+
+
+Unit and integration coverage required:
+
+\begin{itemize}
+  \item manager token rotation uses latest token after manager reuse
+  \item webhook sends update channel activity timestamps
+  \item two active bound sessions in same requester channel do not duplicate to main channel
+  \item completion for bound session mode run resolves to thread destination only
+  \item disabled spawn flag keeps legacy behavior unchanged
+\end{itemize}
+
+
+\subsection{Proposed implementation files}
+
+
+Core:
+
+\begin{itemize}
+  \item \texttt{src/infra/outbound/session-binding-service.ts} (new)
+  \item \texttt{src/infra/outbound/bound-delivery-router.ts} (new)
+  \item \texttt{src/agents/subagent-announce.ts} (completion destination resolution integration)
+\end{itemize}
+
+
+Discord adapter and runtime:
+
+\begin{itemize}
+  \item \texttt{src/discord/monitor/thread-bindings.manager.ts}
+  \item \texttt{src/discord/monitor/reply-delivery.ts}
+  \item \texttt{src/discord/send.outbound.ts}
+\end{itemize}
+
+
+Tests:
+
+\begin{itemize}
+  \item \texttt{src/discord/monitor/provider*.test.ts}
+  \item \texttt{src/discord/monitor/reply-delivery.test.ts}
+  \item \texttt{src/agents/subagent-announce.format.test.ts}
+\end{itemize}
+
+
+\subsection{Done criteria for iteration 1}
+
+
+\begin{itemize}
+  \item core interfaces exist and are wired for completion routing
+  \item correctness fixes above are merged with tests
+  \item no main and thread duplicate completion delivery in session mode bound runs
+  \item no behavior change for disabled bound spawn deployments
+  \item ACP remains explicitly deferred
+\end{itemize}
+
+
+
+\clearpage
+

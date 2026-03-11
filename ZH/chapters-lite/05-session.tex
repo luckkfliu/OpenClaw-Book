@@ -1,0 +1,100 @@
+\chapter{Session（会话）}
+
+\section{概述}
+
+Session（会话）是用户与智能体之间一次连续对话的容器，包含上下文历史、令牌计数和路由元数据。
+
+配置路径：\texttt{session.*}
+
+\section{会话所有权}
+
+所有会话状态都\textbf{由 Gateway 网关拥有}。UI 客户端（macOS 应用、WebChat 等）必须向 Gateway 网关查询，而不是读取本地文件。
+
+\subsection{存储位置}
+
+\begin{itemize}
+  \item 存储文件：\texttt{\textasciitilde{}/.openclaw/agents/<id>/sessions/sessions.json}
+  \item 对话记录：\texttt{\textasciitilde{}/.openclaw/agents/<id>/sessions/<sessionId>.jsonl}
+\end{itemize}
+
+\section{会话键映射}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{来源} & \textbf{会话键格式} \\
+\midrule
+私信（默认） & \texttt{agent:<agentId>:<mainKey>} \\
+群组聊天 & \texttt{agent:<agentId>:<channel>:group:<groupId>} \\
+线程/话题 & 基础键 + \texttt{:thread:<threadId>} \\
+定时任务 & \texttt{cron:<jobId>} \\
+Webhook & \texttt{hook:<hookId>} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{私信分组策略（dmScope）}
+
+\texttt{session.dmScope} 控制私信如何分组：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{值} & \textbf{行为} \\
+\midrule
+\texttt{main}（默认） & 所有私信共享主会话 \\
+\texttt{per-peer} & 按发送者 ID 隔离 \\
+\texttt{per-channel-peer} & 按渠道 + 发送者隔离 \\
+\texttt{per-account-channel-peer} & 按账户 + 渠道 + 发送者隔离 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{会话生命周期}
+
+\subsection{重置策略}
+
+\begin{itemize}
+  \item \textbf{每日重置}（默认）：Gateway 主机本地时间凌晨 4:00
+  \item \textbf{空闲重置}（可选）：滑动空闲窗口（\texttt{idleMinutes}）
+  \item 两者同时配置时，先过期者触发新会话
+\end{itemize}
+
+\subsection{手动重置}
+
+在聊天中发送 \texttt{/new} 或 \texttt{/reset} 创建新会话。
+
+\section{配置示例}
+
+\begin{lstlisting}[language=json]
+{
+  session: {
+    dmScope: "main",
+    reset: {
+      mode: "daily",
+      atHour: 4,
+      idleMinutes: 120
+    },
+    resetByType: {
+      dm: { mode: "idle", idleMinutes: 240 },
+      group: { mode: "idle", idleMinutes: 120 }
+    },
+    identityLinks: {
+      alice: ["telegram:123456789", "discord:987654321012345678"]
+    }
+  }
+}
+\end{lstlisting}
+
+\texttt{identityLinks} 可将同一用户的不同渠道 ID 映射到统一身份，实现跨渠道共享会话。
+
+\section{常用命令}
+
+\begin{lstlisting}[language=bash]
+openclaw status                      # Show sessions
+openclaw sessions --json             # Export all sessions
+/status                              # In chat: check session info
+/new                                 # In chat: start new session
+/compact                             # In chat: compact context
+/stop                                # In chat: abort current run
+\end{lstlisting}

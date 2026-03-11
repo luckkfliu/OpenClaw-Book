@@ -1,0 +1,1645 @@
+\chapter{Refactoring Plans}
+
+% === Source file: refactor/clawnet.md ===
+\section{Clawnet refactor (protocol + auth unification)}
+
+
+\subsection{Hi}
+
+
+Hi Peter — great direction; this unlocks simpler UX + stronger security.
+
+\subsection{Purpose}
+
+
+Single, rigorous document for:
+
+\begin{itemize}
+  \item Current state: protocols, flows, trust boundaries.
+  \item Pain points: approvals, multi‑hop routing, UI duplication.
+  \item Proposed new state: one protocol, scoped roles, unified auth/pairing, TLS pinning.
+  \item Identity model: stable IDs + cute slugs.
+  \item Migration plan, risks, open questions.
+\end{itemize}
+
+
+\subsection{Goals (from discussion)}
+
+
+\begin{itemize}
+  \item One protocol for all clients (mac app, CLI, iOS, Android, headless node).
+  \item Every network participant authenticated + paired.
+  \item Role clarity: nodes vs operators.
+  \item Central approvals routed to where the user is.
+  \item TLS encryption + optional pinning for all remote traffic.
+  \item Minimal code duplication.
+  \item Single machine should appear once (no UI/node duplicate entry).
+\end{itemize}
+
+
+\subsection{Non‑goals (explicit)}
+
+
+\begin{itemize}
+  \item Remove capability separation (still need least‑privilege).
+  \item Expose full gateway control plane without scope checks.
+  \item Make auth depend on human labels (slugs remain non‑security).
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Current state (as‑is)}
+
+
+\subsection{Two protocols}
+
+
+\subsubsection{1) Gateway WebSocket (control plane)}
+
+
+\begin{itemize}
+  \item Full API surface: config, channels, models, sessions, agent runs, logs, nodes, etc.
+  \item Default bind: loopback. Remote access via SSH/Tailscale.
+  \item Auth: token/password via \texttt{connect}.
+  \item No TLS pinning (relies on loopback/tunnel).
+  \item Code:
+  \item \texttt{src/gateway/server/ws-connection/message-handler.ts}
+  \item \texttt{src/gateway/client.ts}
+  \item \texttt{docs/gateway/protocol.md}
+\end{itemize}
+
+
+\subsubsection{2) Bridge (node transport)}
+
+
+\begin{itemize}
+  \item Narrow allowlist surface, node identity + pairing.
+  \item JSONL over TCP; optional TLS + cert fingerprint pinning.
+  \item TLS advertises fingerprint in discovery TXT.
+  \item Code:
+  \item \texttt{src/infra/bridge/server/connection.ts}
+  \item \texttt{src/gateway/server-bridge.ts}
+  \item \texttt{src/node-host/bridge-client.ts}
+  \item \texttt{docs/gateway/bridge-protocol.md}
+\end{itemize}
+
+
+\subsection{Control plane clients today}
+
+
+\begin{itemize}
+  \item CLI → Gateway WS via \texttt{callGateway} (\texttt{src/gateway/call.ts}).
+  \item macOS app UI → Gateway WS (\texttt{GatewayConnection}).
+  \item Web Control UI → Gateway WS.
+  \item ACP → Gateway WS.
+  \item Browser control uses its own HTTP control server.
+\end{itemize}
+
+
+\subsection{Nodes today}
+
+
+\begin{itemize}
+  \item macOS app in node mode connects to Gateway bridge (\texttt{MacNodeBridgeSession}).
+  \item iOS/Android apps connect to Gateway bridge.
+  \item Pairing + per‑node token stored on gateway.
+\end{itemize}
+
+
+\subsection{Current approval flow (exec)}
+
+
+\begin{itemize}
+  \item Agent uses \texttt{system.run} via Gateway.
+  \item Gateway invokes node over bridge.
+  \item Node runtime decides approval.
+  \item UI prompt shown by mac app (when node == mac app).
+  \item Node returns \texttt{invoke-res} to Gateway.
+  \item Multi‑hop, UI tied to node host.
+\end{itemize}
+
+
+\subsection{Presence + identity today}
+
+
+\begin{itemize}
+  \item Gateway presence entries from WS clients.
+  \item Node presence entries from bridge.
+  \item mac app can show two entries for same machine (UI + node).
+  \item Node identity stored in pairing store; UI identity separate.
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Problems / pain points}
+
+
+\begin{itemize}
+  \item Two protocol stacks to maintain (WS + Bridge).
+  \item Approvals on remote nodes: prompt appears on node host, not where user is.
+  \item TLS pinning only exists for bridge; WS depends on SSH/Tailscale.
+  \item Identity duplication: same machine shows as multiple instances.
+  \item Ambiguous roles: UI + node + CLI capabilities not clearly separated.
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Proposed new state (Clawnet)}
+
+
+\subsection{One protocol, two roles}
+
+
+Single WS protocol with role + scope.
+
+\begin{itemize}
+  \item \textbf{Role: node} (capability host)
+  \item \textbf{Role: operator} (control plane)
+  \item Optional \textbf{scope} for operator:
+  \item \texttt{operator.read} (status + viewing)
+  \item \texttt{operator.write} (agent run, sends)
+  \item \texttt{operator.admin} (config, channels, models)
+\end{itemize}
+
+
+\subsubsection{Role behaviors}
+
+
+\textbf{Node}
+
+\begin{itemize}
+  \item Can register capabilities (\texttt{caps}, \texttt{commands}, permissions).
+  \item Can receive \texttt{invoke} commands (\texttt{system.run}, \texttt{camera.\textit{}, \texttt{canvas.}}, \texttt{screen.record}, etc).
+  \item Can send events: \texttt{voice.transcript}, \texttt{agent.request}, \texttt{chat.subscribe}.
+  \item Cannot call config/models/channels/sessions/agent control plane APIs.
+\end{itemize}
+
+
+\textbf{Operator}
+
+\begin{itemize}
+  \item Full control plane API, gated by scope.
+  \item Receives all approvals.
+  \item Does not directly execute OS actions; routes to nodes.
+\end{itemize}
+
+
+\subsubsection{Key rule}
+
+
+Role is per‑connection, not per device. A device may open both roles, separately.
+
+\hrulefill
+
+
+\section{Unified authentication + pairing}
+
+
+\subsection{Client identity}
+
+
+Every client provides:
+
+\begin{itemize}
+  \item \texttt{deviceId} (stable, derived from device key).
+  \item \texttt{displayName} (human name).
+  \item \texttt{role} + \texttt{scope} + \texttt{caps} + \texttt{commands}.
+\end{itemize}
+
+
+\subsection{Pairing flow (unified)}
+
+
+\begin{itemize}
+  \item Client connects unauthenticated.
+  \item Gateway creates a \textbf{pairing request} for that \texttt{deviceId}.
+  \item Operator receives prompt; approves/denies.
+  \item Gateway issues credentials bound to:
+  \item device public key
+  \item role(s)
+  \item scope(s)
+  \item capabilities/commands
+  \item Client persists token, reconnects authenticated.
+\end{itemize}
+
+
+\subsection{Device‑bound auth (avoid bearer token replay)}
+
+
+Preferred: device keypairs.
+
+\begin{itemize}
+  \item Device generates keypair once.
+  \item \texttt{deviceId = fingerprint(publicKey)}.
+  \item Gateway sends nonce; device signs; gateway verifies.
+  \item Tokens are issued to a public key (proof‑of‑possession), not a string.
+\end{itemize}
+
+
+Alternatives:
+
+\begin{itemize}
+  \item mTLS (client certs): strongest, more ops complexity.
+  \item Short‑lived bearer tokens only as a temporary phase (rotate + revoke early).
+\end{itemize}
+
+
+\subsection{Silent approval (SSH heuristic)}
+
+
+Define it precisely to avoid a weak link. Prefer one:
+
+\begin{itemize}
+  \item \textbf{Local‑only}: auto‑pair when client connects via loopback/Unix socket.
+  \item \textbf{Challenge via SSH}: gateway issues nonce; client proves SSH by fetching it.
+  \item \textbf{Physical presence window}: after a local approval on gateway host UI, allow auto‑pair for a short window (e.g. 10 minutes).
+\end{itemize}
+
+
+Always log + record auto‑approvals.
+
+\hrulefill
+
+
+\section{TLS everywhere (dev + prod)}
+
+
+\subsection{Reuse existing bridge TLS}
+
+
+Use current TLS runtime + fingerprint pinning:
+
+\begin{itemize}
+  \item \texttt{src/infra/bridge/server/tls.ts}
+  \item fingerprint verification logic in \texttt{src/node-host/bridge-client.ts}
+\end{itemize}
+
+
+\subsection{Apply to WS}
+
+
+\begin{itemize}
+  \item WS server supports TLS with same cert/key + fingerprint.
+  \item WS clients can pin fingerprint (optional).
+  \item Discovery advertises TLS + fingerprint for all endpoints.
+  \item Discovery is locator hints only; never a trust anchor.
+\end{itemize}
+
+
+\subsection{Why}
+
+
+\begin{itemize}
+  \item Reduce reliance on SSH/Tailscale for confidentiality.
+  \item Make remote mobile connections safe by default.
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Approvals redesign (centralized)}
+
+
+\subsection{Current}
+
+
+Approval happens on node host (mac app node runtime). Prompt appears where node runs.
+
+\subsection{Proposed}
+
+
+Approval is \textbf{gateway‑hosted}, UI delivered to operator clients.
+
+\subsubsection{New flow}
+
+
+\begin{enumerate}
+  \item Gateway receives \texttt{system.run} intent (agent).
+  \item Gateway creates approval record: \texttt{approval.requested}.
+  \item Operator UI(s) show prompt.
+  \item Approval decision sent to gateway: \texttt{approval.resolve}.
+  \item Gateway invokes node command if approved.
+  \item Node executes, returns \texttt{invoke-res}.
+\end{enumerate}
+
+
+\subsubsection{Approval semantics (hardening)}
+
+
+\begin{itemize}
+  \item Broadcast to all operators; only the active UI shows a modal (others get a toast).
+  \item First resolution wins; gateway rejects subsequent resolves as already settled.
+  \item Default timeout: deny after N seconds (e.g. 60s), log reason.
+  \item Resolution requires \texttt{operator.approvals} scope.
+\end{itemize}
+
+
+\subsection{Benefits}
+
+
+\begin{itemize}
+  \item Prompt appears where user is (mac/phone).
+  \item Consistent approvals for remote nodes.
+  \item Node runtime stays headless; no UI dependency.
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Role clarity examples}
+
+
+\subsection{iPhone app}
+
+
+\begin{itemize}
+  \item \textbf{Node role} for: mic, camera, voice chat, location, push‑to‑talk.
+  \item Optional \textbf{operator.read} for status and chat view.
+  \item Optional \textbf{operator.write/admin} only when explicitly enabled.
+\end{itemize}
+
+
+\subsection{macOS app}
+
+
+\begin{itemize}
+  \item Operator role by default (control UI).
+  \item Node role when “Mac node” enabled (system.run, screen, camera).
+  \item Same deviceId for both connections → merged UI entry.
+\end{itemize}
+
+
+\subsection{CLI}
+
+
+\begin{itemize}
+  \item Operator role always.
+  \item Scope derived by subcommand:
+  \item \texttt{status}, \texttt{logs} → read
+  \item \texttt{agent}, \texttt{message} → write
+  \item \texttt{config}, \texttt{channels} → admin
+  \item approvals + pairing → \texttt{operator.approvals} / \texttt{operator.pairing}
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Identity + slugs}
+
+
+\subsection{Stable ID}
+
+
+Required for auth; never changes.
+Preferred:
+
+\begin{itemize}
+  \item Keypair fingerprint (public key hash).
+\end{itemize}
+
+
+\subsection{Cute slug (lobster‑themed)}
+
+
+Human label only.
+
+\begin{itemize}
+  \item Example: \texttt{scarlet-claw}, \texttt{saltwave}, \texttt{mantis-pinch}.
+  \item Stored in gateway registry, editable.
+  \item Collision handling: \texttt{-2}, \texttt{-3}.
+\end{itemize}
+
+
+\subsection{UI grouping}
+
+
+Same \texttt{deviceId} across roles → single “Instance” row:
+
+\begin{itemize}
+  \item Badge: \texttt{operator}, \texttt{node}.
+  \item Shows capabilities + last seen.
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Migration strategy}
+
+
+\subsection{Phase 0: Document + align}
+
+
+\begin{itemize}
+  \item Publish this doc.
+  \item Inventory all protocol calls + approval flows.
+\end{itemize}
+
+
+\subsection{Phase 1: Add roles/scopes to WS}
+
+
+\begin{itemize}
+  \item Extend \texttt{connect} params with \texttt{role}, \texttt{scope}, \texttt{deviceId}.
+  \item Add allowlist gating for node role.
+\end{itemize}
+
+
+\subsection{Phase 2: Bridge compatibility}
+
+
+\begin{itemize}
+  \item Keep bridge running.
+  \item Add WS node support in parallel.
+  \item Gate features behind config flag.
+\end{itemize}
+
+
+\subsection{Phase 3: Central approvals}
+
+
+\begin{itemize}
+  \item Add approval request + resolve events in WS.
+  \item Update mac app UI to prompt + respond.
+  \item Node runtime stops prompting UI.
+\end{itemize}
+
+
+\subsection{Phase 4: TLS unification}
+
+
+\begin{itemize}
+  \item Add TLS config for WS using bridge TLS runtime.
+  \item Add pinning to clients.
+\end{itemize}
+
+
+\subsection{Phase 5: Deprecate bridge}
+
+
+\begin{itemize}
+  \item Migrate iOS/Android/mac node to WS.
+  \item Keep bridge as fallback; remove once stable.
+\end{itemize}
+
+
+\subsection{Phase 6: Device‑bound auth}
+
+
+\begin{itemize}
+  \item Require key‑based identity for all non‑local connections.
+  \item Add revocation + rotation UI.
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Security notes}
+
+
+\begin{itemize}
+  \item Role/allowlist enforced at gateway boundary.
+  \item No client gets “full” API without operator scope.
+  \item Pairing required for \_all\_ connections.
+  \item TLS + pinning reduces MITM risk for mobile.
+  \item SSH silent approval is a convenience; still recorded + revocable.
+  \item Discovery is never a trust anchor.
+  \item Capability claims are verified against server allowlists by platform/type.
+\end{itemize}
+
+
+\section{Streaming + large payloads (node media)}
+
+
+WS control plane is fine for small messages, but nodes also do:
+
+\begin{itemize}
+  \item camera clips
+  \item screen recordings
+  \item audio streams
+\end{itemize}
+
+
+Options:
+
+\begin{enumerate}
+  \item WS binary frames + chunking + backpressure rules.
+  \item Separate streaming endpoint (still TLS + auth).
+  \item Keep bridge longer for media‑heavy commands, migrate last.
+\end{enumerate}
+
+
+Pick one before implementation to avoid drift.
+
+\section{Capability + command policy}
+
+
+\begin{itemize}
+  \item Node‑reported caps/commands are treated as \textbf{claims}.
+  \item Gateway enforces per‑platform allowlists.
+  \item Any new command requires operator approval or explicit allowlist change.
+  \item Audit changes with timestamps.
+\end{itemize}
+
+
+\section{Audit + rate limiting}
+
+
+\begin{itemize}
+  \item Log: pairing requests, approvals/denials, token issuance/rotation/revocation.
+  \item Rate‑limit pairing spam and approval prompts.
+\end{itemize}
+
+
+\section{Protocol hygiene}
+
+
+\begin{itemize}
+  \item Explicit protocol version + error codes.
+  \item Reconnect rules + heartbeat policy.
+  \item Presence TTL and last‑seen semantics.
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Open questions}
+
+
+\begin{enumerate}
+  \item Single device running both roles: token model
+\end{enumerate}
+
+\begin{itemize}
+  \item Recommend separate tokens per role (node vs operator).
+  \item Same deviceId; different scopes; clearer revocation.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Operator scope granularity
+\end{enumerate}
+
+\begin{itemize}
+  \item read/write/admin + approvals + pairing (minimum viable).
+  \item Consider per‑feature scopes later.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Token rotation + revocation UX
+\end{enumerate}
+
+\begin{itemize}
+  \item Auto‑rotate on role change.
+  \item UI to revoke by deviceId + role.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Discovery
+\end{enumerate}
+
+\begin{itemize}
+  \item Extend current Bonjour TXT to include WS TLS fingerprint + role hints.
+  \item Treat as locator hints only.
+\end{itemize}
+
+
+\begin{enumerate}
+  \item Cross‑network approval
+\end{enumerate}
+
+\begin{itemize}
+  \item Broadcast to all operator clients; active UI shows modal.
+  \item First response wins; gateway enforces atomicity.
+\end{itemize}
+
+
+\hrulefill
+
+
+\section{Summary (TL;DR)}
+
+
+\begin{itemize}
+  \item Today: WS control plane + Bridge node transport.
+  \item Pain: approvals + duplication + two stacks.
+  \item Proposal: one WS protocol with explicit roles + scopes, unified pairing + TLS pinning, gateway‑hosted approvals, stable device IDs + cute slugs.
+  \item Outcome: simpler UX, stronger security, less duplication, better mobile routing.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: refactor/exec-host.md ===
+\section{Exec host refactor plan}
+
+
+\subsection{Goals}
+
+
+\begin{itemize}
+  \item Add \texttt{exec.host} + \texttt{exec.security} to route execution across \textbf{sandbox}, \textbf{gateway}, and \textbf{node}.
+  \item Keep defaults \textbf{safe}: no cross-host execution unless explicitly enabled.
+  \item Split execution into a \textbf{headless runner service} with optional UI (macOS app) via local IPC.
+  \item Provide \textbf{per-agent} policy, allowlist, ask mode, and node binding.
+  \item Support \textbf{ask modes} that work \_with\_ or \_without\_ allowlists.
+  \item Cross-platform: Unix socket + token auth (macOS/Linux/Windows parity).
+\end{itemize}
+
+
+\subsection{Non-goals}
+
+
+\begin{itemize}
+  \item No legacy allowlist migration or legacy schema support.
+  \item No PTY/streaming for node exec (aggregated output only).
+  \item No new network layer beyond the existing Bridge + Gateway.
+\end{itemize}
+
+
+\subsection{Decisions (locked)}
+
+
+\begin{itemize}
+  \item \textbf{Config keys:} \texttt{exec.host} + \texttt{exec.security} (per-agent override allowed).
+  \item \textbf{Elevation:} keep \texttt{/elevated} as an alias for gateway full access.
+  \item \textbf{Ask default:} \texttt{on-miss}.
+  \item \textbf{Approvals store:} \texttt{\textasciitilde{}/.openclaw/exec-approvals.json} (JSON, no legacy migration).
+  \item \textbf{Runner:} headless system service; UI app hosts a Unix socket for approvals.
+  \item \textbf{Node identity:} use existing \texttt{nodeId}.
+  \item \textbf{Socket auth:} Unix socket + token (cross-platform); split later if needed.
+  \item \textbf{Node host state:} \texttt{\textasciitilde{}/.openclaw/node.json} (node id + pairing token).
+  \item \textbf{macOS exec host:} run \texttt{system.run} inside the macOS app; node host service forwards requests over local IPC.
+  \item \textbf{No XPC helper:} stick to Unix socket + token + peer checks.
+\end{itemize}
+
+
+\subsection{Key concepts}
+
+
+\subsubsection{Host}
+
+
+\begin{itemize}
+  \item \texttt{sandbox}: Docker exec (current behavior).
+  \item \texttt{gateway}: exec on gateway host.
+  \item \texttt{node}: exec on node runner via Bridge (\texttt{system.run}).
+\end{itemize}
+
+
+\subsubsection{Security mode}
+
+
+\begin{itemize}
+  \item \texttt{deny}: always block.
+  \item \texttt{allowlist}: allow only matches.
+  \item \texttt{full}: allow everything (equivalent to elevated).
+\end{itemize}
+
+
+\subsubsection{Ask mode}
+
+
+\begin{itemize}
+  \item \texttt{off}: never ask.
+  \item \texttt{on-miss}: ask only when allowlist does not match.
+  \item \texttt{always}: ask every time.
+\end{itemize}
+
+
+Ask is \textbf{independent} of allowlist; allowlist can be used with \texttt{always} or \texttt{on-miss}.
+
+\subsubsection{Policy resolution (per exec)}
+
+
+\begin{enumerate}
+  \item Resolve \texttt{exec.host} (tool param → agent override → global default).
+  \item Resolve \texttt{exec.security} and \texttt{exec.ask} (same precedence).
+  \item If host is \texttt{sandbox}, proceed with local sandbox exec.
+  \item If host is \texttt{gateway} or \texttt{node}, apply security + ask policy on that host.
+\end{enumerate}
+
+
+\subsection{Default safety}
+
+
+\begin{itemize}
+  \item Default \texttt{exec.host = sandbox}.
+  \item Default \texttt{exec.security = deny} for \texttt{gateway} and \texttt{node}.
+  \item Default \texttt{exec.ask = on-miss} (only relevant if security allows).
+  \item If no node binding is set, \textbf{agent may target any node}, but only if policy allows it.
+\end{itemize}
+
+
+\subsection{Config surface}
+
+
+\subsubsection{Tool parameters}
+
+
+\begin{itemize}
+  \item \texttt{exec.host} (optional): \texttt{sandbox | gateway | node}.
+  \item \texttt{exec.security} (optional): \texttt{deny | allowlist | full}.
+  \item \texttt{exec.ask} (optional): \texttt{off | on-miss | always}.
+  \item \texttt{exec.node} (optional): node id/name to use when \texttt{host=node}.
+\end{itemize}
+
+
+\subsubsection{Config keys (global)}
+
+
+\begin{itemize}
+  \item \texttt{tools.exec.host}
+  \item \texttt{tools.exec.security}
+  \item \texttt{tools.exec.ask}
+  \item \texttt{tools.exec.node} (default node binding)
+\end{itemize}
+
+
+\subsubsection{Config keys (per agent)}
+
+
+\begin{itemize}
+  \item \texttt{agents.list[].tools.exec.host}
+  \item \texttt{agents.list[].tools.exec.security}
+  \item \texttt{agents.list[].tools.exec.ask}
+  \item \texttt{agents.list[].tools.exec.node}
+\end{itemize}
+
+
+\subsubsection{Alias}
+
+
+\begin{itemize}
+  \item \texttt{/elevated on} = set \texttt{tools.exec.host=gateway}, \texttt{tools.exec.security=full} for the agent session.
+  \item \texttt{/elevated off} = restore previous exec settings for the agent session.
+\end{itemize}
+
+
+\subsection{Approvals store (JSON)}
+
+
+Path: \texttt{\textasciitilde{}/.openclaw/exec-approvals.json}
+
+Purpose:
+
+\begin{itemize}
+  \item Local policy + allowlists for the \textbf{execution host} (gateway or node runner).
+  \item Ask fallback when no UI is available.
+  \item IPC credentials for UI clients.
+\end{itemize}
+
+
+Proposed schema (v1):
+
+\begin{lstlisting}[language=json]
+{
+  "version": 1,
+  "socket": {
+    "path": "~/.openclaw/exec-approvals.sock",
+    "token": "base64-opaque-token"
+  },
+  "defaults": {
+    "security": "deny",
+    "ask": "on-miss",
+    "askFallback": "deny"
+  },
+  "agents": {
+    "agent-id-1": {
+      "security": "allowlist",
+      "ask": "on-miss",
+      "allowlist": [
+        {
+          "pattern": "~/Projects/**/bin/rg",
+          "lastUsedAt": 0,
+          "lastUsedCommand": "rg -n TODO",
+          "lastResolvedPath": "/Users/user/Projects/.../bin/rg"
+        }
+      ]
+    }
+  }
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item No legacy allowlist formats.
+  \item \texttt{askFallback} applies only when \texttt{ask} is required and no UI is reachable.
+  \item File permissions: \texttt{0600}.
+\end{itemize}
+
+
+\subsection{Runner service (headless)}
+
+
+\subsubsection{Role}
+
+
+\begin{itemize}
+  \item Enforce \texttt{exec.security} + \texttt{exec.ask} locally.
+  \item Execute system commands and return output.
+  \item Emit Bridge events for exec lifecycle (optional but recommended).
+\end{itemize}
+
+
+\subsubsection{Service lifecycle}
+
+
+\begin{itemize}
+  \item Launchd/daemon on macOS; system service on Linux/Windows.
+  \item Approvals JSON is local to the execution host.
+  \item UI hosts a local Unix socket; runners connect on demand.
+\end{itemize}
+
+
+\subsection{UI integration (macOS app)}
+
+
+\subsubsection{IPC}
+
+
+\begin{itemize}
+  \item Unix socket at \texttt{\textasciitilde{}/.openclaw/exec-approvals.sock} (0600).
+  \item Token stored in \texttt{exec-approvals.json} (0600).
+  \item Peer checks: same-UID only.
+  \item Challenge/response: nonce + HMAC(token, request-hash) to prevent replay.
+  \item Short TTL (e.g., 10s) + max payload + rate limit.
+\end{itemize}
+
+
+\subsubsection{Ask flow (macOS app exec host)}
+
+
+\begin{enumerate}
+  \item Node service receives \texttt{system.run} from gateway.
+  \item Node service connects to the local socket and sends the prompt/exec request.
+  \item App validates peer + token + HMAC + TTL, then shows dialog if needed.
+  \item App executes the command in UI context and returns output.
+  \item Node service returns output to gateway.
+\end{enumerate}
+
+
+If UI missing:
+
+\begin{itemize}
+  \item Apply \texttt{askFallback} (\texttt{deny|allowlist|full}).
+\end{itemize}
+
+
+\subsubsection{Diagram (SCI)}
+
+
+\begin{lstlisting}
+Agent -> Gateway -> Bridge -> Node Service (TS)
+                         |  IPC (UDS + token + HMAC + TTL)
+                         v
+                     Mac App (UI + TCC + system.run)
+\end{lstlisting}
+
+
+\subsection{Node identity + binding}
+
+
+\begin{itemize}
+  \item Use existing \texttt{nodeId} from Bridge pairing.
+  \item Binding model:
+  \item \texttt{tools.exec.node} restricts the agent to a specific node.
+  \item If unset, agent can pick any node (policy still enforces defaults).
+  \item Node selection resolution:
+  \item \texttt{nodeId} exact match
+  \item \texttt{displayName} (normalized)
+  \item \texttt{remoteIp}
+  \item \texttt{nodeId} prefix (>= 6 chars)
+\end{itemize}
+
+
+\subsection{Eventing}
+
+
+\subsubsection{Who sees events}
+
+
+\begin{itemize}
+  \item System events are \textbf{per session} and shown to the agent on the next prompt.
+  \item Stored in the gateway in-memory queue (\texttt{enqueueSystemEvent}).
+\end{itemize}
+
+
+\subsubsection{Event text}
+
+
+\begin{itemize}
+  \item \texttt{Exec started (node=, id=)}
+  \item \texttt{Exec finished (node=, id=, code=)} + optional output tail
+  \item \texttt{Exec denied (node=, id=, )}
+\end{itemize}
+
+
+\subsubsection{Transport}
+
+
+Option A (recommended):
+
+\begin{itemize}
+  \item Runner sends Bridge \texttt{event} frames \texttt{exec.started} / \texttt{exec.finished}.
+  \item Gateway \texttt{handleBridgeEvent} maps these into \texttt{enqueueSystemEvent}.
+\end{itemize}
+
+
+Option B:
+
+\begin{itemize}
+  \item Gateway \texttt{exec} tool handles lifecycle directly (synchronous only).
+\end{itemize}
+
+
+\subsection{Exec flows}
+
+
+\subsubsection{Sandbox host}
+
+
+\begin{itemize}
+  \item Existing \texttt{exec} behavior (Docker or host when unsandboxed).
+  \item PTY supported in non-sandbox mode only.
+\end{itemize}
+
+
+\subsubsection{Gateway host}
+
+
+\begin{itemize}
+  \item Gateway process executes on its own machine.
+  \item Enforces local \texttt{exec-approvals.json} (security/ask/allowlist).
+\end{itemize}
+
+
+\subsubsection{Node host}
+
+
+\begin{itemize}
+  \item Gateway calls \texttt{node.invoke} with \texttt{system.run}.
+  \item Runner enforces local approvals.
+  \item Runner returns aggregated stdout/stderr.
+  \item Optional Bridge events for start/finish/deny.
+\end{itemize}
+
+
+\subsection{Output caps}
+
+
+\begin{itemize}
+  \item Cap combined stdout+stderr at \textbf{200k}; keep \textbf{tail 20k} for events.
+  \item Truncate with a clear suffix (e.g., \texttt{"… (truncated)"}).
+\end{itemize}
+
+
+\subsection{Slash commands}
+
+
+\begin{itemize}
+  \item \texttt{/exec host= security= ask= node=}
+  \item Per-agent, per-session overrides; non-persistent unless saved via config.
+  \item \texttt{/elevated on|off|ask|full} remains a shortcut for \texttt{host=gateway security=full} (with \texttt{full} skipping approvals).
+\end{itemize}
+
+
+\subsection{Cross-platform story}
+
+
+\begin{itemize}
+  \item The runner service is the portable execution target.
+  \item UI is optional; if missing, \texttt{askFallback} applies.
+  \item Windows/Linux support the same approvals JSON + socket protocol.
+\end{itemize}
+
+
+\subsection{Implementation phases}
+
+
+\subsubsection{Phase 1: config + exec routing}
+
+
+\begin{itemize}
+  \item Add config schema for \texttt{exec.host}, \texttt{exec.security}, \texttt{exec.ask}, \texttt{exec.node}.
+  \item Update tool plumbing to respect \texttt{exec.host}.
+  \item Add \texttt{/exec} slash command and keep \texttt{/elevated} alias.
+\end{itemize}
+
+
+\subsubsection{Phase 2: approvals store + gateway enforcement}
+
+
+\begin{itemize}
+  \item Implement \texttt{exec-approvals.json} reader/writer.
+  \item Enforce allowlist + ask modes for \texttt{gateway} host.
+  \item Add output caps.
+\end{itemize}
+
+
+\subsubsection{Phase 3: node runner enforcement}
+
+
+\begin{itemize}
+  \item Update node runner to enforce allowlist + ask.
+  \item Add Unix socket prompt bridge to macOS app UI.
+  \item Wire \texttt{askFallback}.
+\end{itemize}
+
+
+\subsubsection{Phase 4: events}
+
+
+\begin{itemize}
+  \item Add node → gateway Bridge events for exec lifecycle.
+  \item Map to \texttt{enqueueSystemEvent} for agent prompts.
+\end{itemize}
+
+
+\subsubsection{Phase 5: UI polish}
+
+
+\begin{itemize}
+  \item Mac app: allowlist editor, per-agent switcher, ask policy UI.
+  \item Node binding controls (optional).
+\end{itemize}
+
+
+\subsection{Testing plan}
+
+
+\begin{itemize}
+  \item Unit tests: allowlist matching (glob + case-insensitive).
+  \item Unit tests: policy resolution precedence (tool param → agent override → global).
+  \item Integration tests: node runner deny/allow/ask flows.
+  \item Bridge event tests: node event → system event routing.
+\end{itemize}
+
+
+\subsection{Open risks}
+
+
+\begin{itemize}
+  \item UI unavailability: ensure \texttt{askFallback} is respected.
+  \item Long-running commands: rely on timeout + output caps.
+  \item Multi-node ambiguity: error unless node binding or explicit node param.
+\end{itemize}
+
+
+\subsection{Related docs}
+
+
+\begin{itemize}
+  \item \href{/tools/exec}{Exec tool}
+  \item \href{/tools/exec-approvals}{Exec approvals}
+  \item \href{/nodes}{Nodes}
+  \item \href{/tools/elevated}{Elevated mode}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: refactor/outbound-session-mirroring.md ===
+\section{Outbound Session Mirroring Refactor (Issue \#1520)}
+
+
+\subsection{Status}
+
+
+\begin{itemize}
+  \item In progress.
+  \item Core + plugin channel routing updated for outbound mirroring.
+  \item Gateway send now derives target session when sessionKey is omitted.
+\end{itemize}
+
+
+\subsection{Context}
+
+
+Outbound sends were mirrored into the \_current\_ agent session (tool session key) rather than the target channel session. Inbound routing uses channel/peer session keys, so outbound responses landed in the wrong session and first-contact targets often lacked session entries.
+
+\subsection{Goals}
+
+
+\begin{itemize}
+  \item Mirror outbound messages into the target channel session key.
+  \item Create session entries on outbound when missing.
+  \item Keep thread/topic scoping aligned with inbound session keys.
+  \item Cover core channels plus bundled extensions.
+\end{itemize}
+
+
+\subsection{Implementation Summary}
+
+
+\begin{itemize}
+  \item New outbound session routing helper:
+  \item \texttt{src/infra/outbound/outbound-session.ts}
+  \item \texttt{resolveOutboundSessionRoute} builds target sessionKey using \texttt{buildAgentSessionKey} (dmScope + identityLinks).
+  \item \texttt{ensureOutboundSessionEntry} writes minimal \texttt{MsgContext} via \texttt{recordSessionMetaFromInbound}.
+  \item \texttt{runMessageAction} (send) derives target sessionKey and passes it to \texttt{executeSendAction} for mirroring.
+  \item \texttt{message-tool} no longer mirrors directly; it only resolves agentId from the current session key.
+  \item Plugin send path mirrors via \texttt{appendAssistantMessageToSessionTranscript} using the derived sessionKey.
+  \item Gateway send derives a target session key when none is provided (default agent), and ensures a session entry.
+\end{itemize}
+
+
+\subsection{Thread/Topic Handling}
+
+
+\begin{itemize}
+  \item Slack: replyTo/threadId -> \texttt{resolveThreadSessionKeys} (suffix).
+  \item Discord: threadId/replyTo -> \texttt{resolveThreadSessionKeys} with \texttt{useSuffix=false} to match inbound (thread channel id already scopes session).
+  \item Telegram: topic IDs map to \texttt{chatId:topic:} via \texttt{buildTelegramGroupPeerId}.
+\end{itemize}
+
+
+\subsection{Extensions Covered}
+
+
+\begin{itemize}
+  \item Matrix, MS Teams, Mattermost, BlueBubbles, Nextcloud Talk, Zalo, Zalo Personal, Nostr, Tlon.
+  \item Notes:
+  \item Mattermost targets now strip \texttt{@} for DM session key routing.
+  \item Zalo Personal uses DM peer kind for 1:1 targets (group only when \texttt{group:} is present).
+  \item BlueBubbles group targets strip \texttt{chat\_*} prefixes to match inbound session keys.
+  \item Slack auto-thread mirroring matches channel ids case-insensitively.
+  \item Gateway send lowercases provided session keys before mirroring.
+\end{itemize}
+
+
+\subsection{Decisions}
+
+
+\begin{itemize}
+  \item \textbf{Gateway send session derivation}: if \texttt{sessionKey} is provided, use it. If omitted, derive a sessionKey from target + default agent and mirror there.
+  \item \textbf{Session entry creation}: always use \texttt{recordSessionMetaFromInbound} with \texttt{Provider/From/To/ChatType/AccountId/Originating*} aligned to inbound formats.
+  \item \textbf{Target normalization}: outbound routing uses resolved targets (post \texttt{resolveChannelTarget}) when available.
+  \item \textbf{Session key casing}: canonicalize session keys to lowercase on write and during migrations.
+\end{itemize}
+
+
+\subsection{Tests Added/Updated}
+
+
+\begin{itemize}
+  \item \texttt{src/infra/outbound/outbound.test.ts}
+  \item Slack thread session key.
+  \item Telegram topic session key.
+  \item dmScope identityLinks with Discord.
+  \item \texttt{src/agents/tools/message-tool.test.ts}
+  \item Derives agentId from session key (no sessionKey passed through).
+  \item \texttt{src/gateway/server-methods/send.test.ts}
+  \item Derives session key when omitted and creates session entry.
+\end{itemize}
+
+
+\subsection{Open Items / Follow-ups}
+
+
+\begin{itemize}
+  \item Voice-call plugin uses custom \texttt{voice:} session keys. Outbound mapping is not standardized here; if message-tool should support voice-call sends, add explicit mapping.
+  \item Confirm if any external plugin uses non-standard \texttt{From/To} formats beyond the bundled set.
+\end{itemize}
+
+
+\subsection{Files Touched}
+
+
+\begin{itemize}
+  \item \texttt{src/infra/outbound/outbound-session.ts}
+  \item \texttt{src/infra/outbound/outbound-send-service.ts}
+  \item \texttt{src/infra/outbound/message-action-runner.ts}
+  \item \texttt{src/agents/tools/message-tool.ts}
+  \item \texttt{src/gateway/server-methods/send.ts}
+  \item Tests in:
+  \item \texttt{src/infra/outbound/outbound.test.ts}
+  \item \texttt{src/agents/tools/message-tool.test.ts}
+  \item \texttt{src/gateway/server-methods/send.test.ts}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: refactor/plugin-sdk.md ===
+\section{Plugin SDK + Runtime Refactor Plan}
+
+
+Goal: every messaging connector is a plugin (bundled or external) using one stable API.
+No plugin imports from \texttt{src/**} directly. All dependencies go through the SDK or runtime.
+
+\subsection{Why now}
+
+
+\begin{itemize}
+  \item Current connectors mix patterns: direct core imports, dist-only bridges, and custom helpers.
+  \item This makes upgrades brittle and blocks a clean external plugin surface.
+\end{itemize}
+
+
+\subsection{Target architecture (two layers)}
+
+
+\subsubsection{1) Plugin SDK (compile-time, stable, publishable)}
+
+
+Scope: types, helpers, and config utilities. No runtime state, no side effects.
+
+Contents (examples):
+
+\begin{itemize}
+  \item Types: \texttt{ChannelPlugin}, adapters, \texttt{ChannelMeta}, \texttt{ChannelCapabilities}, \texttt{ChannelDirectoryEntry}.
+  \item Config helpers: \texttt{buildChannelConfigSchema}, \texttt{setAccountEnabledInConfigSection}, \texttt{deleteAccountFromConfigSection},
+\end{itemize}
+
+\texttt{applyAccountNameToChannelSection}.
+\begin{itemize}
+  \item Pairing helpers: \texttt{PAIRING\_APPROVED\_MESSAGE}, \texttt{formatPairingApproveHint}.
+  \item Onboarding helpers: \texttt{promptChannelAccessConfig}, \texttt{addWildcardAllowFrom}, onboarding types.
+  \item Tool param helpers: \texttt{createActionGate}, \texttt{readStringParam}, \texttt{readNumberParam}, \texttt{readReactionParams}, \texttt{jsonResult}.
+  \item Docs link helper: \texttt{formatDocsLink}.
+\end{itemize}
+
+
+Delivery:
+
+\begin{itemize}
+  \item Publish as \texttt{openclaw/plugin-sdk} (or export from core under \texttt{openclaw/plugin-sdk}).
+  \item Semver with explicit stability guarantees.
+\end{itemize}
+
+
+\subsubsection{2) Plugin Runtime (execution surface, injected)}
+
+
+Scope: everything that touches core runtime behavior.
+Accessed via \texttt{OpenClawPluginApi.runtime} so plugins never import \texttt{src/**}.
+
+Proposed surface (minimal but complete):
+
+\begin{lstlisting}[language=typescript]
+export type PluginRuntime = {
+  channel: {
+    text: {
+      chunkMarkdownText(text: string, limit: number): string[];
+      resolveTextChunkLimit(cfg: OpenClawConfig, channel: string, accountId?: string): number;
+      hasControlCommand(text: string, cfg: OpenClawConfig): boolean;
+    };
+    reply: {
+      dispatchReplyWithBufferedBlockDispatcher(params: {
+        ctx: unknown;
+        cfg: unknown;
+        dispatcherOptions: {
+          deliver: (payload: {
+            text?: string;
+            mediaUrls?: string[];
+            mediaUrl?: string;
+          }) => void | Promise<void>;
+          onError?: (err: unknown, info: { kind: string }) => void;
+        };
+      }): Promise<void>;
+      createReplyDispatcherWithTyping?: unknown; // adapter for Teams-style flows
+    };
+    routing: {
+      resolveAgentRoute(params: {
+        cfg: unknown;
+        channel: string;
+        accountId: string;
+        peer: { kind: RoutePeerKind; id: string };
+      }): { sessionKey: string; accountId: string };
+    };
+    pairing: {
+      buildPairingReply(params: { channel: string; idLine: string; code: string }): string;
+      readAllowFromStore(channel: string): Promise<string[]>;
+      upsertPairingRequest(params: {
+        channel: string;
+        id: string;
+        meta?: { name?: string };
+      }): Promise<{ code: string; created: boolean }>;
+    };
+    media: {
+      fetchRemoteMedia(params: { url: string }): Promise<{ buffer: Buffer; contentType?: string }>;
+      saveMediaBuffer(
+        buffer: Uint8Array,
+        contentType: string | undefined,
+        direction: "inbound" | "outbound",
+        maxBytes: number,
+      ): Promise<{ path: string; contentType?: string }>;
+    };
+    mentions: {
+      buildMentionRegexes(cfg: OpenClawConfig, agentId?: string): RegExp[];
+      matchesMentionPatterns(text: string, regexes: RegExp[]): boolean;
+    };
+    groups: {
+      resolveGroupPolicy(
+        cfg: OpenClawConfig,
+        channel: string,
+        accountId: string,
+        groupId: string,
+      ): {
+        allowlistEnabled: boolean;
+        allowed: boolean;
+        groupConfig?: unknown;
+        defaultConfig?: unknown;
+      };
+      resolveRequireMention(
+        cfg: OpenClawConfig,
+        channel: string,
+        accountId: string,
+        groupId: string,
+        override?: boolean,
+      ): boolean;
+    };
+    debounce: {
+      createInboundDebouncer<T>(opts: {
+        debounceMs: number;
+        buildKey: (v: T) => string | null;
+        shouldDebounce: (v: T) => boolean;
+        onFlush: (entries: T[]) => Promise<void>;
+        onError?: (err: unknown) => void;
+      }): { push: (v: T) => void; flush: () => Promise<void> };
+      resolveInboundDebounceMs(cfg: OpenClawConfig, channel: string): number;
+    };
+    commands: {
+      resolveCommandAuthorizedFromAuthorizers(params: {
+        useAccessGroups: boolean;
+        authorizers: Array<{ configured: boolean; allowed: boolean }>;
+      }): boolean;
+    };
+  };
+  logging: {
+    shouldLogVerbose(): boolean;
+    getChildLogger(name: string): PluginLogger;
+  };
+  state: {
+    resolveStateDir(cfg: OpenClawConfig): string;
+  };
+};
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Runtime is the only way to access core behavior.
+  \item SDK is intentionally small and stable.
+  \item Each runtime method maps to an existing core implementation (no duplication).
+\end{itemize}
+
+
+\subsection{Migration plan (phased, safe)}
+
+
+\subsubsection{Phase 0: scaffolding}
+
+
+\begin{itemize}
+  \item Introduce \texttt{openclaw/plugin-sdk}.
+  \item Add \texttt{api.runtime} to \texttt{OpenClawPluginApi} with the surface above.
+  \item Maintain existing imports during a transition window (deprecation warnings).
+\end{itemize}
+
+
+\subsubsection{Phase 1: bridge cleanup (low risk)}
+
+
+\begin{itemize}
+  \item Replace per-extension \texttt{core-bridge.ts} with \texttt{api.runtime}.
+  \item Migrate BlueBubbles, Zalo, Zalo Personal first (already close).
+  \item Remove duplicated bridge code.
+\end{itemize}
+
+
+\subsubsection{Phase 2: light direct-import plugins}
+
+
+\begin{itemize}
+  \item Migrate Matrix to SDK + runtime.
+  \item Validate onboarding, directory, group mention logic.
+\end{itemize}
+
+
+\subsubsection{Phase 3: heavy direct-import plugins}
+
+
+\begin{itemize}
+  \item Migrate MS Teams (largest set of runtime helpers).
+  \item Ensure reply/typing semantics match current behavior.
+\end{itemize}
+
+
+\subsubsection{Phase 4: iMessage pluginization}
+
+
+\begin{itemize}
+  \item Move iMessage into \texttt{extensions/imessage}.
+  \item Replace direct core calls with \texttt{api.runtime}.
+  \item Keep config keys, CLI behavior, and docs intact.
+\end{itemize}
+
+
+\subsubsection{Phase 5: enforcement}
+
+
+\begin{itemize}
+  \item Add lint rule / CI check: no \texttt{extensions/\textbf{} imports from \texttt{src/}}.
+  \item Add plugin SDK/version compatibility checks (runtime + SDK semver).
+\end{itemize}
+
+
+\subsection{Compatibility and versioning}
+
+
+\begin{itemize}
+  \item SDK: semver, published, documented changes.
+  \item Runtime: versioned per core release. Add \texttt{api.runtime.version}.
+  \item Plugins declare a required runtime range (e.g., \texttt{openclawRuntime: ">=2026.2.0"}).
+\end{itemize}
+
+
+\subsection{Testing strategy}
+
+
+\begin{itemize}
+  \item Adapter-level unit tests (runtime functions exercised with real core implementation).
+  \item Golden tests per plugin: ensure no behavior drift (routing, pairing, allowlist, mention gating).
+  \item A single end-to-end plugin sample used in CI (install + run + smoke).
+\end{itemize}
+
+
+\subsection{Open questions}
+
+
+\begin{itemize}
+  \item Where to host SDK types: separate package or core export?
+  \item Runtime type distribution: in SDK (types only) or in core?
+  \item How to expose docs links for bundled vs external plugins?
+  \item Do we allow limited direct core imports for in-repo plugins during transition?
+\end{itemize}
+
+
+\subsection{Success criteria}
+
+
+\begin{itemize}
+  \item All channel connectors are plugins using SDK + runtime.
+  \item No \texttt{extensions/\textbf{} imports from \texttt{src/}}.
+  \item New connector templates depend only on SDK + runtime.
+  \item External plugins can be developed and updated without core source access.
+\end{itemize}
+
+
+Related docs: \href{/tools/plugin}{Plugins}, \href{/channels/index}{Channels}, \href{/gateway/configuration}{Configuration}.
+
+
+\clearpage
+
+% === Source file: refactor/strict-config.md ===
+\section{Strict config validation (doctor-only migrations)}
+
+
+\subsection{Goals}
+
+
+\begin{itemize}
+  \item \textbf{Reject unknown config keys everywhere} (root + nested), except root \texttt{\$schema} metadata.
+  \item \textbf{Reject plugin config without a schema}; don’t load that plugin.
+  \item \textbf{Remove legacy auto-migration on load}; migrations run via doctor only.
+  \item \textbf{Auto-run doctor (dry-run) on startup}; if invalid, block non-diagnostic commands.
+\end{itemize}
+
+
+\subsection{Non-goals}
+
+
+\begin{itemize}
+  \item Backward compatibility on load (legacy keys do not auto-migrate).
+  \item Silent drops of unrecognized keys.
+\end{itemize}
+
+
+\subsection{Strict validation rules}
+
+
+\begin{itemize}
+  \item Config must match the schema exactly at every level.
+  \item Unknown keys are validation errors (no passthrough at root or nested), except root \texttt{\$schema} when it is a string.
+  \item \texttt{plugins.entries..config} must be validated by the plugin’s schema.
+  \item If a plugin lacks a schema, \textbf{reject plugin load} and surface a clear error.
+  \item Unknown \texttt{channels.} keys are errors unless a plugin manifest declares the channel id.
+  \item Plugin manifests (\texttt{openclaw.plugin.json}) are required for all plugins.
+\end{itemize}
+
+
+\subsection{Plugin schema enforcement}
+
+
+\begin{itemize}
+  \item Each plugin provides a strict JSON Schema for its config (inline in the manifest).
+  \item Plugin load flow:
+\end{itemize}
+
+\begin{enumerate}
+  \item Resolve plugin manifest + schema (\texttt{openclaw.plugin.json}).
+  \item Validate config against the schema.
+  \item If missing schema or invalid config: block plugin load, record error.
+\end{enumerate}
+
+\begin{itemize}
+  \item Error message includes:
+  \item Plugin id
+  \item Reason (missing schema / invalid config)
+  \item Path(s) that failed validation
+  \item Disabled plugins keep their config, but Doctor + logs surface a warning.
+\end{itemize}
+
+
+\subsection{Doctor flow}
+
+
+\begin{itemize}
+  \item Doctor runs \textbf{every time} config is loaded (dry-run by default).
+  \item If config invalid:
+  \item Print a summary + actionable errors.
+  \item Instruct: \texttt{openclaw doctor --fix}.
+  \item \texttt{openclaw doctor --fix}:
+  \item Applies migrations.
+  \item Removes unknown keys.
+  \item Writes updated config.
+\end{itemize}
+
+
+\subsection{Command gating (when config is invalid)}
+
+
+Allowed (diagnostic-only):
+
+\begin{itemize}
+  \item \texttt{openclaw doctor}
+  \item \texttt{openclaw logs}
+  \item \texttt{openclaw health}
+  \item \texttt{openclaw help}
+  \item \texttt{openclaw status}
+  \item \texttt{openclaw gateway status}
+\end{itemize}
+
+
+Everything else must hard-fail with: “Config invalid. Run \texttt{openclaw doctor --fix}.”
+
+\subsection{Error UX format}
+
+
+\begin{itemize}
+  \item Single summary header.
+  \item Grouped sections:
+  \item Unknown keys (full paths)
+  \item Legacy keys / migrations needed
+  \item Plugin load failures (plugin id + reason + path)
+\end{itemize}
+
+
+\subsection{Implementation touchpoints}
+
+
+\begin{itemize}
+  \item \texttt{src/config/zod-schema.ts}: remove root passthrough; strict objects everywhere.
+  \item \texttt{src/config/zod-schema.providers.ts}: ensure strict channel schemas.
+  \item \texttt{src/config/validation.ts}: fail on unknown keys; do not apply legacy migrations.
+  \item \texttt{src/config/io.ts}: remove legacy auto-migrations; always run doctor dry-run.
+  \item \texttt{src/config/legacy*.ts}: move usage to doctor only.
+  \item \texttt{src/plugins/*}: add schema registry + gating.
+  \item CLI command gating in \texttt{src/cli}.
+\end{itemize}
+
+
+\subsection{Tests}
+
+
+\begin{itemize}
+  \item Unknown key rejection (root + nested).
+  \item Plugin missing schema → plugin load blocked with clear error.
+  \item Invalid config → gateway startup blocked except diagnostic commands.
+  \item Doctor dry-run auto; \texttt{doctor --fix} writes corrected config.
+\end{itemize}
+
+
+
+\clearpage

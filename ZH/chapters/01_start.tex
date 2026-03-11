@@ -2269,3 +2269,563 @@ WhatsApp 凭证存储在 \texttt{\textasciitilde{}/.openclaw/credentials/whatsap
 
 
 \clearpage
+% === 源文件: start/onboarding-overview.md ===
+\section{Onboarding Overview}
+
+
+OpenClaw supports multiple onboarding paths depending on where the Gateway runs
+and how you prefer to configure providers.
+
+\subsection{Choose your onboarding path}
+
+
+\begin{itemize}
+  \item \textbf{CLI wizard} for macOS, Linux, and Windows (via WSL2).
+  \item \textbf{macOS app} for a guided first run on Apple silicon or Intel Macs.
+\end{itemize}
+
+
+\subsection{CLI onboarding wizard}
+
+
+Run the wizard in a terminal:
+
+\begin{lstlisting}[language=bash]
+openclaw onboard
+\end{lstlisting}
+
+
+Use the CLI wizard when you want full control of the Gateway, workspace,
+channels, and skills. Docs:
+
+\begin{itemize}
+  \item \href{/start/wizard}{Onboarding Wizard (CLI)}
+  \item \href{/cli/onboard}{\texttt{openclaw onboard} command}
+\end{itemize}
+
+
+\subsection{macOS app onboarding}
+
+
+Use the OpenClaw app when you want a fully guided setup on macOS. Docs:
+
+\begin{itemize}
+  \item \href{/start/onboarding}{Onboarding (macOS App)}
+\end{itemize}
+
+
+\subsection{Custom Provider}
+
+
+If you need an endpoint that is not listed, including hosted providers that
+expose standard OpenAI or Anthropic APIs, choose \textbf{Custom Provider} in the
+CLI wizard. You will be asked to:
+
+\begin{itemize}
+  \item Pick OpenAI-compatible, Anthropic-compatible, or \textbf{Unknown} (auto-detect).
+  \item Enter a base URL and API key (if required by the provider).
+  \item Provide a model ID and optional alias.
+  \item Choose an Endpoint ID so multiple custom endpoints can coexist.
+\end{itemize}
+
+
+For detailed steps, follow the CLI onboarding docs above.
+
+
+\clearpage
+
+% === 源文件: start/wizard-cli-automation.md ===
+\section{CLI Automation}
+
+
+Use \texttt{--non-interactive} to automate \texttt{openclaw onboard}.
+
+\texttt{--json} does not imply non-interactive mode. Use \texttt{--non-interactive} (and \texttt{--workspace}) for scripts.
+
+\subsection{Baseline non-interactive example}
+
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --mode local \
+  --auth-choice apiKey \
+  --anthropic-api-key "$ANTHROPIC_API_KEY" \
+  --secret-input-mode plaintext \
+  --gateway-port 18789 \
+  --gateway-bind loopback \
+  --install-daemon \
+  --daemon-runtime node \
+  --skip-skills
+\end{lstlisting}
+
+
+Add \texttt{--json} for a machine-readable summary.
+
+Use \texttt{--secret-input-mode ref} to store env-backed refs in auth profiles instead of plaintext values.
+Interactive selection between env refs and configured provider refs (\texttt{file} or \texttt{exec}) is available in the onboarding wizard flow.
+
+In non-interactive \texttt{ref} mode, provider env vars must be set in the process environment.
+Passing inline key flags without the matching env var now fails fast.
+
+Example:
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --non-interactive \
+  --mode local \
+  --auth-choice openai-api-key \
+  --secret-input-mode ref \
+  --accept-risk
+\end{lstlisting}
+
+
+\subsection{Provider-specific examples}
+
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice gemini-api-key \
+      --gemini-api-key "$GEMINI_API_KEY" \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice zai-api-key \
+      --zai-api-key "$ZAI_API_KEY" \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice ai-gateway-api-key \
+      --ai-gateway-api-key "$AI_GATEWAY_API_KEY" \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice cloudflare-ai-gateway-api-key \
+      --cloudflare-ai-gateway-account-id "your-account-id" \
+      --cloudflare-ai-gateway-gateway-id "your-gateway-id" \
+      --cloudflare-ai-gateway-api-key "$CLOUDFLARE_AI_GATEWAY_API_KEY" \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice moonshot-api-key \
+      --moonshot-api-key "$MOONSHOT_API_KEY" \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice mistral-api-key \
+      --mistral-api-key "$MISTRAL_API_KEY" \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice synthetic-api-key \
+      --synthetic-api-key "$SYNTHETIC_API_KEY" \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice opencode-zen \
+      --opencode-zen-api-key "$OPENCODE_API_KEY" \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice custom-api-key \
+      --custom-base-url "https://llm.example.com/v1" \
+      --custom-model-id "foo-large" \
+      --custom-api-key "$CUSTOM_API_KEY" \
+      --custom-provider-id "my-custom" \
+      --custom-compatibility anthropic \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+
+\texttt{--custom-api-key} is optional. If omitted, onboarding checks \texttt{CUSTOM\_API\_KEY}.
+
+Ref-mode variant:
+
+\begin{lstlisting}[language=bash]
+    export CUSTOM_API_KEY="your-key"
+    openclaw onboard --non-interactive \
+      --mode local \
+      --auth-choice custom-api-key \
+      --custom-base-url "https://llm.example.com/v1" \
+      --custom-model-id "foo-large" \
+      --secret-input-mode ref \
+      --custom-provider-id "my-custom" \
+      --custom-compatibility anthropic \
+      --gateway-port 18789 \
+      --gateway-bind loopback
+\end{lstlisting}
+
+
+In this mode, onboarding stores \texttt{apiKey} as \texttt{\{ source: "env", provider: "default", id: "CUSTOM\_API\_KEY" \}}.
+
+
+\subsection{Add another agent}
+
+
+Use \texttt{openclaw agents add } to create a separate agent with its own workspace,
+sessions, and auth profiles. Running without \texttt{--workspace} launches the wizard.
+
+\begin{lstlisting}[language=bash]
+openclaw agents add work \
+  --workspace ~/.openclaw/workspace-work \
+  --model openai/gpt-5.2 \
+  --bind whatsapp:biz \
+  --non-interactive \
+  --json
+\end{lstlisting}
+
+
+What it sets:
+
+\begin{itemize}
+  \item \texttt{agents.list[].name}
+  \item \texttt{agents.list[].workspace}
+  \item \texttt{agents.list[].agentDir}
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item Default workspaces follow \texttt{\textasciitilde{}/.openclaw/workspace-}.
+  \item Add \texttt{bindings} to route inbound messages (the wizard can do this).
+  \item Non-interactive flags: \texttt{--model}, \texttt{--agent-dir}, \texttt{--bind}, \texttt{--non-interactive}.
+\end{itemize}
+
+
+\subsection{Related docs}
+
+
+\begin{itemize}
+  \item Onboarding hub: \href{/start/wizard}{Onboarding Wizard (CLI)}
+  \item Full reference: \href{/start/wizard-cli-reference}{CLI Onboarding Reference}
+  \item Command reference: \href{/cli/onboard}{\texttt{openclaw onboard}}
+\end{itemize}
+
+
+
+\clearpage
+
+% === 源文件: start/wizard-cli-reference.md ===
+\section{CLI Onboarding Reference}
+
+
+This page is the full reference for \texttt{openclaw onboard}.
+For the short guide, see \href{/start/wizard}{Onboarding Wizard (CLI)}.
+
+\subsection{What the wizard does}
+
+
+Local mode (default) walks you through:
+
+\begin{itemize}
+  \item Model and auth setup (OpenAI Code subscription OAuth, Anthropic API key or setup token, plus MiniMax, GLM, Moonshot, and AI Gateway options)
+  \item Workspace location and bootstrap files
+  \item Gateway settings (port, bind, auth, tailscale)
+  \item Channels and providers (Telegram, WhatsApp, Discord, Google Chat, Mattermost plugin, Signal)
+  \item Daemon install (LaunchAgent or systemd user unit)
+  \item Health check
+  \item Skills setup
+\end{itemize}
+
+
+Remote mode configures this machine to connect to a gateway elsewhere.
+It does not install or modify anything on the remote host.
+
+\subsection{Local flow details}
+
+
+\begin{itemize}
+  \item If \texttt{\textasciitilde{}/.openclaw/openclaw.json} exists, choose Keep, Modify, or Reset.
+  \item Re-running the wizard does not wipe anything unless you explicitly choose Reset (or pass \texttt{--reset}).
+  \item CLI \texttt{--reset} defaults to \texttt{config+creds+sessions}; use \texttt{--reset-scope full} to also remove workspace.
+  \item If config is invalid or contains legacy keys, the wizard stops and asks you to run \texttt{openclaw doctor} before continuing.
+  \item Reset uses \texttt{trash} and offers scopes:
+  \item Config only
+  \item Config + credentials + sessions
+  \item Full reset (also removes workspace)
+\end{itemize}
+
+\begin{itemize}
+  \item Full option matrix is in \href{\#auth-and-model-options}{Auth and model options}.
+\end{itemize}
+
+\begin{itemize}
+  \item Default \texttt{\textasciitilde{}/.openclaw/workspace} (configurable).
+  \item Seeds workspace files needed for first-run bootstrap ritual.
+  \item Workspace layout: \href{/concepts/agent-workspace}{Agent workspace}.
+\end{itemize}
+
+\begin{itemize}
+  \item Prompts for port, bind, auth mode, and tailscale exposure.
+  \item Recommended: keep token auth enabled even for loopback so local WS clients must authenticate.
+  \item Disable auth only if you fully trust every local process.
+  \item Non-loopback binds still require auth.
+\end{itemize}
+
+\begin{itemize}
+  \item \href{/channels/whatsapp}{WhatsApp}: optional QR login
+  \item \href{/channels/telegram}{Telegram}: bot token
+  \item \href{/channels/discord}{Discord}: bot token
+  \item \href{/channels/googlechat}{Google Chat}: service account JSON + webhook audience
+  \item \href{/channels/mattermost}{Mattermost} plugin: bot token + base URL
+  \item \href{/channels/signal}{Signal}: optional \texttt{signal-cli} install + account config
+  \item \href{/channels/bluebubbles}{BlueBubbles}: recommended for iMessage; server URL + password + webhook
+  \item \href{/channels/imessage}{iMessage}: legacy \texttt{imsg} CLI path + DB access
+  \item DM security: default is pairing. First DM sends a code; approve via
+\end{itemize}
+
+\texttt{openclaw pairing approve  } or use allowlists.
+\begin{itemize}
+  \item macOS: LaunchAgent
+  \item Requires logged-in user session; for headless, use a custom LaunchDaemon (not shipped).
+  \item Linux and Windows via WSL2: systemd user unit
+  \item Wizard attempts \texttt{loginctl enable-linger } so gateway stays up after logout.
+  \item May prompt for sudo (writes \texttt{/var/lib/systemd/linger}); it tries without sudo first.
+  \item Runtime selection: Node (recommended; required for WhatsApp and Telegram). Bun is not recommended.
+\end{itemize}
+
+\begin{itemize}
+  \item Starts gateway (if needed) and runs \texttt{openclaw health}.
+  \item \texttt{openclaw status --deep} adds gateway health probes to status output.
+\end{itemize}
+
+\begin{itemize}
+  \item Reads available skills and checks requirements.
+  \item Lets you choose node manager: npm or pnpm (bun not recommended).
+  \item Installs optional dependencies (some use Homebrew on macOS).
+\end{itemize}
+
+\begin{itemize}
+  \item Summary and next steps, including iOS, Android, and macOS app options.
+\end{itemize}
+
+
+If no GUI is detected, the wizard prints SSH port-forward instructions for the Control UI instead of opening a browser.
+If Control UI assets are missing, the wizard attempts to build them; fallback is \texttt{pnpm ui:build} (auto-installs UI deps).
+
+\subsection{Remote mode details}
+
+
+Remote mode configures this machine to connect to a gateway elsewhere.
+
+Remote mode does not install or modify anything on the remote host.
+
+What you set:
+
+\begin{itemize}
+  \item Remote gateway URL (\texttt{ws://...})
+  \item Token if remote gateway auth is required (recommended)
+\end{itemize}
+
+
+\begin{itemize}
+  \item If gateway is loopback-only, use SSH tunneling or a tailnet.
+  \item Discovery hints:
+  \item macOS: Bonjour (\texttt{dns-sd})
+  \item Linux: Avahi (\texttt{avahi-browse})
+\end{itemize}
+
+
+\subsection{Auth and model options}
+
+
+Uses \texttt{ANTHROPIC\_API\_KEY} if present or prompts for a key, then saves it for daemon use.
+\begin{itemize}
+  \item macOS: checks Keychain item "Claude Code-credentials"
+  \item Linux and Windows: reuses \texttt{\textasciitilde{}/.claude/.credentials.json} if present
+\end{itemize}
+
+
+On macOS, choose "Always Allow" so launchd starts do not block.
+
+Run \texttt{claude setup-token} on any machine, then paste the token.
+You can name it; blank uses default.
+If \texttt{\textasciitilde{}/.codex/auth.json} exists, the wizard can reuse it.
+Browser flow; paste \texttt{code\#state}.
+
+Sets \texttt{agents.defaults.model} to \texttt{openai-codex/gpt-5.3-codex} when model is unset or \texttt{openai/*}.
+
+Uses \texttt{OPENAI\_API\_KEY} if present or prompts for a key, then stores the credential in auth profiles.
+
+Sets \texttt{agents.defaults.model} to \texttt{openai/gpt-5.1-codex} when model is unset, \texttt{openai/\textit{}, or \texttt{openai-codex/}}.
+
+Prompts for \texttt{XAI\_API\_KEY} and configures xAI as a model provider.
+Prompts for \texttt{OPENCODE\_API\_KEY} (or \texttt{OPENCODE\_ZEN\_API\_KEY}).
+Setup URL: \href{https://opencode.ai/auth}{opencode.ai/auth}.
+Stores the key for you.
+Prompts for \texttt{AI\_GATEWAY\_API\_KEY}.
+More detail: \href{/providers/vercel-ai-gateway}{Vercel AI Gateway}.
+Prompts for account ID, gateway ID, and \texttt{CLOUDFLARE\_AI\_GATEWAY\_API\_KEY}.
+More detail: \href{/providers/cloudflare-ai-gateway}{Cloudflare AI Gateway}.
+Config is auto-written.
+More detail: \href{/providers/minimax}{MiniMax}.
+Prompts for \texttt{SYNTHETIC\_API\_KEY}.
+More detail: \href{/providers/synthetic}{Synthetic}.
+Moonshot (Kimi K2) and Kimi Coding configs are auto-written.
+More detail: \href{/providers/moonshot}{Moonshot AI (Kimi + Kimi Coding)}.
+Works with OpenAI-compatible and Anthropic-compatible endpoints.
+
+Interactive onboarding supports the same API key storage choices as other provider API key flows:
+\begin{itemize}
+  \item \textbf{Paste API key now} (plaintext)
+  \item \textbf{Use secret reference} (env ref or configured provider ref, with preflight validation)
+\end{itemize}
+
+
+Non-interactive flags:
+\begin{itemize}
+  \item \texttt{--auth-choice custom-api-key}
+  \item \texttt{--custom-base-url}
+  \item \texttt{--custom-model-id}
+  \item \texttt{--custom-api-key} (optional; falls back to \texttt{CUSTOM\_API\_KEY})
+  \item \texttt{--custom-provider-id} (optional)
+  \item \texttt{--custom-compatibility } (optional; default \texttt{openai})
+\end{itemize}
+
+
+Leaves auth unconfigured.
+
+Model behavior:
+
+\begin{itemize}
+  \item Pick default model from detected options, or enter provider and model manually.
+  \item Wizard runs a model check and warns if the configured model is unknown or missing auth.
+\end{itemize}
+
+
+Credential and profile paths:
+
+\begin{itemize}
+  \item OAuth credentials: \texttt{\textasciitilde{}/.openclaw/credentials/oauth.json}
+  \item Auth profiles (API keys + OAuth): \texttt{\textasciitilde{}/.openclaw/agents//agent/auth-profiles.json}
+\end{itemize}
+
+
+API key storage mode:
+
+\begin{itemize}
+  \item Default onboarding behavior persists API keys as plaintext values in auth profiles.
+  \item \texttt{--secret-input-mode ref} enables reference mode instead of plaintext key storage.
+\end{itemize}
+
+In interactive onboarding, you can choose either:
+\begin{itemize}
+  \item environment variable ref (for example \texttt{keyRef: \{ source: "env", provider: "default", id: "OPENAI\_API\_KEY" \}})
+  \item configured provider ref (\texttt{file} or \texttt{exec}) with provider alias + id
+  \item Interactive reference mode runs a fast preflight validation before saving.
+  \item Env refs: validates variable name + non-empty value in the current onboarding environment.
+  \item Provider refs: validates provider config and resolves the requested id.
+  \item If preflight fails, onboarding shows the error and lets you retry.
+  \item In non-interactive mode, \texttt{--secret-input-mode ref} is env-backed only.
+  \item Set the provider env var in the onboarding process environment.
+  \item Inline key flags (for example \texttt{--openai-api-key}) require that env var to be set; otherwise onboarding fails fast.
+  \item For custom providers, non-interactive \texttt{ref} mode stores \texttt{models.providers..apiKey} as \texttt{\{ source: "env", provider: "default", id: "CUSTOM\_API\_KEY" \}}.
+  \item In that custom-provider case, \texttt{--custom-api-key} requires \texttt{CUSTOM\_API\_KEY} to be set; otherwise onboarding fails fast.
+  \item Existing plaintext setups continue to work unchanged.
+\end{itemize}
+
+
+Headless and server tip: complete OAuth on a machine with a browser, then copy
+\texttt{\textasciitilde{}/.openclaw/credentials/oauth.json} (or \texttt{\$OPENCLAW\_STATE\_DIR/credentials/oauth.json})
+to the gateway host.
+
+\subsection{Outputs and internals}
+
+
+Typical fields in \texttt{\textasciitilde{}/.openclaw/openclaw.json}:
+
+\begin{itemize}
+  \item \texttt{agents.defaults.workspace}
+  \item \texttt{agents.defaults.model} / \texttt{models.providers} (if Minimax chosen)
+  \item \texttt{tools.profile} (local onboarding defaults to \texttt{"messaging"} when unset; existing explicit values are preserved)
+  \item \texttt{gateway.*} (mode, bind, auth, tailscale)
+  \item \texttt{session.dmScope} (local onboarding defaults this to \texttt{per-channel-peer} when unset; existing explicit values are preserved)
+  \item \texttt{channels.telegram.botToken}, \texttt{channels.discord.token}, \texttt{channels.signal.\textit{}, \texttt{channels.imessage.}}
+  \item Channel allowlists (Slack, Discord, Matrix, Microsoft Teams) when you opt in during prompts (names resolve to IDs when possible)
+  \item \texttt{skills.install.nodeManager}
+  \item \texttt{wizard.lastRunAt}
+  \item \texttt{wizard.lastRunVersion}
+  \item \texttt{wizard.lastRunCommit}
+  \item \texttt{wizard.lastRunCommand}
+  \item \texttt{wizard.lastRunMode}
+\end{itemize}
+
+
+\texttt{openclaw agents add} writes \texttt{agents.list[]} and optional \texttt{bindings}.
+
+WhatsApp credentials go under \texttt{\textasciitilde{}/.openclaw/credentials/whatsapp//}.
+Sessions are stored under \texttt{\textasciitilde{}/.openclaw/agents//sessions/}.
+
+Some channels are delivered as plugins. When selected during onboarding, the wizard
+prompts to install the plugin (npm or local path) before channel configuration.
+
+Gateway wizard RPC:
+
+\begin{itemize}
+  \item \texttt{wizard.start}
+  \item \texttt{wizard.next}
+  \item \texttt{wizard.cancel}
+  \item \texttt{wizard.status}
+\end{itemize}
+
+
+Clients (macOS app and Control UI) can render steps without re-implementing onboarding logic.
+
+Signal setup behavior:
+
+\begin{itemize}
+  \item Downloads the appropriate release asset
+  \item Stores it under \texttt{\textasciitilde{}/.openclaw/tools/signal-cli//}
+  \item Writes \texttt{channels.signal.cliPath} in config
+  \item JVM builds require Java 21
+  \item Native builds are used when available
+  \item Windows uses WSL2 and follows Linux signal-cli flow inside WSL
+\end{itemize}
+
+
+\subsection{Related docs}
+
+
+\begin{itemize}
+  \item Onboarding hub: \href{/start/wizard}{Onboarding Wizard (CLI)}
+  \item Automation and scripts: \href{/start/wizard-cli-automation}{CLI Automation}
+  \item Command reference: \href{/cli/onboard}{\texttt{openclaw onboard}}
+\end{itemize}
+
+
+
+\clearpage
+

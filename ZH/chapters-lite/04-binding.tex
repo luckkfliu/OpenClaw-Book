@@ -1,0 +1,106 @@
+\chapter{Binding（路由绑定）}
+
+\section{概述}
+
+Binding 是将入站消息路由到指定 Agent 的规则。在多智能体模式下，Binding 决定哪个"大脑"处理哪些消息。
+
+配置路径：\texttt{agents.list[].bindings[]}（或顶层 \texttt{bindings[]}）
+
+\section{路由优先级}
+
+路由是\textbf{确定性的}，\textbf{最具体的优先}：
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.5cm,
+    rule/.style={draw=blue!50, fill=blue!5, rounded corners=3pt, minimum width=12cm, minimum height=0.6cm, font=\small, align=left},
+    arr/.style={-{Stealth[length=2mm]}, thick, draw=blue!40}
+]
+    \node[rule] (r1) {1. \texttt{peer} 精确匹配（私信/群组/频道 ID）};
+    \node[rule, below=of r1] (r2) {2. \texttt{guildId} 匹配（Discord）};
+    \node[rule, below=of r2] (r3) {3. \texttt{teamId} 匹配（Slack）};
+    \node[rule, below=of r3] (r4) {4. \texttt{accountId} 匹配（渠道账户）};
+    \node[rule, below=of r4] (r5) {5. 渠道级匹配（\texttt{accountId: "*"}）};
+    \node[rule, below=of r5] (r6) {6. 默认 Agent（\texttt{agents.list[].default} 或第一个）};
+
+    \draw[arr] (r1) -- (r2);
+    \draw[arr] (r2) -- (r3);
+    \draw[arr] (r3) -- (r4);
+    \draw[arr] (r4) -- (r5);
+    \draw[arr] (r5) -- (r6);
+\end{tikzpicture}
+\end{center}
+
+\section{核心概念}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{术语} & \textbf{说明} \\
+\midrule
+\texttt{agentId} & 一个"大脑"（工作区 + 认证 + 会话） \\
+\texttt{accountId} & 渠道账户实例（如 WhatsApp 的 \texttt{"personal"} vs \texttt{"biz"}） \\
+\texttt{binding} & 通过 (channel, accountId, peer) 路由到 agentId \\
+\texttt{peer} & 对端标识（\texttt{kind: "dm"|"group"|"channel"} + \texttt{id}） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{配置示例}
+
+\subsection{两个 WhatsApp 账户 → 两个 Agent}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [
+      { id: "home", default: true, workspace: "~/.openclaw/workspace-home" },
+      { id: "work", workspace: "~/.openclaw/workspace-work" }
+    ]
+  },
+  bindings: [
+    { agentId: "home", match: { channel: "whatsapp", accountId: "personal" } },
+    { agentId: "work", match: { channel: "whatsapp", accountId: "biz" } }
+  ]
+}
+\end{lstlisting}
+
+\subsection{一个号码按发送者分流}
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    list: [
+      { id: "alex", workspace: "~/.openclaw/workspace-alex" },
+      { id: "mia", workspace: "~/.openclaw/workspace-mia" }
+    ]
+  },
+  bindings: [
+    { agentId: "alex", match: { channel: "whatsapp", peer: { kind: "dm", id: "+15551230001" } } },
+    { agentId: "mia", match: { channel: "whatsapp", peer: { kind: "dm", id: "+15551230002" } } }
+  ]
+}
+\end{lstlisting}
+
+\subsection{特定群组路由到特定 Agent}
+
+\begin{lstlisting}[language=json]
+{
+  bindings: [
+    {
+      agentId: "work",
+      match: {
+        channel: "whatsapp",
+        accountId: "personal",
+        peer: { kind: "group", id: "1203630...@g.us" }
+      }
+    }
+  ]
+}
+\end{lstlisting}
+
+\section{验证}
+
+\begin{lstlisting}[language=bash]
+openclaw agents list --bindings
+\end{lstlisting}

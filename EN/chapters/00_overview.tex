@@ -1,0 +1,2567 @@
+\chapter{Overview}
+
+% === Source file: index.md ===
+\section{OpenClaw}
+
+
+
+\begin{quote}
+\textit{"EXFOLIATE! EXFOLIATE!"} — A space lobster, probably
+\end{quote}
+
+
+Any OS gateway for AI agents across WhatsApp, Telegram, Discord, iMessage, and more.
+Send a message, get an agent response from your pocket. Plugins add Mattermost and more.
+
+Install OpenClaw and bring up the Gateway in minutes.
+Guided setup with \texttt{openclaw onboard} and pairing flows.
+Launch the browser dashboard for chat, config, and sessions.
+
+\subsection{What is OpenClaw?}
+
+
+OpenClaw is a \textbf{self-hosted gateway} that connects your favorite chat apps — WhatsApp, Telegram, Discord, iMessage, and more — to AI coding agents like Pi. You run a single Gateway process on your own machine (or a server), and it becomes the bridge between your messaging apps and an always-available AI assistant.
+
+\textbf{Who is it for?} Developers and power users who want a personal AI assistant they can message from anywhere — without giving up control of their data or relying on a hosted service.
+
+\textbf{What makes it different?}
+
+\begin{itemize}
+  \item \textbf{Self-hosted}: runs on your hardware, your rules
+  \item \textbf{Multi-channel}: one Gateway serves WhatsApp, Telegram, Discord, and more simultaneously
+  \item \textbf{Agent-native}: built for coding agents with tool use, sessions, memory, and multi-agent routing
+  \item \textbf{Open source}: MIT licensed, community-driven
+\end{itemize}
+
+
+\textbf{What do you need?} Node 22+, an API key from your chosen provider, and 5 minutes. For best quality and security, use the strongest latest-generation model available.
+
+\subsection{How it works}
+
+
+\begin{verbatim}
+% Mermaid diagram
+flowchart LR
+  A["Chat apps + plugins"] --> B["Gateway"]
+  B --> C["Pi agent"]
+  B --> D["CLI"]
+  B --> E["Web Control UI"]
+  B --> F["macOS app"]
+  B --> G["iOS and Android nodes"]
+\end{verbatim}
+
+
+The Gateway is the single source of truth for sessions, routing, and channel connections.
+
+\subsection{Key capabilities}
+
+
+WhatsApp, Telegram, Discord, and iMessage with a single Gateway process.
+Add Mattermost and more with extension packages.
+Isolated sessions per agent, workspace, or sender.
+Send and receive images, audio, and documents.
+Browser dashboard for chat, config, sessions, and nodes.
+Pair iOS and Android nodes for Canvas, camera/screen, and voice-enabled workflows.
+
+\subsection{Quick start}
+
+
+\begin{lstlisting}[language=bash]
+    npm install -g openclaw@latest
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw onboard --install-daemon
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+    openclaw channels login
+    openclaw gateway --port 18789
+\end{lstlisting}
+
+
+Need the full install and dev setup? See \href{/start/quickstart}{Quick start}.
+
+\subsection{Dashboard}
+
+
+Open the browser Control UI after the Gateway starts.
+
+\begin{itemize}
+  \item Local default: \href{http://127.0.0.1:18789/}{http://127.0.0.1:18789/}
+  \item Remote access: \href{/web}{Web surfaces} and \href{/gateway/tailscale}{Tailscale}
+\end{itemize}
+
+
+
+\subsection{Configuration (optional)}
+
+
+Config lives at \texttt{\textasciitilde{}/.openclaw/openclaw.json}.
+
+\begin{itemize}
+  \item If you \textbf{do nothing}, OpenClaw uses the bundled Pi binary in RPC mode with per-sender sessions.
+  \item If you want to lock it down, start with \texttt{channels.whatsapp.allowFrom} and (for groups) mention rules.
+\end{itemize}
+
+
+Example:
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    whatsapp: {
+      allowFrom: ["+15555550123"],
+      groups: { "*": { requireMention: true } },
+    },
+  },
+  messages: { groupChat: { mentionPatterns: ["@openclaw"] } },
+}
+\end{lstlisting}
+
+
+\subsection{Start here}
+
+
+All docs and guides, organized by use case.
+Core Gateway settings, tokens, and provider config.
+SSH and tailnet access patterns.
+Channel-specific setup for WhatsApp, Telegram, Discord, and more.
+iOS and Android nodes with pairing, Canvas, camera/screen, and device actions.
+Common fixes and troubleshooting entry point.
+
+\subsection{Learn more}
+
+
+Complete channel, routing, and media capabilities.
+Workspace isolation and per-agent sessions.
+Tokens, allowlists, and safety controls.
+Gateway diagnostics and common errors.
+Project origins, contributors, and license.
+
+
+\clearpage
+
+% === Source file: brave-search.md ===
+\section{Brave Search API}
+
+
+OpenClaw uses Brave Search as the default provider for \texttt{web\_search}.
+
+\subsection{Get an API key}
+
+
+\begin{enumerate}
+  \item Create a Brave Search API account at \href{https://brave.com/search/api/}{https://brave.com/search/api/}
+  \item In the dashboard, choose the \textbf{Data for Search} plan and generate an API key.
+  \item Store the key in config (recommended) or set \texttt{BRAVE\_API\_KEY} in the Gateway environment.
+\end{enumerate}
+
+
+\subsection{Config example}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    web: {
+      search: {
+        provider: "brave",
+        apiKey: "BRAVE_API_KEY_HERE",
+        maxResults: 5,
+        timeoutSeconds: 30,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Notes}
+
+
+\begin{itemize}
+  \item The Data for AI plan is \textbf{not} compatible with \texttt{web\_search}.
+  \item Brave provides paid plans; check the Brave API portal for current limits.
+  \item Brave Terms include restrictions on some AI-related uses of Search Results. Review the Brave Terms of Service and confirm your intended use is compliant. For legal questions, consult your counsel.
+\end{itemize}
+
+
+See \href{/tools/web}{Web tools} for the full web\_search configuration.
+
+
+\clearpage
+
+% === Source file: date-time.md ===
+\section{Date \& Time}
+
+
+OpenClaw defaults to \textbf{host-local time for transport timestamps} and \textbf{user timezone only in the system prompt}.
+Provider timestamps are preserved so tools keep their native semantics (current time is available via \texttt{session\_status}).
+
+\subsection{Message envelopes (local by default)}
+
+
+Inbound messages are wrapped with a timestamp (minute precision):
+
+\begin{lstlisting}
+[Provider ... 2026-01-05 16:26 PST] message text
+\end{lstlisting}
+
+
+This envelope timestamp is \textbf{host-local by default}, regardless of the provider timezone.
+
+You can override this behavior:
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      envelopeTimezone: "local", // "utc" | "local" | "user" | IANA timezone
+      envelopeTimestamp: "on", // "on" | "off"
+      envelopeElapsed: "on", // "on" | "off"
+    },
+  },
+}
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item \texttt{envelopeTimezone: "utc"} uses UTC.
+  \item \texttt{envelopeTimezone: "local"} uses the host timezone.
+  \item \texttt{envelopeTimezone: "user"} uses \texttt{agents.defaults.userTimezone} (falls back to host timezone).
+  \item Use an explicit IANA timezone (e.g., \texttt{"America/Chicago"}) for a fixed zone.
+  \item \texttt{envelopeTimestamp: "off"} removes absolute timestamps from envelope headers.
+  \item \texttt{envelopeElapsed: "off"} removes elapsed time suffixes (the \texttt{+2m} style).
+\end{itemize}
+
+
+\subsubsection{Examples}
+
+
+\textbf{Local (default):}
+
+\begin{lstlisting}
+[WhatsApp +1555 2026-01-18 00:19 PST] hello
+\end{lstlisting}
+
+
+\textbf{User timezone:}
+
+\begin{lstlisting}
+[WhatsApp +1555 2026-01-18 00:19 CST] hello
+\end{lstlisting}
+
+
+\textbf{Elapsed time enabled:}
+
+\begin{lstlisting}
+[WhatsApp +1555 +30s 2026-01-18T05:19Z] follow-up
+\end{lstlisting}
+
+
+\subsection{System prompt: Current Date \& Time}
+
+
+If the user timezone is known, the system prompt includes a dedicated
+\textbf{Current Date \& Time} section with the \textbf{time zone only} (no clock/time format)
+to keep prompt caching stable:
+
+\begin{lstlisting}
+Time zone: America/Chicago
+\end{lstlisting}
+
+
+When the agent needs the current time, use the \texttt{session\_status} tool; the status
+card includes a timestamp line.
+
+\subsection{System event lines (local by default)}
+
+
+Queued system events inserted into agent context are prefixed with a timestamp using the
+same timezone selection as message envelopes (default: host-local).
+
+\begin{lstlisting}
+System: [2026-01-12 12:19:17 PST] Model switched.
+\end{lstlisting}
+
+
+\subsubsection{Configure user timezone + format}
+
+
+\begin{lstlisting}[language=json]
+{
+  agents: {
+    defaults: {
+      userTimezone: "America/Chicago",
+      timeFormat: "auto", // auto | 12 | 24
+    },
+  },
+}
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item \texttt{userTimezone} sets the \textbf{user-local timezone} for prompt context.
+  \item \texttt{timeFormat} controls \textbf{12h/24h display} in the prompt. \texttt{auto} follows OS prefs.
+\end{itemize}
+
+
+\subsection{Time format detection (auto)}
+
+
+When \texttt{timeFormat: "auto"}, OpenClaw inspects the OS preference (macOS/Windows)
+and falls back to locale formatting. The detected value is \textbf{cached per process}
+to avoid repeated system calls.
+
+\subsection{Tool payloads + connectors (raw provider time + normalized fields)}
+
+
+Channel tools return \textbf{provider-native timestamps} and add normalized fields for consistency:
+
+\begin{itemize}
+  \item \texttt{timestampMs}: epoch milliseconds (UTC)
+  \item \texttt{timestampUtc}: ISO 8601 UTC string
+\end{itemize}
+
+
+Raw provider fields are preserved so nothing is lost.
+
+\begin{itemize}
+  \item Slack: epoch-like strings from the API
+  \item Discord: UTC ISO timestamps
+  \item Telegram/WhatsApp: provider-specific numeric/ISO timestamps
+\end{itemize}
+
+
+If you need local time, convert it downstream using the known timezone.
+
+\subsection{Related docs}
+
+
+\begin{itemize}
+  \item \href{/concepts/system-prompt}{System Prompt}
+  \item \href{/concepts/timezone}{Timezones}
+  \item \href{/concepts/messages}{Messages}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: logging.md ===
+\section{Logging}
+
+
+OpenClaw logs in two places:
+
+\begin{itemize}
+  \item \textbf{File logs} (JSON lines) written by the Gateway.
+  \item \textbf{Console output} shown in terminals and the Control UI.
+\end{itemize}
+
+
+This page explains where logs live, how to read them, and how to configure log
+levels and formats.
+
+\subsection{Where logs live}
+
+
+By default, the Gateway writes a rolling log file under:
+
+\texttt{/tmp/openclaw/openclaw-YYYY-MM-DD.log}
+
+The date uses the gateway host's local timezone.
+
+You can override this in \texttt{\textasciitilde{}/.openclaw/openclaw.json}:
+
+\begin{lstlisting}[language=json]
+{
+  "logging": {
+    "file": "/path/to/openclaw.log"
+  }
+}
+\end{lstlisting}
+
+
+\subsection{How to read logs}
+
+
+\subsubsection{CLI: live tail (recommended)}
+
+
+Use the CLI to tail the gateway log file via RPC:
+
+\begin{lstlisting}[language=bash]
+openclaw logs --follow
+\end{lstlisting}
+
+
+Output modes:
+
+\begin{itemize}
+  \item \textbf{TTY sessions}: pretty, colorized, structured log lines.
+  \item \textbf{Non-TTY sessions}: plain text.
+  \item \texttt{--json}: line-delimited JSON (one log event per line).
+  \item \texttt{--plain}: force plain text in TTY sessions.
+  \item \texttt{--no-color}: disable ANSI colors.
+\end{itemize}
+
+
+In JSON mode, the CLI emits \texttt{type}-tagged objects:
+
+\begin{itemize}
+  \item \texttt{meta}: stream metadata (file, cursor, size)
+  \item \texttt{log}: parsed log entry
+  \item \texttt{notice}: truncation / rotation hints
+  \item \texttt{raw}: unparsed log line
+\end{itemize}
+
+
+If the Gateway is unreachable, the CLI prints a short hint to run:
+
+\begin{lstlisting}[language=bash]
+openclaw doctor
+\end{lstlisting}
+
+
+\subsubsection{Control UI (web)}
+
+
+The Control UI’s \textbf{Logs} tab tails the same file using \texttt{logs.tail}.
+See \href{/web/control-ui}{/web/control-ui} for how to open it.
+
+\subsubsection{Channel-only logs}
+
+
+To filter channel activity (WhatsApp/Telegram/etc), use:
+
+\begin{lstlisting}[language=bash]
+openclaw channels logs --channel whatsapp
+\end{lstlisting}
+
+
+\subsection{Log formats}
+
+
+\subsubsection{File logs (JSONL)}
+
+
+Each line in the log file is a JSON object. The CLI and Control UI parse these
+entries to render structured output (time, level, subsystem, message).
+
+\subsubsection{Console output}
+
+
+Console logs are \textbf{TTY-aware} and formatted for readability:
+
+\begin{itemize}
+  \item Subsystem prefixes (e.g. \texttt{gateway/channels/whatsapp})
+  \item Level coloring (info/warn/error)
+  \item Optional compact or JSON mode
+\end{itemize}
+
+
+Console formatting is controlled by \texttt{logging.consoleStyle}.
+
+\subsection{Configuring logging}
+
+
+All logging configuration lives under \texttt{logging} in \texttt{\textasciitilde{}/.openclaw/openclaw.json}.
+
+\begin{lstlisting}[language=json]
+{
+  "logging": {
+    "level": "info",
+    "file": "/tmp/openclaw/openclaw-YYYY-MM-DD.log",
+    "consoleLevel": "info",
+    "consoleStyle": "pretty",
+    "redactSensitive": "tools",
+    "redactPatterns": ["sk-.*"]
+  }
+}
+\end{lstlisting}
+
+
+\subsubsection{Log levels}
+
+
+\begin{itemize}
+  \item \texttt{logging.level}: \textbf{file logs} (JSONL) level.
+  \item \texttt{logging.consoleLevel}: \textbf{console} verbosity level.
+\end{itemize}
+
+
+You can override both via the \textbf{\texttt{OPENCLAW\_LOG\_LEVEL}} environment variable (e.g. \texttt{OPENCLAW\_LOG\_LEVEL=debug}). The env var takes precedence over the config file, so you can raise verbosity for a single run without editing \texttt{openclaw.json}. You can also pass the global CLI option \textbf{\texttt{--log-level }} (for example, \texttt{openclaw --log-level debug gateway run}), which overrides the environment variable for that command.
+
+\texttt{--verbose} only affects console output; it does not change file log levels.
+
+\subsubsection{Console styles}
+
+
+\texttt{logging.consoleStyle}:
+
+\begin{itemize}
+  \item \texttt{pretty}: human-friendly, colored, with timestamps.
+  \item \texttt{compact}: tighter output (best for long sessions).
+  \item \texttt{json}: JSON per line (for log processors).
+\end{itemize}
+
+
+\subsubsection{Redaction}
+
+
+Tool summaries can redact sensitive tokens before they hit the console:
+
+\begin{itemize}
+  \item \texttt{logging.redactSensitive}: \texttt{off} | \texttt{tools} (default: \texttt{tools})
+  \item \texttt{logging.redactPatterns}: list of regex strings to override the default set
+\end{itemize}
+
+
+Redaction affects \textbf{console output only} and does not alter file logs.
+
+\subsection{Diagnostics + OpenTelemetry}
+
+
+Diagnostics are structured, machine-readable events for model runs \textbf{and}
+message-flow telemetry (webhooks, queueing, session state). They do \textbf{not}
+replace logs; they exist to feed metrics, traces, and other exporters.
+
+Diagnostics events are emitted in-process, but exporters only attach when
+diagnostics + the exporter plugin are enabled.
+
+\subsubsection{OpenTelemetry vs OTLP}
+
+
+\begin{itemize}
+  \item \textbf{OpenTelemetry (OTel)}: the data model + SDKs for traces, metrics, and logs.
+  \item \textbf{OTLP}: the wire protocol used to export OTel data to a collector/backend.
+  \item OpenClaw exports via \textbf{OTLP/HTTP (protobuf)} today.
+\end{itemize}
+
+
+\subsubsection{Signals exported}
+
+
+\begin{itemize}
+  \item \textbf{Metrics}: counters + histograms (token usage, message flow, queueing).
+  \item \textbf{Traces}: spans for model usage + webhook/message processing.
+  \item \textbf{Logs}: exported over OTLP when \texttt{diagnostics.otel.logs} is enabled. Log
+\end{itemize}
+
+volume can be high; keep \texttt{logging.level} and exporter filters in mind.
+
+\subsubsection{Diagnostic event catalog}
+
+
+Model usage:
+
+\begin{itemize}
+  \item \texttt{model.usage}: tokens, cost, duration, context, provider/model/channel, session ids.
+\end{itemize}
+
+
+Message flow:
+
+\begin{itemize}
+  \item \texttt{webhook.received}: webhook ingress per channel.
+  \item \texttt{webhook.processed}: webhook handled + duration.
+  \item \texttt{webhook.error}: webhook handler errors.
+  \item \texttt{message.queued}: message enqueued for processing.
+  \item \texttt{message.processed}: outcome + duration + optional error.
+\end{itemize}
+
+
+Queue + session:
+
+\begin{itemize}
+  \item \texttt{queue.lane.enqueue}: command queue lane enqueue + depth.
+  \item \texttt{queue.lane.dequeue}: command queue lane dequeue + wait time.
+  \item \texttt{session.state}: session state transition + reason.
+  \item \texttt{session.stuck}: session stuck warning + age.
+  \item \texttt{run.attempt}: run retry/attempt metadata.
+  \item \texttt{diagnostic.heartbeat}: aggregate counters (webhooks/queue/session).
+\end{itemize}
+
+
+\subsubsection{Enable diagnostics (no exporter)}
+
+
+Use this if you want diagnostics events available to plugins or custom sinks:
+
+\begin{lstlisting}[language=json]
+{
+  "diagnostics": {
+    "enabled": true
+  }
+}
+\end{lstlisting}
+
+
+\subsubsection{Diagnostics flags (targeted logs)}
+
+
+Use flags to turn on extra, targeted debug logs without raising \texttt{logging.level}.
+Flags are case-insensitive and support wildcards (e.g. \texttt{telegram.\textit{} or \texttt{}}).
+
+\begin{lstlisting}[language=json]
+{
+  "diagnostics": {
+    "flags": ["telegram.http"]
+  }
+}
+\end{lstlisting}
+
+
+Env override (one-off):
+
+\begin{lstlisting}
+OPENCLAW_DIAGNOSTICS=telegram.http,telegram.payload
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Flag logs go to the standard log file (same as \texttt{logging.file}).
+  \item Output is still redacted according to \texttt{logging.redactSensitive}.
+  \item Full guide: \href{/diagnostics/flags}{/diagnostics/flags}.
+\end{itemize}
+
+
+\subsubsection{Export to OpenTelemetry}
+
+
+Diagnostics can be exported via the \texttt{diagnostics-otel} plugin (OTLP/HTTP). This
+works with any OpenTelemetry collector/backend that accepts OTLP/HTTP.
+
+\begin{lstlisting}[language=json]
+{
+  "plugins": {
+    "allow": ["diagnostics-otel"],
+    "entries": {
+      "diagnostics-otel": {
+        "enabled": true
+      }
+    }
+  },
+  "diagnostics": {
+    "enabled": true,
+    "otel": {
+      "enabled": true,
+      "endpoint": "http://otel-collector:4318",
+      "protocol": "http/protobuf",
+      "serviceName": "openclaw-gateway",
+      "traces": true,
+      "metrics": true,
+      "logs": true,
+      "sampleRate": 0.2,
+      "flushIntervalMs": 60000
+    }
+  }
+}
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item You can also enable the plugin with \texttt{openclaw plugins enable diagnostics-otel}.
+  \item \texttt{protocol} currently supports \texttt{http/protobuf} only. \texttt{grpc} is ignored.
+  \item Metrics include token usage, cost, context size, run duration, and message-flow
+\end{itemize}
+
+counters/histograms (webhooks, queueing, session state, queue depth/wait).
+\begin{itemize}
+  \item Traces/metrics can be toggled with \texttt{traces} / \texttt{metrics} (default: on). Traces
+\end{itemize}
+
+include model usage spans plus webhook/message processing spans when enabled.
+\begin{itemize}
+  \item Set \texttt{headers} when your collector requires auth.
+  \item Environment variables supported: \texttt{OTEL\_EXPORTER\_OTLP\_ENDPOINT},
+\end{itemize}
+
+\texttt{OTEL\_SERVICE\_NAME}, \texttt{OTEL\_EXPORTER\_OTLP\_PROTOCOL}.
+
+\subsubsection{Exported metrics (names + types)}
+
+
+Model usage:
+
+\begin{itemize}
+  \item \texttt{openclaw.tokens} (counter, attrs: \texttt{openclaw.token}, \texttt{openclaw.channel},
+\end{itemize}
+
+\texttt{openclaw.provider}, \texttt{openclaw.model})
+\begin{itemize}
+  \item \texttt{openclaw.cost.usd} (counter, attrs: \texttt{openclaw.channel}, \texttt{openclaw.provider},
+\end{itemize}
+
+\texttt{openclaw.model})
+\begin{itemize}
+  \item \texttt{openclaw.run.duration\_ms} (histogram, attrs: \texttt{openclaw.channel},
+\end{itemize}
+
+\texttt{openclaw.provider}, \texttt{openclaw.model})
+\begin{itemize}
+  \item \texttt{openclaw.context.tokens} (histogram, attrs: \texttt{openclaw.context},
+\end{itemize}
+
+\texttt{openclaw.channel}, \texttt{openclaw.provider}, \texttt{openclaw.model})
+
+Message flow:
+
+\begin{itemize}
+  \item \texttt{openclaw.webhook.received} (counter, attrs: \texttt{openclaw.channel},
+\end{itemize}
+
+\texttt{openclaw.webhook})
+\begin{itemize}
+  \item \texttt{openclaw.webhook.error} (counter, attrs: \texttt{openclaw.channel},
+\end{itemize}
+
+\texttt{openclaw.webhook})
+\begin{itemize}
+  \item \texttt{openclaw.webhook.duration\_ms} (histogram, attrs: \texttt{openclaw.channel},
+\end{itemize}
+
+\texttt{openclaw.webhook})
+\begin{itemize}
+  \item \texttt{openclaw.message.queued} (counter, attrs: \texttt{openclaw.channel},
+\end{itemize}
+
+\texttt{openclaw.source})
+\begin{itemize}
+  \item \texttt{openclaw.message.processed} (counter, attrs: \texttt{openclaw.channel},
+\end{itemize}
+
+\texttt{openclaw.outcome})
+\begin{itemize}
+  \item \texttt{openclaw.message.duration\_ms} (histogram, attrs: \texttt{openclaw.channel},
+\end{itemize}
+
+\texttt{openclaw.outcome})
+
+Queues + sessions:
+
+\begin{itemize}
+  \item \texttt{openclaw.queue.lane.enqueue} (counter, attrs: \texttt{openclaw.lane})
+  \item \texttt{openclaw.queue.lane.dequeue} (counter, attrs: \texttt{openclaw.lane})
+  \item \texttt{openclaw.queue.depth} (histogram, attrs: \texttt{openclaw.lane} or
+\end{itemize}
+
+\texttt{openclaw.channel=heartbeat})
+\begin{itemize}
+  \item \texttt{openclaw.queue.wait\_ms} (histogram, attrs: \texttt{openclaw.lane})
+  \item \texttt{openclaw.session.state} (counter, attrs: \texttt{openclaw.state}, \texttt{openclaw.reason})
+  \item \texttt{openclaw.session.stuck} (counter, attrs: \texttt{openclaw.state})
+  \item \texttt{openclaw.session.stuck\_age\_ms} (histogram, attrs: \texttt{openclaw.state})
+  \item \texttt{openclaw.run.attempt} (counter, attrs: \texttt{openclaw.attempt})
+\end{itemize}
+
+
+\subsubsection{Exported spans (names + key attributes)}
+
+
+\begin{itemize}
+  \item \texttt{openclaw.model.usage}
+  \item \texttt{openclaw.channel}, \texttt{openclaw.provider}, \texttt{openclaw.model}
+  \item \texttt{openclaw.sessionKey}, \texttt{openclaw.sessionId}
+  \item \texttt{openclaw.tokens.*} (input/output/cache\_read/cache\_write/total)
+  \item \texttt{openclaw.webhook.processed}
+  \item \texttt{openclaw.channel}, \texttt{openclaw.webhook}, \texttt{openclaw.chatId}
+  \item \texttt{openclaw.webhook.error}
+  \item \texttt{openclaw.channel}, \texttt{openclaw.webhook}, \texttt{openclaw.chatId},
+\end{itemize}
+
+\texttt{openclaw.error}
+\begin{itemize}
+  \item \texttt{openclaw.message.processed}
+  \item \texttt{openclaw.channel}, \texttt{openclaw.outcome}, \texttt{openclaw.chatId},
+\end{itemize}
+
+\texttt{openclaw.messageId}, \texttt{openclaw.sessionKey}, \texttt{openclaw.sessionId},
+\texttt{openclaw.reason}
+\begin{itemize}
+  \item \texttt{openclaw.session.stuck}
+  \item \texttt{openclaw.state}, \texttt{openclaw.ageMs}, \texttt{openclaw.queueDepth},
+\end{itemize}
+
+\texttt{openclaw.sessionKey}, \texttt{openclaw.sessionId}
+
+\subsubsection{Sampling + flushing}
+
+
+\begin{itemize}
+  \item Trace sampling: \texttt{diagnostics.otel.sampleRate} (0.0–1.0, root spans only).
+  \item Metric export interval: \texttt{diagnostics.otel.flushIntervalMs} (min 1000ms).
+\end{itemize}
+
+
+\subsubsection{Protocol notes}
+
+
+\begin{itemize}
+  \item OTLP/HTTP endpoints can be set via \texttt{diagnostics.otel.endpoint} or
+\end{itemize}
+
+\texttt{OTEL\_EXPORTER\_OTLP\_ENDPOINT}.
+\begin{itemize}
+  \item If the endpoint already contains \texttt{/v1/traces} or \texttt{/v1/metrics}, it is used as-is.
+  \item If the endpoint already contains \texttt{/v1/logs}, it is used as-is for logs.
+  \item \texttt{diagnostics.otel.logs} enables OTLP log export for the main logger output.
+\end{itemize}
+
+
+\subsubsection{Log export behavior}
+
+
+\begin{itemize}
+  \item OTLP logs use the same structured records written to \texttt{logging.file}.
+  \item Respect \texttt{logging.level} (file log level). Console redaction does \textbf{not} apply
+\end{itemize}
+
+to OTLP logs.
+\begin{itemize}
+  \item High-volume installs should prefer OTLP collector sampling/filtering.
+\end{itemize}
+
+
+\subsection{Troubleshooting tips}
+
+
+\begin{itemize}
+  \item \textbf{Gateway not reachable?} Run \texttt{openclaw doctor} first.
+  \item \textbf{Logs empty?} Check that the Gateway is running and writing to the file path
+\end{itemize}
+
+in \texttt{logging.file}.
+\begin{itemize}
+  \item \textbf{Need more detail?} Set \texttt{logging.level} to \texttt{debug} or \texttt{trace} and retry.
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: network.md ===
+\section{Network hub}
+
+
+This hub links the core docs for how OpenClaw connects, pairs, and secures
+devices across localhost, LAN, and tailnet.
+
+\subsection{Core model}
+
+
+\begin{itemize}
+  \item \href{/concepts/architecture}{Gateway architecture}
+  \item \href{/gateway/protocol}{Gateway protocol}
+  \item \href{/gateway}{Gateway runbook}
+  \item \href{/web}{Web surfaces + bind modes}
+\end{itemize}
+
+
+\subsection{Pairing + identity}
+
+
+\begin{itemize}
+  \item \href{/channels/pairing}{Pairing overview (DM + nodes)}
+  \item \href{/gateway/pairing}{Gateway-owned node pairing}
+  \item \href{/cli/devices}{Devices CLI (pairing + token rotation)}
+  \item \href{/cli/pairing}{Pairing CLI (DM approvals)}
+\end{itemize}
+
+
+Local trust:
+
+\begin{itemize}
+  \item Local connections (loopback or the gateway host’s own tailnet address) can be
+\end{itemize}
+
+auto‑approved for pairing to keep same‑host UX smooth.
+\begin{itemize}
+  \item Non‑local tailnet/LAN clients still require explicit pairing approval.
+\end{itemize}
+
+
+\subsection{Discovery + transports}
+
+
+\begin{itemize}
+  \item \href{/gateway/discovery}{Discovery \& transports}
+  \item \href{/gateway/bonjour}{Bonjour / mDNS}
+  \item \href{/gateway/remote}{Remote access (SSH)}
+  \item \href{/gateway/tailscale}{Tailscale}
+\end{itemize}
+
+
+\subsection{Nodes + transports}
+
+
+\begin{itemize}
+  \item \href{/nodes}{Nodes overview}
+  \item \href{/gateway/bridge-protocol}{Bridge protocol (legacy nodes)}
+  \item \href{/platforms/ios}{Node runbook: iOS}
+  \item \href{/platforms/android}{Node runbook: Android}
+\end{itemize}
+
+
+\subsection{Security}
+
+
+\begin{itemize}
+  \item \href{/gateway/security}{Security overview}
+  \item \href{/gateway/configuration}{Gateway config reference}
+  \item \href{/gateway/troubleshooting}{Troubleshooting}
+  \item \href{/gateway/doctor}{Doctor}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: perplexity.md ===
+\section{Perplexity Sonar}
+
+
+OpenClaw can use Perplexity Sonar for the \texttt{web\_search} tool. You can connect
+through Perplexity’s direct API or via OpenRouter.
+
+\subsection{API options}
+
+
+\subsubsection{Perplexity (direct)}
+
+
+\begin{itemize}
+  \item Base URL: \href{https://api.perplexity.ai}{https://api.perplexity.ai}
+  \item Environment variable: \texttt{PERPLEXITY\_API\_KEY}
+\end{itemize}
+
+
+\subsubsection{OpenRouter (alternative)}
+
+
+\begin{itemize}
+  \item Base URL: \href{https://openrouter.ai/api/v1}{https://openrouter.ai/api/v1}
+  \item Environment variable: \texttt{OPENROUTER\_API\_KEY}
+  \item Supports prepaid/crypto credits.
+\end{itemize}
+
+
+\subsection{Config example}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    web: {
+      search: {
+        provider: "perplexity",
+        perplexity: {
+          apiKey: "pplx-...",
+          baseUrl: "https://api.perplexity.ai",
+          model: "perplexity/sonar-pro",
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Switching from Brave}
+
+
+\begin{lstlisting}[language=json]
+{
+  tools: {
+    web: {
+      search: {
+        provider: "perplexity",
+        perplexity: {
+          apiKey: "pplx-...",
+          baseUrl: "https://api.perplexity.ai",
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+If both \texttt{PERPLEXITY\_API\_KEY} and \texttt{OPENROUTER\_API\_KEY} are set, set
+\texttt{tools.web.search.perplexity.baseUrl} (or \texttt{tools.web.search.perplexity.apiKey})
+to disambiguate.
+
+If no base URL is set, OpenClaw chooses a default based on the API key source:
+
+\begin{itemize}
+  \item \texttt{PERPLEXITY\_API\_KEY} or \texttt{pplx-...} → direct Perplexity (\texttt{https://api.perplexity.ai})
+  \item \texttt{OPENROUTER\_API\_KEY} or \texttt{sk-or-...} → OpenRouter (\texttt{https://openrouter.ai/api/v1})
+  \item Unknown key formats → OpenRouter (safe fallback)
+\end{itemize}
+
+
+\subsection{Models}
+
+
+\begin{itemize}
+  \item \texttt{perplexity/sonar} — fast Q\&A with web search
+  \item \texttt{perplexity/sonar-pro} (default) — multi-step reasoning + web search
+  \item \texttt{perplexity/sonar-reasoning-pro} — deep research
+\end{itemize}
+
+
+See \href{/tools/web}{Web tools} for the full web\_search configuration.
+
+
+\clearpage
+
+% === Source file: pi-dev.md ===
+\section{Pi Development Workflow}
+
+
+This guide summarizes a sane workflow for working on the pi integration in OpenClaw.
+
+\subsection{Type Checking and Linting}
+
+
+\begin{itemize}
+  \item Type check and build: \texttt{pnpm build}
+  \item Lint: \texttt{pnpm lint}
+  \item Format check: \texttt{pnpm format}
+  \item Full gate before pushing: \texttt{pnpm lint \&\& pnpm build \&\& pnpm test}
+\end{itemize}
+
+
+\subsection{Running Pi Tests}
+
+
+Run the Pi-focused test set directly with Vitest:
+
+\begin{lstlisting}[language=bash]
+pnpm test -- \
+  "src/agents/pi-*.test.ts" \
+  "src/agents/pi-embedded-*.test.ts" \
+  "src/agents/pi-tools*.test.ts" \
+  "src/agents/pi-settings.test.ts" \
+  "src/agents/pi-tool-definition-adapter*.test.ts" \
+  "src/agents/pi-extensions/**/*.test.ts"
+\end{lstlisting}
+
+
+To include the live provider exercise:
+
+\begin{lstlisting}[language=bash]
+OPENCLAW_LIVE_TEST=1 pnpm test -- src/agents/pi-embedded-runner-extraparams.live.test.ts
+\end{lstlisting}
+
+
+This covers the main Pi unit suites:
+
+\begin{itemize}
+  \item \texttt{src/agents/pi-*.test.ts}
+  \item \texttt{src/agents/pi-embedded-*.test.ts}
+  \item \texttt{src/agents/pi-tools*.test.ts}
+  \item \texttt{src/agents/pi-settings.test.ts}
+  \item \texttt{src/agents/pi-tool-definition-adapter.test.ts}
+  \item \texttt{src/agents/pi-extensions/*.test.ts}
+\end{itemize}
+
+
+\subsection{Manual Testing}
+
+
+Recommended flow:
+
+\begin{itemize}
+  \item Run the gateway in dev mode:
+  \item \texttt{pnpm gateway:dev}
+  \item Trigger the agent directly:
+  \item \texttt{pnpm openclaw agent --message "Hello" --thinking low}
+  \item Use the TUI for interactive debugging:
+  \item \texttt{pnpm tui}
+\end{itemize}
+
+
+For tool call behavior, prompt for a \texttt{read} or \texttt{exec} action so you can see tool streaming and payload handling.
+
+\subsection{Clean Slate Reset}
+
+
+State lives under the OpenClaw state directory. Default is \texttt{\textasciitilde{}/.openclaw}. If \texttt{OPENCLAW\_STATE\_DIR} is set, use that directory instead.
+
+To reset everything:
+
+\begin{itemize}
+  \item \texttt{openclaw.json} for config
+  \item \texttt{credentials/} for auth profiles and tokens
+  \item \texttt{agents//sessions/} for agent session history
+  \item \texttt{agents//sessions.json} for the session index
+  \item \texttt{sessions/} if legacy paths exist
+  \item \texttt{workspace/} if you want a blank workspace
+\end{itemize}
+
+
+If you only want to reset sessions, delete \texttt{agents//sessions/} and \texttt{agents//sessions.json} for that agent. Keep \texttt{credentials/} if you do not want to reauthenticate.
+
+\subsection{References}
+
+
+\begin{itemize}
+  \item \href{https://docs.openclaw.ai/testing}{https://docs.openclaw.ai/testing}
+  \item \href{https://docs.openclaw.ai/start/getting-started}{https://docs.openclaw.ai/start/getting-started}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: pi.md ===
+\section{Pi Integration Architecture}
+
+
+This document describes how OpenClaw integrates with \href{https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent}{pi-coding-agent} and its sibling packages (\texttt{pi-ai}, \texttt{pi-agent-core}, \texttt{pi-tui}) to power its AI agent capabilities.
+
+\subsection{Overview}
+
+
+OpenClaw uses the pi SDK to embed an AI coding agent into its messaging gateway architecture. Instead of spawning pi as a subprocess or using RPC mode, OpenClaw directly imports and instantiates pi's \texttt{AgentSession} via \texttt{createAgentSession()}. This embedded approach provides:
+
+\begin{itemize}
+  \item Full control over session lifecycle and event handling
+  \item Custom tool injection (messaging, sandbox, channel-specific actions)
+  \item System prompt customization per channel/context
+  \item Session persistence with branching/compaction support
+  \item Multi-account auth profile rotation with failover
+  \item Provider-agnostic model switching
+\end{itemize}
+
+
+\subsection{Package Dependencies}
+
+
+\begin{lstlisting}[language=json]
+{
+  "@mariozechner/pi-agent-core": "0.49.3",
+  "@mariozechner/pi-ai": "0.49.3",
+  "@mariozechner/pi-coding-agent": "0.49.3",
+  "@mariozechner/pi-tui": "0.49.3"
+}
+\end{lstlisting}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+Package & Purpose \\
+\hline
+\texttt{pi-ai} & Core LLM abstractions: \texttt{Model}, \texttt{streamSimple}, message types, provider APIs \\
+\hline
+\texttt{pi-agent-core} & Agent loop, tool execution, \texttt{AgentMessage} types \\
+\hline
+\texttt{pi-coding-agent} & High-level SDK: \texttt{createAgentSession}, \texttt{SessionManager}, \texttt{AuthStorage}, \texttt{ModelRegistry}, built-in tools \\
+\hline
+\texttt{pi-tui} & Terminal UI components (used in OpenClaw's local TUI mode) \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{File Structure}
+
+
+\begin{lstlisting}
+src/agents/
+├── pi-embedded-runner.ts          # Re-exports from pi-embedded-runner/
+├── pi-embedded-runner/
+│   ├── run.ts                     # Main entry: runEmbeddedPiAgent()
+│   ├── run/
+│   │   ├── attempt.ts             # Single attempt logic with session setup
+│   │   ├── params.ts              # RunEmbeddedPiAgentParams type
+│   │   ├── payloads.ts            # Build response payloads from run results
+│   │   ├── images.ts              # Vision model image injection
+│   │   └── types.ts               # EmbeddedRunAttemptResult
+│   ├── abort.ts                   # Abort error detection
+│   ├── cache-ttl.ts               # Cache TTL tracking for context pruning
+│   ├── compact.ts                 # Manual/auto compaction logic
+│   ├── extensions.ts              # Load pi extensions for embedded runs
+│   ├── extra-params.ts            # Provider-specific stream params
+│   ├── google.ts                  # Google/Gemini turn ordering fixes
+│   ├── history.ts                 # History limiting (DM vs group)
+│   ├── lanes.ts                   # Session/global command lanes
+│   ├── logger.ts                  # Subsystem logger
+│   ├── model.ts                   # Model resolution via ModelRegistry
+│   ├── runs.ts                    # Active run tracking, abort, queue
+│   ├── sandbox-info.ts            # Sandbox info for system prompt
+│   ├── session-manager-cache.ts   # SessionManager instance caching
+│   ├── session-manager-init.ts    # Session file initialization
+│   ├── system-prompt.ts           # System prompt builder
+│   ├── tool-split.ts              # Split tools into builtIn vs custom
+│   ├── types.ts                   # EmbeddedPiAgentMeta, EmbeddedPiRunResult
+│   └── utils.ts                   # ThinkLevel mapping, error description
+├── pi-embedded-subscribe.ts       # Session event subscription/dispatch
+├── pi-embedded-subscribe.types.ts # SubscribeEmbeddedPiSessionParams
+├── pi-embedded-subscribe.handlers.ts # Event handler factory
+├── pi-embedded-subscribe.handlers.lifecycle.ts
+├── pi-embedded-subscribe.handlers.types.ts
+├── pi-embedded-block-chunker.ts   # Streaming block reply chunking
+├── pi-embedded-messaging.ts       # Messaging tool sent tracking
+├── pi-embedded-helpers.ts         # Error classification, turn validation
+├── pi-embedded-helpers/           # Helper modules
+├── pi-embedded-utils.ts           # Formatting utilities
+├── pi-tools.ts                    # createOpenClawCodingTools()
+├── pi-tools.abort.ts              # AbortSignal wrapping for tools
+├── pi-tools.policy.ts             # Tool allowlist/denylist policy
+├── pi-tools.read.ts               # Read tool customizations
+├── pi-tools.schema.ts             # Tool schema normalization
+├── pi-tools.types.ts              # AnyAgentTool type alias
+├── pi-tool-definition-adapter.ts  # AgentTool -> ToolDefinition adapter
+├── pi-settings.ts                 # Settings overrides
+├── pi-extensions/                 # Custom pi extensions
+│   ├── compaction-safeguard.ts    # Safeguard extension
+│   ├── compaction-safeguard-runtime.ts
+│   ├── context-pruning.ts         # Cache-TTL context pruning extension
+│   └── context-pruning/
+├── model-auth.ts                  # Auth profile resolution
+├── auth-profiles.ts               # Profile store, cooldown, failover
+├── model-selection.ts             # Default model resolution
+├── models-config.ts               # models.json generation
+├── model-catalog.ts               # Model catalog cache
+├── context-window-guard.ts        # Context window validation
+├── failover-error.ts              # FailoverError class
+├── defaults.ts                    # DEFAULT_PROVIDER, DEFAULT_MODEL
+├── system-prompt.ts               # buildAgentSystemPrompt()
+├── system-prompt-params.ts        # System prompt parameter resolution
+├── system-prompt-report.ts        # Debug report generation
+├── tool-summaries.ts              # Tool description summaries
+├── tool-policy.ts                 # Tool policy resolution
+├── transcript-policy.ts           # Transcript validation policy
+├── skills.ts                      # Skill snapshot/prompt building
+├── skills/                        # Skill subsystem
+├── sandbox.ts                     # Sandbox context resolution
+├── sandbox/                       # Sandbox subsystem
+├── channel-tools.ts               # Channel-specific tool injection
+├── openclaw-tools.ts              # OpenClaw-specific tools
+├── bash-tools.ts                  # exec/process tools
+├── apply-patch.ts                 # apply_patch tool (OpenAI)
+├── tools/                         # Individual tool implementations
+│   ├── browser-tool.ts
+│   ├── canvas-tool.ts
+│   ├── cron-tool.ts
+│   ├── discord-actions*.ts
+│   ├── gateway-tool.ts
+│   ├── image-tool.ts
+│   ├── message-tool.ts
+│   ├── nodes-tool.ts
+│   ├── session*.ts
+│   ├── slack-actions.ts
+│   ├── telegram-actions.ts
+│   ├── web-*.ts
+│   └── whatsapp-actions.ts
+└── ...
+\end{lstlisting}
+
+
+\subsection{Core Integration Flow}
+
+
+\subsubsection{1. Running an Embedded Agent}
+
+
+The main entry point is \texttt{runEmbeddedPiAgent()} in \texttt{pi-embedded-runner/run.ts}:
+
+\begin{lstlisting}[language=typescript]
+import { runEmbeddedPiAgent } from "./agents/pi-embedded-runner.js";
+
+const result = await runEmbeddedPiAgent({
+  sessionId: "user-123",
+  sessionKey: "main:whatsapp:+1234567890",
+  sessionFile: "/path/to/session.jsonl",
+  workspaceDir: "/path/to/workspace",
+  config: openclawConfig,
+  prompt: "Hello, how are you?",
+  provider: "anthropic",
+  model: "claude-sonnet-4-20250514",
+  timeoutMs: 120_000,
+  runId: "run-abc",
+  onBlockReply: async (payload) => {
+    await sendToChannel(payload.text, payload.mediaUrls);
+  },
+});
+\end{lstlisting}
+
+
+\subsubsection{2. Session Creation}
+
+
+Inside \texttt{runEmbeddedAttempt()} (called by \texttt{runEmbeddedPiAgent()}), the pi SDK is used:
+
+\begin{lstlisting}[language=typescript]
+import {
+  createAgentSession,
+  DefaultResourceLoader,
+  SessionManager,
+  SettingsManager,
+} from "@mariozechner/pi-coding-agent";
+
+const resourceLoader = new DefaultResourceLoader({
+  cwd: resolvedWorkspace,
+  agentDir,
+  settingsManager,
+  additionalExtensionPaths,
+});
+await resourceLoader.reload();
+
+const { session } = await createAgentSession({
+  cwd: resolvedWorkspace,
+  agentDir,
+  authStorage: params.authStorage,
+  modelRegistry: params.modelRegistry,
+  model: params.model,
+  thinkingLevel: mapThinkingLevel(params.thinkLevel),
+  tools: builtInTools,
+  customTools: allCustomTools,
+  sessionManager,
+  settingsManager,
+  resourceLoader,
+});
+
+applySystemPromptOverrideToSession(session, systemPromptOverride);
+\end{lstlisting}
+
+
+\subsubsection{3. Event Subscription}
+
+
+\texttt{subscribeEmbeddedPiSession()} subscribes to pi's \texttt{AgentSession} events:
+
+\begin{lstlisting}[language=typescript]
+const subscription = subscribeEmbeddedPiSession({
+  session: activeSession,
+  runId: params.runId,
+  verboseLevel: params.verboseLevel,
+  reasoningMode: params.reasoningLevel,
+  toolResultFormat: params.toolResultFormat,
+  onToolResult: params.onToolResult,
+  onReasoningStream: params.onReasoningStream,
+  onBlockReply: params.onBlockReply,
+  onPartialReply: params.onPartialReply,
+  onAgentEvent: params.onAgentEvent,
+});
+\end{lstlisting}
+
+
+Events handled include:
+
+\begin{itemize}
+  \item \texttt{message\_start} / \texttt{message\_end} / \texttt{message\_update} (streaming text/thinking)
+  \item \texttt{tool\_execution\_start} / \texttt{tool\_execution\_update} / \texttt{tool\_execution\_end}
+  \item \texttt{turn\_start} / \texttt{turn\_end}
+  \item \texttt{agent\_start} / \texttt{agent\_end}
+  \item \texttt{auto\_compaction\_start} / \texttt{auto\_compaction\_end}
+\end{itemize}
+
+
+\subsubsection{4. Prompting}
+
+
+After setup, the session is prompted:
+
+\begin{lstlisting}[language=typescript]
+await session.prompt(effectivePrompt, { images: imageResult.images });
+\end{lstlisting}
+
+
+The SDK handles the full agent loop: sending to LLM, executing tool calls, streaming responses.
+
+Image injection is prompt-local: OpenClaw loads image refs from the current prompt and
+passes them via \texttt{images} for that turn only. It does not re-scan older history turns
+to re-inject image payloads.
+
+\subsection{Tool Architecture}
+
+
+\subsubsection{Tool Pipeline}
+
+
+\begin{enumerate}
+  \item \textbf{Base Tools}: pi's \texttt{codingTools} (read, bash, edit, write)
+  \item \textbf{Custom Replacements}: OpenClaw replaces bash with \texttt{exec}/\texttt{process}, customizes read/edit/write for sandbox
+  \item \textbf{OpenClaw Tools}: messaging, browser, canvas, sessions, cron, gateway, etc.
+  \item \textbf{Channel Tools}: Discord/Telegram/Slack/WhatsApp-specific action tools
+  \item \textbf{Policy Filtering}: Tools filtered by profile, provider, agent, group, sandbox policies
+  \item \textbf{Schema Normalization}: Schemas cleaned for Gemini/OpenAI quirks
+  \item \textbf{AbortSignal Wrapping}: Tools wrapped to respect abort signals
+\end{enumerate}
+
+
+\subsubsection{Tool Definition Adapter}
+
+
+pi-agent-core's \texttt{AgentTool} has a different \texttt{execute} signature than pi-coding-agent's \texttt{ToolDefinition}. The adapter in \texttt{pi-tool-definition-adapter.ts} bridges this:
+
+\begin{lstlisting}[language=typescript]
+export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
+  return tools.map((tool) => ({
+    name: tool.name,
+    label: tool.label ?? name,
+    description: tool.description ?? "",
+    parameters: tool.parameters,
+    execute: async (toolCallId, params, onUpdate, _ctx, signal) => {
+      // pi-coding-agent signature differs from pi-agent-core
+      return await tool.execute(toolCallId, params, signal, onUpdate);
+    },
+  }));
+}
+\end{lstlisting}
+
+
+\subsubsection{Tool Split Strategy}
+
+
+\texttt{splitSdkTools()} passes all tools via \texttt{customTools}:
+
+\begin{lstlisting}[language=typescript]
+export function splitSdkTools(options: { tools: AnyAgentTool[]; sandboxEnabled: boolean }) {
+  return {
+    builtInTools: [], // Empty. We override everything
+    customTools: toToolDefinitions(options.tools),
+  };
+}
+\end{lstlisting}
+
+
+This ensures OpenClaw's policy filtering, sandbox integration, and extended toolset remain consistent across providers.
+
+\subsection{System Prompt Construction}
+
+
+The system prompt is built in \texttt{buildAgentSystemPrompt()} (\texttt{system-prompt.ts}). It assembles a full prompt with sections including Tooling, Tool Call Style, Safety guardrails, OpenClaw CLI reference, Skills, Docs, Workspace, Sandbox, Messaging, Reply Tags, Voice, Silent Replies, Heartbeats, Runtime metadata, plus Memory and Reactions when enabled, and optional context files and extra system prompt content. Sections are trimmed for minimal prompt mode used by subagents.
+
+The prompt is applied after session creation via \texttt{applySystemPromptOverrideToSession()}:
+
+\begin{lstlisting}[language=typescript]
+const systemPromptOverride = createSystemPromptOverride(appendPrompt);
+applySystemPromptOverrideToSession(session, systemPromptOverride);
+\end{lstlisting}
+
+
+\subsection{Session Management}
+
+
+\subsubsection{Session Files}
+
+
+Sessions are JSONL files with tree structure (id/parentId linking). Pi's \texttt{SessionManager} handles persistence:
+
+\begin{lstlisting}[language=typescript]
+const sessionManager = SessionManager.open(params.sessionFile);
+\end{lstlisting}
+
+
+OpenClaw wraps this with \texttt{guardSessionManager()} for tool result safety.
+
+\subsubsection{Session Caching}
+
+
+\texttt{session-manager-cache.ts} caches SessionManager instances to avoid repeated file parsing:
+
+\begin{lstlisting}[language=typescript]
+await prewarmSessionFile(params.sessionFile);
+sessionManager = SessionManager.open(params.sessionFile);
+trackSessionManagerAccess(params.sessionFile);
+\end{lstlisting}
+
+
+\subsubsection{History Limiting}
+
+
+\texttt{limitHistoryTurns()} trims conversation history based on channel type (DM vs group).
+
+\subsubsection{Compaction}
+
+
+Auto-compaction triggers on context overflow. \texttt{compactEmbeddedPiSessionDirect()} handles manual compaction:
+
+\begin{lstlisting}[language=typescript]
+const compactResult = await compactEmbeddedPiSessionDirect({
+  sessionId, sessionFile, provider, model, ...
+});
+\end{lstlisting}
+
+
+\subsection{Authentication \& Model Resolution}
+
+
+\subsubsection{Auth Profiles}
+
+
+OpenClaw maintains an auth profile store with multiple API keys per provider:
+
+\begin{lstlisting}[language=typescript]
+const authStore = ensureAuthProfileStore(agentDir, { allowKeychainPrompt: false });
+const profileOrder = resolveAuthProfileOrder({ cfg, store: authStore, provider, preferredProfile });
+\end{lstlisting}
+
+
+Profiles rotate on failures with cooldown tracking:
+
+\begin{lstlisting}[language=typescript]
+await markAuthProfileFailure({ store, profileId, reason, cfg, agentDir });
+const rotated = await advanceAuthProfile();
+\end{lstlisting}
+
+
+\subsubsection{Model Resolution}
+
+
+\begin{lstlisting}[language=typescript]
+import { resolveModel } from "./pi-embedded-runner/model.js";
+
+const { model, error, authStorage, modelRegistry } = resolveModel(
+  provider,
+  modelId,
+  agentDir,
+  config,
+);
+
+// Uses pi's ModelRegistry and AuthStorage
+authStorage.setRuntimeApiKey(model.provider, apiKeyInfo.apiKey);
+\end{lstlisting}
+
+
+\subsubsection{Failover}
+
+
+\texttt{FailoverError} triggers model fallback when configured:
+
+\begin{lstlisting}[language=typescript]
+if (fallbackConfigured && isFailoverErrorMessage(errorText)) {
+  throw new FailoverError(errorText, {
+    reason: promptFailoverReason ?? "unknown",
+    provider,
+    model: modelId,
+    profileId,
+    status: resolveFailoverStatus(promptFailoverReason),
+  });
+}
+\end{lstlisting}
+
+
+\subsection{Pi Extensions}
+
+
+OpenClaw loads custom pi extensions for specialized behavior:
+
+\subsubsection{Compaction Safeguard}
+
+
+\texttt{src/agents/pi-extensions/compaction-safeguard.ts} adds guardrails to compaction, including adaptive token budgeting plus tool failure and file operation summaries:
+
+\begin{lstlisting}[language=typescript]
+if (resolveCompactionMode(params.cfg) === "safeguard") {
+  setCompactionSafeguardRuntime(params.sessionManager, { maxHistoryShare });
+  paths.push(resolvePiExtensionPath("compaction-safeguard"));
+}
+\end{lstlisting}
+
+
+\subsubsection{Context Pruning}
+
+
+\texttt{src/agents/pi-extensions/context-pruning.ts} implements cache-TTL based context pruning:
+
+\begin{lstlisting}[language=typescript]
+if (cfg?.agents?.defaults?.contextPruning?.mode === "cache-ttl") {
+  setContextPruningRuntime(params.sessionManager, {
+    settings,
+    contextWindowTokens,
+    isToolPrunable,
+    lastCacheTouchAt,
+  });
+  paths.push(resolvePiExtensionPath("context-pruning"));
+}
+\end{lstlisting}
+
+
+\subsection{Streaming \& Block Replies}
+
+
+\subsubsection{Block Chunking}
+
+
+\texttt{EmbeddedBlockChunker} manages streaming text into discrete reply blocks:
+
+\begin{lstlisting}[language=typescript]
+const blockChunker = blockChunking ? new EmbeddedBlockChunker(blockChunking) : null;
+\end{lstlisting}
+
+
+\subsubsection{Thinking/Final Tag Stripping}
+
+
+Streaming output is processed to strip `\texttt{/}\texttt{ blocks and extract }` content:
+
+\begin{lstlisting}[language=typescript]
+const stripBlockTags = (text: string, state: { thinking: boolean; final: boolean }) => {
+  // Strip <think>...</think> content
+  // If enforceFinalTag, only return <final>...</final> content
+};
+\end{lstlisting}
+
+
+\subsubsection{Reply Directives}
+
+
+Reply directives like \texttt{[[media:url]]}, \texttt{[[voice]]}, \texttt{[[reply:id]]} are parsed and extracted:
+
+\begin{lstlisting}[language=typescript]
+const { text: cleanedText, mediaUrls, audioAsVoice, replyToId } = consumeReplyDirectives(chunk);
+\end{lstlisting}
+
+
+\subsection{Error Handling}
+
+
+\subsubsection{Error Classification}
+
+
+\texttt{pi-embedded-helpers.ts} classifies errors for appropriate handling:
+
+\begin{lstlisting}[language=typescript]
+isContextOverflowError(errorText)     // Context too large
+isCompactionFailureError(errorText)   // Compaction failed
+isAuthAssistantError(lastAssistant)   // Auth failure
+isRateLimitAssistantError(...)        // Rate limited
+isFailoverAssistantError(...)         // Should failover
+classifyFailoverReason(errorText)     // "auth" | "rate_limit" | "quota" | "timeout" | ...
+\end{lstlisting}
+
+
+\subsubsection{Thinking Level Fallback}
+
+
+If a thinking level is unsupported, it falls back:
+
+\begin{lstlisting}[language=typescript]
+const fallbackThinking = pickFallbackThinkingLevel({
+  message: errorText,
+  attempted: attemptedThinking,
+});
+if (fallbackThinking) {
+  thinkLevel = fallbackThinking;
+  continue;
+}
+\end{lstlisting}
+
+
+\subsection{Sandbox Integration}
+
+
+When sandbox mode is enabled, tools and paths are constrained:
+
+\begin{lstlisting}[language=typescript]
+const sandbox = await resolveSandboxContext({
+  config: params.config,
+  sessionKey: sandboxSessionKey,
+  workspaceDir: resolvedWorkspace,
+});
+
+if (sandboxRoot) {
+  // Use sandboxed read/edit/write tools
+  // Exec runs in container
+  // Browser uses bridge URL
+}
+\end{lstlisting}
+
+
+\subsection{Provider-Specific Handling}
+
+
+\subsubsection{Anthropic}
+
+
+\begin{itemize}
+  \item Refusal magic string scrubbing
+  \item Turn validation for consecutive roles
+  \item Claude Code parameter compatibility
+\end{itemize}
+
+
+\subsubsection{Google/Gemini}
+
+
+\begin{itemize}
+  \item Turn ordering fixes (\texttt{applyGoogleTurnOrderingFix})
+  \item Tool schema sanitization (\texttt{sanitizeToolsForGoogle})
+  \item Session history sanitization (\texttt{sanitizeSessionHistory})
+\end{itemize}
+
+
+\subsubsection{OpenAI}
+
+
+\begin{itemize}
+  \item \texttt{apply\_patch} tool for Codex models
+  \item Thinking level downgrade handling
+\end{itemize}
+
+
+\subsection{TUI Integration}
+
+
+OpenClaw also has a local TUI mode that uses pi-tui components directly:
+
+\begin{lstlisting}[language=typescript]
+// src/tui/tui.ts
+import { ... } from "@mariozechner/pi-tui";
+\end{lstlisting}
+
+
+This provides the interactive terminal experience similar to pi's native mode.
+
+\subsection{Key Differences from Pi CLI}
+
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|l|}
+\hline
+Aspect & Pi CLI & OpenClaw Embedded \\
+\hline
+Invocation & \texttt{pi} command / RPC & SDK via \texttt{createAgentSession()} \\
+\hline
+Tools & Default coding tools & Custom OpenClaw tool suite \\
+\hline
+System prompt & AGENTS.md + prompts & Dynamic per-channel/context \\
+\hline
+Session storage & \texttt{\textasciitilde{}/.pi/agent/sessions/} & \texttt{\textasciitilde{}/.openclaw/agents//sessions/} (or \texttt{\$OPENCLAW\_STATE\_DIR/agents//sessions/}) \\
+\hline
+Auth & Single credential & Multi-profile with rotation \\
+\hline
+Extensions & Loaded from disk & Programmatic + disk paths \\
+\hline
+Event handling & TUI rendering & Callback-based (onBlockReply, etc.) \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\subsection{Future Considerations}
+
+
+Areas for potential rework:
+
+\begin{enumerate}
+  \item \textbf{Tool signature alignment}: Currently adapting between pi-agent-core and pi-coding-agent signatures
+  \item \textbf{Session manager wrapping}: \texttt{guardSessionManager} adds safety but increases complexity
+  \item \textbf{Extension loading}: Could use pi's \texttt{ResourceLoader} more directly
+  \item \textbf{Streaming handler complexity}: \texttt{subscribeEmbeddedPiSession} has grown large
+  \item \textbf{Provider quirks}: Many provider-specific codepaths that pi could potentially handle
+\end{enumerate}
+
+
+\subsection{Tests}
+
+
+Pi integration coverage spans these suites:
+
+\begin{itemize}
+  \item \texttt{src/agents/pi-*.test.ts}
+  \item \texttt{src/agents/pi-auth-json.test.ts}
+  \item \texttt{src/agents/pi-embedded-*.test.ts}
+  \item \texttt{src/agents/pi-embedded-helpers*.test.ts}
+  \item \texttt{src/agents/pi-embedded-runner*.test.ts}
+  \item \texttt{src/agents/pi-embedded-runner/**/*.test.ts}
+  \item \texttt{src/agents/pi-embedded-subscribe*.test.ts}
+  \item \texttt{src/agents/pi-tools*.test.ts}
+  \item \texttt{src/agents/pi-tool-definition-adapter*.test.ts}
+  \item \texttt{src/agents/pi-settings.test.ts}
+  \item \texttt{src/agents/pi-extensions/**/*.test.ts}
+\end{itemize}
+
+
+Live/opt-in:
+
+\begin{itemize}
+  \item \texttt{src/agents/pi-embedded-runner-extraparams.live.test.ts} (enable \texttt{OPENCLAW\_LIVE\_TEST=1})
+\end{itemize}
+
+
+For current run commands, see \href{/pi-dev}{Pi Development Workflow}.
+
+
+\clearpage
+
+% === Source file: prose.md ===
+\section{OpenProse}
+
+
+OpenProse is a portable, markdown-first workflow format for orchestrating AI sessions. In OpenClaw it ships as a plugin that installs an OpenProse skill pack plus a \texttt{/prose} slash command. Programs live in \texttt{.prose} files and can spawn multiple sub-agents with explicit control flow.
+
+Official site: \href{https://www.prose.md}{https://www.prose.md}
+
+\subsection{What it can do}
+
+
+\begin{itemize}
+  \item Multi-agent research + synthesis with explicit parallelism.
+  \item Repeatable approval-safe workflows (code review, incident triage, content pipelines).
+  \item Reusable \texttt{.prose} programs you can run across supported agent runtimes.
+\end{itemize}
+
+
+\subsection{Install + enable}
+
+
+Bundled plugins are disabled by default. Enable OpenProse:
+
+\begin{lstlisting}[language=bash]
+openclaw plugins enable open-prose
+\end{lstlisting}
+
+
+Restart the Gateway after enabling the plugin.
+
+Dev/local checkout: \texttt{openclaw plugins install ./extensions/open-prose}
+
+Related docs: \href{/tools/plugin}{Plugins}, \href{/plugins/manifest}{Plugin manifest}, \href{/tools/skills}{Skills}.
+
+\subsection{Slash command}
+
+
+OpenProse registers \texttt{/prose} as a user-invocable skill command. It routes to the OpenProse VM instructions and uses OpenClaw tools under the hood.
+
+Common commands:
+
+\begin{lstlisting}
+/prose help
+/prose run <file.prose>
+/prose run <handle/slug>
+/prose run <https://example.com/file.prose>
+/prose compile <file.prose>
+/prose examples
+/prose update
+\end{lstlisting}
+
+
+\subsection{Example: a simple .prose file}
+
+
+\begin{lstlisting}
+# Research + synthesis with two agents running in parallel.
+
+input topic: "What should we research?"
+
+agent researcher:
+  model: sonnet
+  prompt: "You research thoroughly and cite sources."
+
+agent writer:
+  model: opus
+  prompt: "You write a concise summary."
+
+parallel:
+  findings = session: researcher
+    prompt: "Research {topic}."
+  draft = session: writer
+    prompt: "Summarize {topic}."
+
+session "Merge the findings + draft into a final answer."
+context: { findings, draft }
+\end{lstlisting}
+
+
+\subsection{File locations}
+
+
+OpenProse keeps state under \texttt{.prose/} in your workspace:
+
+\begin{lstlisting}
+.prose/
+├── .env
+├── runs/
+│   └── {YYYYMMDD}-{HHMMSS}-{random}/
+│       ├── program.prose
+│       ├── state.md
+│       ├── bindings/
+│       └── agents/
+└── agents/
+\end{lstlisting}
+
+
+User-level persistent agents live at:
+
+\begin{lstlisting}
+~/.prose/agents/
+\end{lstlisting}
+
+
+\subsection{State modes}
+
+
+OpenProse supports multiple state backends:
+
+\begin{itemize}
+  \item \textbf{filesystem} (default): \texttt{.prose/runs/...}
+  \item \textbf{in-context}: transient, for small programs
+  \item \textbf{sqlite} (experimental): requires \texttt{sqlite3} binary
+  \item \textbf{postgres} (experimental): requires \texttt{psql} and a connection string
+\end{itemize}
+
+
+Notes:
+
+\begin{itemize}
+  \item sqlite/postgres are opt-in and experimental.
+  \item postgres credentials flow into subagent logs; use a dedicated, least-privileged DB.
+\end{itemize}
+
+
+\subsection{Remote programs}
+
+
+\texttt{/prose run } resolves to \texttt{https://p.prose.md//}.
+Direct URLs are fetched as-is. This uses the \texttt{web\_fetch} tool (or \texttt{exec} for POST).
+
+\subsection{OpenClaw runtime mapping}
+
+
+OpenProse programs map to OpenClaw primitives:
+
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{|l|l|}
+\hline
+OpenProse concept & OpenClaw tool \\
+\hline
+Spawn session / Task tool & \texttt{sessions\_spawn} \\
+\hline
+File read/write & \texttt{read} / \texttt{write} \\
+\hline
+Web fetch & \texttt{web\_fetch} \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+If your tool allowlist blocks these tools, OpenProse programs will fail. See \href{/tools/skills-config}{Skills config}.
+
+\subsection{Security + approvals}
+
+
+Treat \texttt{.prose} files like code. Review before running. Use OpenClaw tool allowlists and approval gates to control side effects.
+
+For deterministic, approval-gated workflows, compare with \href{/tools/lobster}{Lobster}.
+
+
+\clearpage
+
+% === Source file: tts.md ===
+\section{Text-to-speech (TTS)}
+
+
+OpenClaw can convert outbound replies into audio using ElevenLabs, OpenAI, or Edge TTS.
+It works anywhere OpenClaw can send audio; Telegram gets a round voice-note bubble.
+
+\subsection{Supported services}
+
+
+\begin{itemize}
+  \item \textbf{ElevenLabs} (primary or fallback provider)
+  \item \textbf{OpenAI} (primary or fallback provider; also used for summaries)
+  \item \textbf{Edge TTS} (primary or fallback provider; uses \texttt{node-edge-tts}, default when no API keys)
+\end{itemize}
+
+
+\subsubsection{Edge TTS notes}
+
+
+Edge TTS uses Microsoft Edge's online neural TTS service via the \texttt{node-edge-tts}
+library. It's a hosted service (not local), uses Microsoft’s endpoints, and does
+not require an API key. \texttt{node-edge-tts} exposes speech configuration options and
+output formats, but not all options are supported by the Edge service. citeturn2search0
+
+Because Edge TTS is a public web service without a published SLA or quota, treat it
+as best-effort. If you need guaranteed limits and support, use OpenAI or ElevenLabs.
+Microsoft's Speech REST API documents a 10‑minute audio limit per request; Edge TTS
+does not publish limits, so assume similar or lower limits. citeturn0search3
+
+\subsection{Optional keys}
+
+
+If you want OpenAI or ElevenLabs:
+
+\begin{itemize}
+  \item \texttt{ELEVENLABS\_API\_KEY} (or \texttt{XI\_API\_KEY})
+  \item \texttt{OPENAI\_API\_KEY}
+\end{itemize}
+
+
+Edge TTS does \textbf{not} require an API key. If no API keys are found, OpenClaw defaults
+to Edge TTS (unless disabled via \texttt{messages.tts.edge.enabled=false}).
+
+If multiple providers are configured, the selected provider is used first and the others are fallback options.
+Auto-summary uses the configured \texttt{summaryModel} (or \texttt{agents.defaults.model.primary}),
+so that provider must also be authenticated if you enable summaries.
+
+\subsection{Service links}
+
+
+\begin{itemize}
+  \item \href{https://platform.openai.com/docs/guides/text-to-speech}{OpenAI Text-to-Speech guide}
+  \item \href{https://platform.openai.com/docs/api-reference/audio}{OpenAI Audio API reference}
+  \item \href{https://elevenlabs.io/docs/api-reference/text-to-speech}{ElevenLabs Text to Speech}
+  \item \href{https://elevenlabs.io/docs/api-reference/authentication}{ElevenLabs Authentication}
+  \item \href{https://github.com/SchneeHertz/node-edge-tts}{node-edge-tts}
+  \item \href{https://learn.microsoft.com/azure/ai-services/speech-service/rest-text-to-speech\#audio-outputs}{Microsoft Speech output formats}
+\end{itemize}
+
+
+\subsection{Is it enabled by default?}
+
+
+No. Auto‑TTS is \textbf{off} by default. Enable it in config with
+\texttt{messages.tts.auto} or per session with \texttt{/tts always} (alias: \texttt{/tts on}).
+
+Edge TTS \textbf{is} enabled by default once TTS is on, and is used automatically
+when no OpenAI or ElevenLabs API keys are available.
+
+\subsection{Config}
+
+
+TTS config lives under \texttt{messages.tts} in \texttt{openclaw.json}.
+Full schema is in \href{/gateway/configuration}{Gateway configuration}.
+
+\subsubsection{Minimal config (enable + provider)}
+
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      auto: "always",
+      provider: "elevenlabs",
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{OpenAI primary with ElevenLabs fallback}
+
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      auto: "always",
+      provider: "openai",
+      summaryModel: "openai/gpt-4.1-mini",
+      modelOverrides: {
+        enabled: true,
+      },
+      openai: {
+        apiKey: "openai_api_key",
+        model: "gpt-4o-mini-tts",
+        voice: "alloy",
+      },
+      elevenlabs: {
+        apiKey: "elevenlabs_api_key",
+        baseUrl: "https://api.elevenlabs.io",
+        voiceId: "voice_id",
+        modelId: "eleven_multilingual_v2",
+        seed: 42,
+        applyTextNormalization: "auto",
+        languageCode: "en",
+        voiceSettings: {
+          stability: 0.5,
+          similarityBoost: 0.75,
+          style: 0.0,
+          useSpeakerBoost: true,
+          speed: 1.0,
+        },
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Edge TTS primary (no API key)}
+
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      auto: "always",
+      provider: "edge",
+      edge: {
+        enabled: true,
+        voice: "en-US-MichelleNeural",
+        lang: "en-US",
+        outputFormat: "audio-24khz-48kbitrate-mono-mp3",
+        rate: "+10%",
+        pitch: "-5%",
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Disable Edge TTS}
+
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      edge: {
+        enabled: false,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Custom limits + prefs path}
+
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      auto: "always",
+      maxTextLength: 4000,
+      timeoutMs: 30000,
+      prefsPath: "~/.openclaw/settings/tts.json",
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Only reply with audio after an inbound voice note}
+
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      auto: "inbound",
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsubsection{Disable auto-summary for long replies}
+
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      auto: "always",
+    },
+  },
+}
+\end{lstlisting}
+
+
+Then run:
+
+\begin{lstlisting}
+/tts summary off
+\end{lstlisting}
+
+
+\subsubsection{Notes on fields}
+
+
+\begin{itemize}
+  \item \texttt{auto}: auto‑TTS mode (\texttt{off}, \texttt{always}, \texttt{inbound}, \texttt{tagged}).
+  \item \texttt{inbound} only sends audio after an inbound voice note.
+  \item \texttt{tagged} only sends audio when the reply includes \texttt{[[tts]]} tags.
+  \item \texttt{enabled}: legacy toggle (doctor migrates this to \texttt{auto}).
+  \item \texttt{mode}: \texttt{"final"} (default) or \texttt{"all"} (includes tool/block replies).
+  \item \texttt{provider}: \texttt{"elevenlabs"}, \texttt{"openai"}, or \texttt{"edge"} (fallback is automatic).
+  \item If \texttt{provider} is \textbf{unset}, OpenClaw prefers \texttt{openai} (if key), then \texttt{elevenlabs} (if key),
+\end{itemize}
+
+otherwise \texttt{edge}.
+\begin{itemize}
+  \item \texttt{summaryModel}: optional cheap model for auto-summary; defaults to \texttt{agents.defaults.model.primary}.
+  \item Accepts \texttt{provider/model} or a configured model alias.
+  \item \texttt{modelOverrides}: allow the model to emit TTS directives (on by default).
+  \item \texttt{allowProvider} defaults to \texttt{false} (provider switching is opt-in).
+  \item \texttt{maxTextLength}: hard cap for TTS input (chars). \texttt{/tts audio} fails if exceeded.
+  \item \texttt{timeoutMs}: request timeout (ms).
+  \item \texttt{prefsPath}: override the local prefs JSON path (provider/limit/summary).
+  \item \texttt{apiKey} values fall back to env vars (\texttt{ELEVENLABS\_API\_KEY}/\texttt{XI\_API\_KEY}, \texttt{OPENAI\_API\_KEY}).
+  \item \texttt{elevenlabs.baseUrl}: override ElevenLabs API base URL.
+  \item \texttt{elevenlabs.voiceSettings}:
+  \item \texttt{stability}, \texttt{similarityBoost}, \texttt{style}: \texttt{0..1}
+  \item \texttt{useSpeakerBoost}: \texttt{true|false}
+  \item \texttt{speed}: \texttt{0.5..2.0} (1.0 = normal)
+  \item \texttt{elevenlabs.applyTextNormalization}: \texttt{auto|on|off}
+  \item \texttt{elevenlabs.languageCode}: 2-letter ISO 639-1 (e.g. \texttt{en}, \texttt{de})
+  \item \texttt{elevenlabs.seed}: integer \texttt{0..4294967295} (best-effort determinism)
+  \item \texttt{edge.enabled}: allow Edge TTS usage (default \texttt{true}; no API key).
+  \item \texttt{edge.voice}: Edge neural voice name (e.g. \texttt{en-US-MichelleNeural}).
+  \item \texttt{edge.lang}: language code (e.g. \texttt{en-US}).
+  \item \texttt{edge.outputFormat}: Edge output format (e.g. \texttt{audio-24khz-48kbitrate-mono-mp3}).
+  \item See Microsoft Speech output formats for valid values; not all formats are supported by Edge.
+  \item \texttt{edge.rate} / \texttt{edge.pitch} / \texttt{edge.volume}: percent strings (e.g. \texttt{+10\%}, \texttt{-5\%}).
+  \item \texttt{edge.saveSubtitles}: write JSON subtitles alongside the audio file.
+  \item \texttt{edge.proxy}: proxy URL for Edge TTS requests.
+  \item \texttt{edge.timeoutMs}: request timeout override (ms).
+\end{itemize}
+
+
+\subsection{Model-driven overrides (default on)}
+
+
+By default, the model \textbf{can} emit TTS directives for a single reply.
+When \texttt{messages.tts.auto} is \texttt{tagged}, these directives are required to trigger audio.
+
+When enabled, the model can emit \texttt{[[tts:...]]} directives to override the voice
+for a single reply, plus an optional \texttt{[[tts:text]]...[[/tts:text]]} block to
+provide expressive tags (laughter, singing cues, etc) that should only appear in
+the audio.
+
+\texttt{provider=...} directives are ignored unless \texttt{modelOverrides.allowProvider: true}.
+
+Example reply payload:
+
+\begin{lstlisting}
+Here you go.
+
+[[tts:voiceId=pMsXgVXv3BLzUgSXRplE model=eleven_v3 speed=1.1]]
+[[tts:text]](laughs) Read the song once more.[[/tts:text]]
+\end{lstlisting}
+
+
+Available directive keys (when enabled):
+
+\begin{itemize}
+  \item \texttt{provider} (\texttt{openai} | \texttt{elevenlabs} | \texttt{edge}, requires \texttt{allowProvider: true})
+  \item \texttt{voice} (OpenAI voice) or \texttt{voiceId} (ElevenLabs)
+  \item \texttt{model} (OpenAI TTS model or ElevenLabs model id)
+  \item \texttt{stability}, \texttt{similarityBoost}, \texttt{style}, \texttt{speed}, \texttt{useSpeakerBoost}
+  \item \texttt{applyTextNormalization} (\texttt{auto|on|off})
+  \item \texttt{languageCode} (ISO 639-1)
+  \item \texttt{seed}
+\end{itemize}
+
+
+Disable all model overrides:
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      modelOverrides: {
+        enabled: false,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+Optional allowlist (enable provider switching while keeping other knobs configurable):
+
+\begin{lstlisting}[language=json]
+{
+  messages: {
+    tts: {
+      modelOverrides: {
+        enabled: true,
+        allowProvider: true,
+        allowSeed: false,
+      },
+    },
+  },
+}
+\end{lstlisting}
+
+
+\subsection{Per-user preferences}
+
+
+Slash commands write local overrides to \texttt{prefsPath} (default:
+\texttt{\textasciitilde{}/.openclaw/settings/tts.json}, override with \texttt{OPENCLAW\_TTS\_PREFS} or
+\texttt{messages.tts.prefsPath}).
+
+Stored fields:
+
+\begin{itemize}
+  \item \texttt{enabled}
+  \item \texttt{provider}
+  \item \texttt{maxLength} (summary threshold; default 1500 chars)
+  \item \texttt{summarize} (default \texttt{true})
+\end{itemize}
+
+
+These override \texttt{messages.tts.*} for that host.
+
+\subsection{Output formats (fixed)}
+
+
+\begin{itemize}
+  \item \textbf{Telegram}: Opus voice note (\texttt{opus\_48000\_64} from ElevenLabs, \texttt{opus} from OpenAI).
+  \item 48kHz / 64kbps is a good voice-note tradeoff and required for the round bubble.
+  \item \textbf{Other channels}: MP3 (\texttt{mp3\_44100\_128} from ElevenLabs, \texttt{mp3} from OpenAI).
+  \item 44.1kHz / 128kbps is the default balance for speech clarity.
+  \item \textbf{Edge TTS}: uses \texttt{edge.outputFormat} (default \texttt{audio-24khz-48kbitrate-mono-mp3}).
+  \item \texttt{node-edge-tts} accepts an \texttt{outputFormat}, but not all formats are available
+\end{itemize}
+
+from the Edge service. citeturn2search0
+\begin{itemize}
+  \item Output format values follow Microsoft Speech output formats (including Ogg/WebM Opus). citeturn1search0
+  \item Telegram \texttt{sendVoice} accepts OGG/MP3/M4A; use OpenAI/ElevenLabs if you need
+\end{itemize}
+
+guaranteed Opus voice notes. citeturn1search1
+\begin{itemize}
+  \item If the configured Edge output format fails, OpenClaw retries with MP3.
+\end{itemize}
+
+
+OpenAI/ElevenLabs formats are fixed; Telegram expects Opus for voice-note UX.
+
+\subsection{Auto-TTS behavior}
+
+
+When enabled, OpenClaw:
+
+\begin{itemize}
+  \item skips TTS if the reply already contains media or a \texttt{MEDIA:} directive.
+  \item skips very short replies (< 10 chars).
+  \item summarizes long replies when enabled using \texttt{agents.defaults.model.primary} (or \texttt{summaryModel}).
+  \item attaches the generated audio to the reply.
+\end{itemize}
+
+
+If the reply exceeds \texttt{maxLength} and summary is off (or no API key for the
+summary model), audio
+is skipped and the normal text reply is sent.
+
+\subsection{Flow diagram}
+
+
+\begin{lstlisting}
+Reply -> TTS enabled?
+  no  -> send text
+  yes -> has media / MEDIA: / short?
+          yes -> send text
+          no  -> length > limit?
+                   no  -> TTS -> attach audio
+                   yes -> summary enabled?
+                            no  -> send text
+                            yes -> summarize (summaryModel or agents.defaults.model.primary)
+                                      -> TTS -> attach audio
+\end{lstlisting}
+
+
+\subsection{Slash command usage}
+
+
+There is a single command: \texttt{/tts}.
+See \href{/tools/slash-commands}{Slash commands} for enablement details.
+
+Discord note: \texttt{/tts} is a built-in Discord command, so OpenClaw registers
+\texttt{/voice} as the native command there. Text \texttt{/tts ...} still works.
+
+\begin{lstlisting}
+/tts off
+/tts always
+/tts inbound
+/tts tagged
+/tts status
+/tts provider openai
+/tts limit 2000
+/tts summary off
+/tts audio Hello from OpenClaw
+\end{lstlisting}
+
+
+Notes:
+
+\begin{itemize}
+  \item Commands require an authorized sender (allowlist/owner rules still apply).
+  \item \texttt{commands.text} or native command registration must be enabled.
+  \item \texttt{off|always|inbound|tagged} are per‑session toggles (\texttt{/tts on} is an alias for \texttt{/tts always}).
+  \item \texttt{limit} and \texttt{summary} are stored in local prefs, not the main config.
+  \item \texttt{/tts audio} generates a one-off audio reply (does not toggle TTS on).
+\end{itemize}
+
+
+\subsection{Agent tool}
+
+
+The \texttt{tts} tool converts text to speech and returns a \texttt{MEDIA:} path. When the
+result is Telegram-compatible, the tool includes \texttt{[[audio\_as\_voice]]} so
+Telegram sends a voice bubble.
+
+\subsection{Gateway RPC}
+
+
+Gateway methods:
+
+\begin{itemize}
+  \item \texttt{tts.status}
+  \item \texttt{tts.enable}
+  \item \texttt{tts.disable}
+  \item \texttt{tts.convert}
+  \item \texttt{tts.setProvider}
+  \item \texttt{tts.providers}
+\end{itemize}
+
+
+
+\clearpage
+
+% === Source file: vps.md ===
+\section{VPS hosting}
+
+
+This hub links to the supported VPS/hosting guides and explains how cloud
+deployments work at a high level.
+
+\subsection{Pick a provider}
+
+
+\begin{itemize}
+  \item \textbf{Railway} (one‑click + browser setup): \href{/install/railway}{Railway}
+  \item \textbf{Northflank} (one‑click + browser setup): \href{/install/northflank}{Northflank}
+  \item \textbf{Oracle Cloud (Always Free)}: \href{/platforms/oracle}{Oracle} — \$0/month (Always Free, ARM; capacity/signup can be finicky)
+  \item \textbf{Fly.io}: \href{/install/fly}{Fly.io}
+  \item \textbf{Hetzner (Docker)}: \href{/install/hetzner}{Hetzner}
+  \item \textbf{GCP (Compute Engine)}: \href{/install/gcp}{GCP}
+  \item \textbf{exe.dev} (VM + HTTPS proxy): \href{/install/exe-dev}{exe.dev}
+  \item \textbf{AWS (EC2/Lightsail/free tier)}: works well too. Video guide:
+\end{itemize}
+
+\href{https://x.com/techfrenAJ/status/2014934471095812547}{https://x.com/techfrenAJ/status/2014934471095812547}
+
+\subsection{How cloud setups work}
+
+
+\begin{itemize}
+  \item The \textbf{Gateway runs on the VPS} and owns state + workspace.
+  \item You connect from your laptop/phone via the \textbf{Control UI} or \textbf{Tailscale/SSH}.
+  \item Treat the VPS as the source of truth and \textbf{back up} the state + workspace.
+  \item Secure default: keep the Gateway on loopback and access it via SSH tunnel or Tailscale Serve.
+\end{itemize}
+
+If you bind to \texttt{lan}/\texttt{tailnet}, require \texttt{gateway.auth.token} or \texttt{gateway.auth.password}.
+
+Remote access: \href{/gateway/remote}{Gateway remote}
+Platforms hub: \href{/platforms}{Platforms}
+
+\subsection{Shared company agent on a VPS}
+
+
+This is a valid setup when the users are in one trust boundary (for example one company team), and the agent is business-only.
+
+\begin{itemize}
+  \item Keep it on a dedicated runtime (VPS/VM/container + dedicated OS user/accounts).
+  \item Do not sign that runtime into personal Apple/Google accounts or personal browser/password-manager profiles.
+  \item If users are adversarial to each other, split by gateway/host/OS user.
+\end{itemize}
+
+
+Security model details: \href{/gateway/security}{Security}
+
+\subsection{Using nodes with a VPS}
+
+
+You can keep the Gateway in the cloud and pair \textbf{nodes} on your local devices
+(Mac/iOS/Android/headless). Nodes provide local screen/camera/canvas and \texttt{system.run}
+capabilities while the Gateway stays in the cloud.
+
+Docs: \href{/nodes}{Nodes}, \href{/cli/nodes}{Nodes CLI}
+
+\subsection{Startup tuning for small VMs and ARM hosts}
+
+
+If CLI commands feel slow on low-power VMs (or ARM hosts), enable Node's module compile cache:
+
+\begin{lstlisting}[language=bash]
+grep -q 'NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache' ~/.bashrc || cat >> ~/.bashrc <<'EOF'
+export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
+mkdir -p /var/tmp/openclaw-compile-cache
+export OPENCLAW_NO_RESPAWN=1
+EOF
+source ~/.bashrc
+\end{lstlisting}
+
+
+\begin{itemize}
+  \item \texttt{NODE\_COMPILE\_CACHE} improves repeated command startup times.
+  \item \texttt{OPENCLAW\_NO\_RESPAWN=1} avoids extra startup overhead from a self-respawn path.
+  \item First command run warms cache; subsequent runs are faster.
+  \item For Raspberry Pi specifics, see \href{/platforms/raspberry-pi}{Raspberry Pi}.
+\end{itemize}
+
+
+\subsubsection{systemd tuning checklist (optional)}
+
+
+For VM hosts using \texttt{systemd}, consider:
+
+\begin{itemize}
+  \item Add service env for stable startup path:
+  \item \texttt{OPENCLAW\_NO\_RESPAWN=1}
+  \item \texttt{NODE\_COMPILE\_CACHE=/var/tmp/openclaw-compile-cache}
+  \item Keep restart behavior explicit:
+  \item \texttt{Restart=always}
+  \item \texttt{RestartSec=2}
+  \item \texttt{TimeoutStartSec=90}
+  \item Prefer SSD-backed disks for state/cache paths to reduce random-I/O cold-start penalties.
+\end{itemize}
+
+
+Example:
+
+\begin{lstlisting}[language=bash]
+sudo systemctl edit openclaw
+\end{lstlisting}
+
+
+\begin{lstlisting}
+[Service]
+Environment=OPENCLAW_NO_RESPAWN=1
+Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
+Restart=always
+RestartSec=2
+TimeoutStartSec=90
+\end{lstlisting}
+
+
+How \texttt{Restart=} policies help automated recovery:
+\href{https://www.redhat.com/en/blog/systemd-automate-recovery}{systemd can automate service recovery}.
+
+
+\clearpage
