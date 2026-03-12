@@ -1,5 +1,11 @@
 \chapter{Session（会话）}
 
+\vspace{0.5em}
+\noindent\textit{上一章我们了解了 Binding 如何将消息路由到正确的 Agent。本章将讲解 Session（会话）——
+用户与智能体之间一次连续对话的容器。我们将了解会话的生命周期、分组策略、
+重置机制以及跨渠道身份统一。}
+\vspace{0.5em}
+
 \section{概述}
 
 Session（会话）是用户与智能体之间一次连续对话的容器，包含上下文历史、令牌计数和路由元数据。
@@ -98,3 +104,17 @@ openclaw sessions --json             # Export all sessions
 /compact                             # In chat: compact context
 /stop                                # In chat: abort current run
 \end{lstlisting}
+
+\section{本章小结}
+
+本章介绍了 Session 会话管理的核心机制：
+
+\begin{itemize}
+  \item Session 是用户与智能体之间\textbf{一次连续对话的容器}，由 Gateway 统一管理
+  \item \textbf{dmScope} 控制私信分组策略，从共享主会话到按发送者隔离
+  \item 支持\textbf{每日重置}和\textbf{空闲重置}两种自动重置策略
+  \item \texttt{identityLinks} 实现跨渠道身份统一
+\end{itemize}
+
+\noindent 到目前为止，我们已经掌握了 OpenClaw 的基础架构（Gateway、Agent、Channel、Binding、Session）。
+接下来我们将进入\textbf{扩展能力}的篇章——下一章讲解 Plugin（插件），看看如何为 OpenClaw 添加新能力。

@@ -1,5 +1,11 @@
 \chapter{Sandbox（沙箱隔离）}
 
+\vspace{0.5em}
+\noindent\textit{上一章我们了解了 Memory 如何让智能体拥有持久记忆。但智能体执行的 Shell 命令、文件操作等
+可能带来安全风险。本章将介绍 Sandbox（沙箱）隔离机制——通过 Docker 容器将工具执行限制在受控环境中，
+确保智能体操作的安全性。}
+\vspace{0.5em}
+
 \section{概述}
 
 OpenClaw 可以\textbf{在 Docker 容器内运行工具}以减少影响范围。沙箱隔离是\textbf{可选的}，由配置控制。Gateway 网关本身保留在主机上，仅工具执行在容器中隔离运行。
@@ -160,3 +166,17 @@ scripts/sandbox-browser-setup.sh
 \begin{lstlisting}[language=bash]
 openclaw sandbox explain  # Check effective sandbox config
 \end{lstlisting}
+
+\section{本章小结}
+
+本章介绍了 Sandbox 沙箱隔离的核心机制：
+
+\begin{itemize}
+  \item Sandbox 通过 \textbf{Docker 容器}将工具执行限制在受控环境中
+  \item 支持 \textbf{off、non-main、all} 三种模式，及 \textbf{session、agent、shared} 三种作用域
+  \item \textbf{Gateway 本身不被沙箱隔离}，仅工具执行在容器中运行
+  \item 支持自定义挂载、初始化命令、多智能体独立覆盖
+\end{itemize}
+
+\noindent 至此，OpenClaw 的十大核心概念已经全部介绍完毕。下一章我们将进入\textbf{实战环节}——
+在腾讯轻量云服务器上从零部署 OpenClaw，将全书所学知识付诸实践。

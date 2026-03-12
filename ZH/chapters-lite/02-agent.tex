@@ -1,5 +1,11 @@
 \chapter{Agent（智能体）}
 
+\vspace{0.5em}
+\noindent\textit{上一章我们了解了 Gateway 网关如何接收和调度消息。本章将深入 Gateway 背后的“大脑”——Agent（智能体）。
+Agent 是真正理解用户意图、调用大模型、执行工具的执行单元。我们将了解单智能体和多智能体模式，
+以及智能体工作区和超时机制。}
+\vspace{0.5em}
+
 \section{概述}
 
 Agent（智能体）是 OpenClaw 中一个完全独立作用域的"大脑"，拥有自己的：
@@ -96,3 +102,15 @@ openclaw agent --agent ops --message "Summarize logs"
 # List agents
 openclaw agents list --bindings
 \end{lstlisting}
+
+\section{本章小结}
+
+本章介绍了 Agent 智能体的核心概念：
+
+\begin{itemize}
+  \item Agent 是 OpenClaw 中\textbf{独立作用域}的"大脑"，拥有自己的工作区、会话和认证
+  \item 支持\textbf{单智能体}和\textbf{多智能体}两种模式，多智能体间完全隔离
+  \item 工作区文件（AGENTS.md、SOUL.md、USER.md）定义了智能体的人设和行为
+\end{itemize}
+
+\noindent Agent 已经能思考和执行了，但它如何接收来自不同聊天平台的消息？下一章我们将讲解 Channel（渠道）——连接外部世界的桥梁。

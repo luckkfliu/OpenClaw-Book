@@ -1,5 +1,11 @@
 \chapter{Plugin（插件）}
 
+\vspace{0.5em}
+\noindent\textit{前几章我们了解了 OpenClaw 的基础架构（Gateway、Agent、Channel、Binding、Session）。
+本章开始进入扩展能力的篇章。Plugin（插件）是 OpenClaw 的扩展模块，
+能注册新工具、新渠道、生命周期钩子等，是 OpenClaw 实现高度可扩展性的关键。}
+\vspace{0.5em}
+
 \section{概述}
 
 Plugin（插件）是 OpenClaw 的扩展模块，可以注册：
@@ -130,3 +136,16 @@ export default function (api) {
   \item \textbf{Voice Call}：\texttt{openclaw plugins install @openclaw/voice-call}
   \item \textbf{Zalo}：\texttt{openclaw plugins install @openclaw/zalouser}
 \end{itemize}
+
+\section{本章小结}
+
+本章介绍了 Plugin 插件的核心机制：
+
+\begin{itemize}
+  \item Plugin 是 OpenClaw 的\textbf{扩展模块}，可注册工具、渠道、钩子和记忆提供者
+  \item 通过 \texttt{openclaw.plugin.json} 清单声明插件能力
+  \item 提供丰富的\textbf{生命周期钩子}，可在消息、工具调用、会话等关键节点进行拦截
+  \item 社区插件生态丰富，支持 npm 安装
+\end{itemize}
+
+\noindent 插件提供了底层的扩展能力，而更上层的“教智能体做事”的能力则由 Skill（技能）提供。下一章我们将深入了解 Skill 的工作机制。

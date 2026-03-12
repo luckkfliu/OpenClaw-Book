@@ -1,94 +1,772 @@
 \chapter{Gateway（网关核心）}
 
+\noindent\textit{上一章我们从宏观视角了解了 OpenClaw 的整体架构和五大核心组件。本章将深入第一个核心组件——Gateway 网关，
+它是 OpenClaw 的“中枢神经系统”，负责消息路由、会话管理和智能体运行时调度。
+理解 Gateway 是掌握 OpenClaw 工作流程的关键。}
+%----------------------------------------------------------------------
 \section{概述}
+%----------------------------------------------------------------------
 
-Gateway 网关是 OpenClaw 的核心进程，承担以下职责：
+Gateway 网关是 OpenClaw 的\textbf{核心进程}，是整个系统的"中央控制塔"。
+正如机场需要空中管制中心来调度每一架航班的起降，Gateway 负责协调所有消息的流入、处理和回传。
+它以单进程方式运行，提供统一的 WebSocket + HTTP 多路复用端口，是 OpenClaw 中唯一拥有会话状态权威性的组件。
 
-\begin{itemize}
-  \item \textbf{消息路由}：接收各渠道入站消息，路由到正确的 Agent
-  \item \textbf{会话管理}：维护所有会话状态（唯一事实来源）
-  \item \textbf{智能体运行时}：内嵌 pi-agent-core，执行智能体循环
-  \item \textbf{RPC 服务}：对外提供 WebSocket/HTTP API
-  \item \textbf{插件宿主}：加载并运行所有已注册插件
-\end{itemize}
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    client/.style={draw=cyan!60, fill=cyan!8, rounded corners=4pt,
+        minimum width=2.2cm, minimum height=0.8cm, align=center},
+    gw/.style={draw=orange!60, fill=orange!10, rounded corners=8pt,
+        minimum width=4cm, minimum height=3.6cm, align=center},
+    service/.style={draw=purple!50, fill=purple!5, rounded corners=4pt,
+        minimum width=2.2cm, minimum height=0.8cm, align=center},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=gray!50}
+]
+    % Left: Clients
+    \node[client] (cli) at (-5, 2) {CLI 终端};
+    \node[client] (mac) at (-5, 0.6) {macOS 应用};
+    \node[client] (web) at (-5, -0.8) {WebChat};
+    \node[client] (node) at (-5, -2.2) {iOS/Android\\节点};
 
-配置路径：\texttt{gateway.*}
+    % Center: Gateway
+    \node[gw] (gw) at (0, 0) {};
+    \node[font=\bfseries] at (0, 1.2) {Gateway 网关};
+    \node[font=\scriptsize, align=center] at (0, 0.2) {消息路由\\会话管理\\智能体运行时\\RPC 服务\\插件宿主\\定时任务};
 
+    % Right: Services
+    \node[service] (agent) at (5, 2) {Agent 智能体};
+    \node[service] (llm) at (5, 0.6) {LLM 模型};
+    \node[service] (tools) at (5, -0.8) {Tools 工具};
+    \node[service] (mem) at (5, -2.2) {Memory 记忆};
+
+    % Arrows
+    \foreach \src in {cli, mac, web, node} {
+        \draw[arr, <->] (\src) -- (gw);
+    }
+    \foreach \dst in {agent, llm, tools, mem} {
+        \draw[arr, <->] (gw) -- (\dst);
+    }
+
+    % Labels
+    \node[font=\scriptsize\itshape, text=gray] at (-2.5, 2.6) {WebSocket};
+    \node[font=\scriptsize\itshape, text=gray] at (2.5, 2.6) {内部调度};
+\end{tikzpicture}
+\end{center}
+
+Gateway 承担六大核心职责：
+
+\begin{enumerate}
+  \item \textbf{消息路由}：接收各渠道入站消息，根据 Binding 规则路由到正确的 Agent
+  \item \textbf{会话管理}：维护所有会话状态（唯一事实来源），包括上下文、Token 计数、压缩历史
+  \item \textbf{智能体运行时}：内嵌 pi-agent-core，执行完整的智能体推理--执行循环
+  \item \textbf{RPC 服务}：对外提供 WebSocket + HTTP 双协议 API，支持 CLI、Web UI、移动节点接入
+  \item \textbf{插件宿主}：加载并运行所有已注册插件，扩展 Gateway 的能力边界
+  \item \textbf{定时任务}：内置 Cron 调度器，支持定时唤醒、周期性检查等自动化场景
+\end{enumerate}
+
+\noindent 配置路径：\texttt{gateway.*}（位于 \texttt{\textasciitilde{}/.openclaw/openclaw.json}）
+
+%----------------------------------------------------------------------
+\section{Gateway 在架构中的位置}
+%----------------------------------------------------------------------
+
+Gateway 处于三层架构的\textbf{中间层}，是连接上层 LLM 和下层 Channels 的桥梁。
+所有数据流都必须经过 Gateway 才能抵达目的地。
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    layer/.style={draw, rounded corners=6pt, minimum width=12cm, minimum height=1.2cm, align=center},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=gray!50}
+]
+    % Layers
+    \node[layer, draw=purple!60, fill=purple!8] (llm) at (0, 3) {
+        \textbf{LLM 大模型层}：Claude \quad GPT \quad DeepSeek \quad 本地模型
+    };
+    \node[layer, draw=orange!60, fill=orange!15, line width=1.5pt] (gw) at (0, 1.2) {
+        \textbf{Gateway 网关层}：消息路由 \quad 会话管理 \quad Agent 运行时 \quad RPC \quad Cron
+    };
+    \node[layer, draw=cyan!60, fill=cyan!8] (ch) at (0, -0.6) {
+        \textbf{Channels 渠道层}：Telegram \quad WhatsApp \quad Discord \quad 飞书 \quad Slack
+    };
+    \node[layer, draw=green!60, fill=green!8] (user) at (0, -2.4) {
+        \textbf{终端用户}：CLI \quad macOS 应用 \quad WebChat \quad iOS/Android 节点
+    };
+
+    % Arrows (bidirectional)
+    \draw[arr, <->] ([yshift=-2pt]llm.south) -- ([yshift=2pt]gw.north);
+    \draw[arr, <->] ([yshift=-2pt]gw.south) -- ([yshift=2pt]ch.north);
+    \draw[arr, <->] ([yshift=-2pt]ch.south) -- ([yshift=2pt]user.north);
+
+    % Highlight box
+    \draw[red!50, dashed, thick, rounded corners=8pt]
+        (-6.5, 0.3) rectangle (6.5, 2.1);
+    \node[font=\scriptsize\itshape, text=red!60] at (5.5, 2.3) {本章重点};
+\end{tikzpicture}
+\end{center}
+
+\noindent \textbf{关键原则}：Gateway 是所有会话状态的\textbf{唯一事实来源}（Single Source of Truth）。
+无论是 CLI 客户端、macOS 应用还是 WebChat，都必须通过 Gateway 查询会话状态，不能各自维护独立的状态副本。
+
+%----------------------------------------------------------------------
 \section{启动方式}
+%----------------------------------------------------------------------
+
+Gateway 支持两种主要的启动方式：前台运行（开发/调试）和守护进程模式（生产部署）。
 
 \subsection{前台运行}
+
+直接在终端启动 Gateway，适合开发和调试：
 
 \begin{lstlisting}[language=bash]
 openclaw gateway --port 18789
 \end{lstlisting}
 
-\subsection{守护进程模式}
+常用的启动选项：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{选项} & \textbf{默认值} & \textbf{说明} \\
+\midrule
+\texttt{--port} & \texttt{18789} & WebSocket + HTTP 多路复用端口 \\
+\texttt{--dev} & --- & 开发模式，启用额外的调试日志 \\
+\texttt{--verbose} & --- & 详细日志输出 \\
+\texttt{--compact} & --- & 紧凑的 WebSocket 日志样式 \\
+\texttt{--force} & --- & 强制启动，杀死端口上已有的监听器 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent 端口优先级：\texttt{--port} 参数 $>$ \texttt{OPENCLAW\_GATEWAY\_PORT} 环境变量 $>$ 配置文件 \texttt{gateway.port} $>$ 默认值 \texttt{18789}。
+
+\subsection{守护进程模式（推荐生产使用）}
+
+将 Gateway 安装为操作系统的守护进程服务，实现开机自启和异常自动重启：
 
 \begin{lstlisting}[language=bash]
-openclaw daemon install   # Install systemd/launchd service
-openclaw daemon start     # Start the daemon
-openclaw daemon status    # Check status
+openclaw gateway install   # Install systemd/launchd/schtasks service
+openclaw gateway start     # Start the daemon
+openclaw gateway status    # Check status
+openclaw gateway restart   # Restart the daemon
+openclaw gateway stop      # Stop the daemon
+openclaw gateway uninstall # Remove the service
 \end{lstlisting}
-
-\section{智能体循环（Agent Loop）}
-
-每条入站消息触发一次完整的智能体循环：
 
 \begin{center}
 \begin{tikzpicture}[
-    node distance=0.6cm,
-    agentstep/.style={draw=teal!60, fill=teal!8, rounded corners=4pt, minimum width=12cm, minimum height=0.7cm, font=\small, align=left},
-    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=teal!60}
+    every node/.style={font=\small},
+    os/.style={draw=blue!50, fill=blue!5, rounded corners=4pt,
+        minimum width=3.2cm, minimum height=1.4cm, align=center},
+    arr/.style={-{Stealth[length=2mm]}, draw=gray!50}
 ]
-    \node[agentstep] (s1) {1. 接收入站消息，验证参数，解析会话};
-    \node[agentstep, below=of s1] (s2) {2. 路由到目标 Agent，加载 Skills 快照};
-    \node[agentstep, below=of s2] (s3) {3. 组装系统提示（基础提示 + Skills 提示 + 引导上下文）};
-    \node[agentstep, below=of s3] (s4) {4. 调用模型推理，流式输出助手回复};
-    \node[agentstep, below=of s4] (s5) {5. 执行工具调用（可能在沙箱中）};
-    \node[agentstep, below=of s5] (s6) {6. 持久化会话，发送回复到渠道};
+    \node[os] (mac) at (0, 0) {\textbf{macOS}\\launchd\\LaunchAgents};
+    \node[os] (linux) at (4.5, 0) {\textbf{Linux}\\systemd\\用户服务};
+    \node[os] (win) at (9, 0) {\textbf{Windows}\\WSL2 + systemd\\(推荐)};
+
+    \node[draw=orange!60, fill=orange!10, rounded corners=6pt,
+        minimum width=10cm, minimum height=0.8cm, align=center, font=\bfseries]
+        (unified) at (4.5, -2) {统一的 \texttt{openclaw gateway install/start/stop} 命令};
+
+    \draw[arr] (mac.south) -- (unified);
+    \draw[arr] (linux.south) -- (unified);
+    \draw[arr] (win.south) -- (unified);
+\end{tikzpicture}
+\end{center}
+
+\noindent 各平台的服务配置路径：
+
+\begin{itemize}
+  \item \textbf{macOS}：\texttt{\textasciitilde{}/Library/LaunchAgents/bot.molt.gateway.plist}
+  \item \textbf{Linux}：\texttt{\textasciitilde{}/.config/systemd/user/openclaw-gateway.service}
+  \item \textbf{Windows}：推荐使用 WSL2，按 Linux 方式安装
+\end{itemize}
+
+Linux 下还需启用 lingering，以确保用户登出后服务仍然存活：
+
+\begin{lstlisting}[language=bash]
+sudo loginctl enable-linger $USER
+\end{lstlisting}
+
+%----------------------------------------------------------------------
+\section{智能体循环（Agent Loop）}
+%----------------------------------------------------------------------
+
+Gateway 的核心工作是处理\textbf{智能体循环}——每条入站消息都会触发一次完整的推理--执行循环。
+这是 OpenClaw 区别于简单聊天机器人的关键所在：它不仅能回复文本，还能调用工具并执行实际操作。
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.55cm,
+    agentstep/.style={draw=teal!60, fill=teal!8, rounded corners=4pt,
+        minimum width=12.5cm, minimum height=0.8cm, font=\small, align=left},
+    toolstep/.style={draw=orange!60, fill=orange!8, rounded corners=4pt,
+        minimum width=12.5cm, minimum height=0.8cm, font=\small, align=left},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=teal!60},
+    arrt/.style={-{Stealth[length=2.5mm]}, thick, draw=orange!60}
+]
+    \node[agentstep] (s1) {\quad 1. \textbf{接收消息}：验证来源、解析会话键、检查速率限制};
+    \node[agentstep, below=of s1] (s2) {\quad 2. \textbf{路由决策}：根据 Binding 规则匹配目标 Agent};
+    \node[agentstep, below=of s2] (s3) {\quad 3. \textbf{加载上下文}：读取会话历史、Skills 快照、Memory 检索结果};
+    \node[agentstep, below=of s3] (s4) {\quad 4. \textbf{组装提示}：基础提示 + Skills 提示 + 引导上下文 + 用户消息};
+    \node[agentstep, below=of s4] (s5) {\quad 5. \textbf{调用模型}：发送到 LLM，流式接收助手回复};
+    \node[toolstep, below=of s5] (s6) {\quad 6. \textbf{工具调用}：解析工具请求，在沙箱或宿主机上执行};
+    \node[toolstep, below=of s6] (s7) {\quad 7. \textbf{结果反馈}：将工具输出注入上下文，回到步骤 5 继续推理};
+    \node[agentstep, below=of s7] (s8) {\quad 8. \textbf{完成收尾}：持久化会话、更新 Token 计数、回传渠道};
 
     \draw[arr] (s1) -- (s2);
     \draw[arr] (s2) -- (s3);
     \draw[arr] (s3) -- (s4);
     \draw[arr] (s4) -- (s5);
     \draw[arr] (s5) -- (s6);
+    \draw[arrt] (s6) -- (s7);
+    \draw[arrt] (s7.west) -- ++(-0.5,0) |- node[left, font=\scriptsize\itshape, text=orange!60, pos=0.25]{循环} (s5.west);
+    \draw[arr] (s7) -- (s8);
 \end{tikzpicture}
 \end{center}
 
-\section{RPC 接口}
-
-Gateway 网关通过 WebSocket 和 HTTP 暴露 RPC 接口：
+\noindent \textbf{重要特性}：
 
 \begin{itemize}
-  \item \texttt{agent} / \texttt{agent.wait}：触发智能体运行
-  \item \texttt{sessions.list}：列出会话
-  \item \texttt{voicecall.*}：语音通话（插件）
-  \item \texttt{message.send}：发送消息到渠道
+  \item 步骤 5--7 构成\textbf{工具调用循环}：模型可以连续调用多个工具，直到得出最终回复
+  \item 流式输出：模型回复以流式方式实时推送给客户端，用户无需等待完整回复
+  \item 并发控制：同一会话内的多条消息会按序处理，避免上下文冲突
+  \item 工具调用支持在 Docker 沙箱中执行高风险操作（如 Shell 命令）
 \end{itemize}
 
-示例（通过 CLI 调用 RPC）：
+%----------------------------------------------------------------------
+\section{WebSocket 协议}
+%----------------------------------------------------------------------
+
+Gateway 使用自定义的 WebSocket 协议作为\textbf{唯一的控制平面和数据传输通道}。
+所有客户端（CLI、macOS 应用、WebChat、iOS/Android 节点）都通过这个协议与 Gateway 通信。
+
+\subsection{三种帧类型}
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    frametype/.style={draw, rounded corners=6pt,
+        minimum width=3.6cm, minimum height=2cm, align=center},
+]
+    \node[frametype, draw=blue!60, fill=blue!8] (req) at (0, 0) {
+        \textbf{Request}\\[4pt]
+        {\scriptsize\texttt{type: "req"}}\\
+        {\scriptsize\texttt{id, method, params}}\\[2pt]
+        {\scriptsize 客户端 $\to$ Gateway}
+    };
+    \node[frametype, draw=green!60, fill=green!8] (res) at (5, 0) {
+        \textbf{Response}\\[4pt]
+        {\scriptsize\texttt{type: "res"}}\\
+        {\scriptsize\texttt{id, ok, payload|error}}\\[2pt]
+        {\scriptsize Gateway $\to$ 客户端}
+    };
+    \node[frametype, draw=orange!60, fill=orange!8] (evt) at (10, 0) {
+        \textbf{Event}\\[4pt]
+        {\scriptsize\texttt{type: "event"}}\\
+        {\scriptsize\texttt{event, payload, seq}}\\[2pt]
+        {\scriptsize Gateway 主动推送}
+    };
+\end{tikzpicture}
+\end{center}
+
+\subsection{连接生命周期}
+
+客户端连接到 Gateway 后，必须首先发送 \texttt{connect} 请求完成握手：
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\scriptsize},
+    msg/.style={-{Stealth[length=2mm]}, thick},
+]
+    % Lifelines
+    \node[font=\small\bfseries] (cname) at (0, 5.5) {Client};
+    \node[font=\small\bfseries] (gname) at (8, 5.5) {Gateway};
+    \draw[thick, gray!40] (0, 5.2) -- (0, -2.2);
+    \draw[thick, gray!40] (8, 5.2) -- (8, -2.2);
+
+    % Messages
+    \draw[msg, draw=blue!60] (0, 4.5) -- node[above]{1. \texttt{req: connect}} (8, 4.5);
+    \draw[msg, draw=green!60] (8, 3.8) -- node[above]{2. \texttt{res: hello-ok} (snapshot)} (0, 3.8);
+    \draw[msg, draw=orange!60] (8, 3.0) -- node[above]{3. \texttt{event: tick}} (0, 3.0);
+    \draw[msg, draw=orange!60] (8, 2.3) -- node[above]{4. \texttt{event: presence}} (0, 2.3);
+    \draw[msg, draw=blue!60] (0, 1.3) -- node[above]{5. \texttt{req: agent} (用户消息)} (8, 1.3);
+    \draw[msg, draw=green!60] (8, 0.6) -- node[above]{6. \texttt{res: agent} (accepted)} (0, 0.6);
+    \draw[msg, draw=orange!60] (8, -0.1) -- node[above]{7. \texttt{event: agent} (流式回复)} (0, -0.1);
+    \draw[msg, draw=orange!60] (8, -0.6) -- node[above]{8. \texttt{event: agent} (流式回复)} (0, -0.6);
+    \draw[msg, draw=green!60] (8, -1.4) -- node[above]{9. \texttt{res: agent} (最终结果)} (0, -1.4);
+\end{tikzpicture}
+\end{center}
+
+\noindent \textbf{关键点}：
+
+\begin{itemize}
+  \item 第一帧\textbf{必须}是 \texttt{connect} 请求，否则连接被拒绝
+  \item \texttt{hello-ok} 响应携带 snapshot（presence 列表、健康状态、协议版本等）
+  \item \texttt{agent} 方法采用\textbf{两阶段响应}：首先返回 \texttt{accepted} 确认，流式推送中间结果，最终返回完整结果
+  \item Gateway 定期发送 \texttt{tick} 事件作为心跳，客户端可据此检测连接活性
+\end{itemize}
+
+%----------------------------------------------------------------------
+\section{RPC 接口}
+%----------------------------------------------------------------------
+
+Gateway 通过 WebSocket 和 HTTP 暴露丰富的 RPC 接口，涵盖从健康检查到智能体调用的各个方面：
+
+\begin{center}
+\small
+\begin{tabular}{llp{5.5cm}}
+\toprule
+\textbf{类别} & \textbf{方法} & \textbf{说明} \\
+\midrule
+核心 & \texttt{connect} & 必须是第一帧，完成握手 \\
+     & \texttt{health} & 完整健康快照 \\
+     & \texttt{status} & 简短状态摘要 \\
+\midrule
+智能体 & \texttt{agent} / \texttt{agent.wait} & 触发智能体运行（流式/等待模式） \\
+       & \texttt{chat.send} & WebChat 专用发送 \\
+       & \texttt{chat.abort} & 中止当前智能体运行 \\
+\midrule
+会话 & \texttt{sessions.list} & 列出所有会话 \\
+     & \texttt{sessions.patch} & 修改会话属性 \\
+     & \texttt{sessions.delete} & 删除会话 \\
+     & \texttt{chat.history} & 获取聊天历史 \\
+\midrule
+消息 & \texttt{send} & 通过活跃渠道发送消息 \\
+     & \texttt{poll} & 轮询渠道消息 \\
+     & \texttt{message.send} & 发送消息到指定渠道 \\
+\midrule
+节点 & \texttt{node.list} & 列出已配对 + 在线节点 \\
+     & \texttt{node.invoke} & 调用节点上的命令 \\
+     & \texttt{node.pair.*} & 节点配对管理 \\
+\midrule
+系统 & \texttt{system-presence} & 当前在线列表 \\
+     & \texttt{logs.tail} & 实时日志尾随 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent 通过 CLI 调用 RPC 接口：
 
 \begin{lstlisting}[language=bash]
+# List sessions
 openclaw gateway call sessions.list --params '{}'
+
+# Check health
+openclaw gateway call health
+
+# Tail logs
+openclaw gateway call logs.tail --params '{"sinceMs": 60000}'
 \end{lstlisting}
 
+\noindent 有副作用的方法（如 \texttt{send}、\texttt{agent}）需要\textbf{幂等键}（\texttt{idempotencyKey}），
+Gateway 维护短期去重缓存以保证安全重试。
+
+%----------------------------------------------------------------------
+\section{会话管理与路由}
+%----------------------------------------------------------------------
+
+Gateway 是所有会话状态的\textbf{唯一事实来源}。每条入站消息都会被映射到一个唯一的\textbf{会话键}（Session Key），
+Gateway 据此管理上下文历史、Token 计数和压缩策略。
+
+\subsection{会话键格式}
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    box/.style={draw=blue!50, fill=blue!5, rounded corners=4pt,
+        minimum width=11cm, minimum height=0.7cm, align=left, font=\small\ttfamily},
+    lbl/.style={font=\small\bfseries, anchor=east},
+]
+    \node[lbl] at (-1.5, 2) {私信：};
+    \node[box] at (4.5, 2) {agent:<agentId>:<accountId>};
+
+    \node[lbl] at (-1.5, 1) {群组：};
+    \node[box] at (4.5, 1) {agent:<agentId>:<channel>:group:<groupId>};
+
+    \node[lbl] at (-1.5, 0) {频道：};
+    \node[box] at (4.5, 0) {agent:<agentId>:<channel>:channel:<channelId>};
+
+    \node[lbl] at (-1.5, -1) {线程：};
+    \node[box] at (4.5, -1) {agent:<agentId>:<channel>:channel:<id>:thread:<threadId>};
+\end{tikzpicture}
+\end{center}
+
+\subsection{消息路由规则}
+
+路由为每条入站消息选择\textbf{一个智能体}，按以下优先级匹配：
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    rule/.style={draw=blue!40, fill=blue!5, rounded corners=4pt,
+        minimum width=10cm, minimum height=0.7cm, align=left},
+    num/.style={circle, draw=orange!60, fill=orange!10, font=\small\bfseries,
+        minimum size=0.5cm, inner sep=0pt},
+    arr/.style={-{Stealth[length=2mm]}, draw=gray!40}
+]
+    \node[num] (n1) at (0, 0) {1};
+    \node[rule, right=0.3cm of n1] (r1) {\textbf{精确对端匹配}：Binding 中的 \texttt{peer.kind + peer.id}};
+
+    \node[num] (n2) at (0, -1) {2};
+    \node[rule, right=0.3cm of n2] (r2) {\textbf{Guild 匹配}（Discord）：通过 \texttt{guildId} 路由};
+
+    \node[num] (n3) at (0, -2) {3};
+    \node[rule, right=0.3cm of n3] (r3) {\textbf{渠道默认 Agent}：配置中指定的默认智能体};
+
+    \node[num] (n4) at (0, -3) {4};
+    \node[rule, right=0.3cm of n4] (r4) {\textbf{全局默认 Agent}：\texttt{agents.defaults} 中的配置};
+
+    \draw[arr] (r1.south west) ++(0, -0.1) -- ++(0, -0.15);
+    \draw[arr] (r2.south west) ++(0, -0.1) -- ++(0, -0.15);
+    \draw[arr] (r3.south west) ++(0, -0.1) -- ++(0, -0.15);
+\end{tikzpicture}
+\end{center}
+
+\subsection{私信作用域}
+
+通过 \texttt{session.dmScope} 控制私信的会话隔离策略：
+
+\begin{center}
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{模式} & \textbf{行为} \\
+\midrule
+\texttt{main}（默认） & 所有私信共享主会话，保持对话连续性 \\
+\texttt{per-peer} & 跨渠道按发送者 ID 隔离 \\
+\texttt{per-channel-peer} & 按渠道 + 发送者隔离（推荐多用户场景） \\
+\texttt{per-account-channel-peer} & 按账户 + 渠道 + 发送者隔离（多账户收件箱） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{会话存储}
+
+每个会话在 \texttt{sessions.json} 中维护一条记录，关键字段包括：
+
+\begin{itemize}
+  \item \texttt{sessionId}：唯一标识符
+  \item \texttt{chatType}：\texttt{direct | group | room}
+  \item Token 计数器：\texttt{inputTokens}、\texttt{outputTokens}、\texttt{totalTokens}、\texttt{contextTokens}
+  \item \texttt{compactionCount}：自动压缩次数
+  \item 模型选择：支持按会话覆盖提供商、模型和认证配置
+\end{itemize}
+
+\noindent 对话记录存储为 JSONL 格式（每行一条消息），路径由 \texttt{sessionId} 派生。
+
+%----------------------------------------------------------------------
+\section{后台任务与进程管理}
+%----------------------------------------------------------------------
+
+Gateway 内置了强大的后台进程管理能力，通过 \texttt{exec} 和 \texttt{process} 工具
+支持长时间运行的任务：
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    phase/.style={draw=teal!60, fill=teal!8, rounded corners=4pt,
+        minimum width=3.2cm, minimum height=1.6cm, align=center},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=gray!50}
+]
+    \node[phase] (fg) at (0, 0) {\textbf{前台执行}\\[2pt]{\scriptsize 直接返回输出}\\{\scriptsize 适合快速命令}};
+    \node[phase] (yield) at (5, 0) {\textbf{自动转后台}\\[2pt]{\scriptsize 超过 yieldMs}\\{\scriptsize 返回 sessionId}};
+    \node[phase] (bg) at (10, 0) {\textbf{后台运行}\\[2pt]{\scriptsize 输出保存在内存}\\{\scriptsize 通过 poll 查询}};
+
+    \draw[arr] (fg) -- node[above, font=\scriptsize\itshape]{10s 超时} (yield);
+    \draw[arr] (yield) -- node[above, font=\scriptsize\itshape]{继续运行} (bg);
+\end{tikzpicture}
+\end{center}
+
+\noindent 关键配置项：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{配置} & \textbf{默认值} & \textbf{说明} \\
+\midrule
+\texttt{tools.exec.backgroundMs} & 10000 & 超过此时间自动转后台 \\
+\texttt{tools.exec.timeoutSec} & 1800 & 单任务最大执行时间 \\
+\texttt{tools.exec.cleanupMs} & 1800000 & 已完成任务的清理时间 \\
+\texttt{tools.exec.notifyOnExit} & true & 后台任务结束时通知 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent 后台进程管理操作：
+
+\begin{lstlisting}[language=bash]
+# List running/completed sessions
+openclaw gateway call process.list
+
+# Poll new output from a background task
+openclaw gateway call process.poll --params '{"sessionId": "<id>"}'
+
+# Send stdin to a background task
+openclaw gateway call process.write --params '{"sessionId": "<id>", "data": "y\n"}'
+
+# Kill a background task
+openclaw gateway call process.kill --params '{"sessionId": "<id>"}'
+\end{lstlisting}
+
+%----------------------------------------------------------------------
+\section{配置详解}
+%----------------------------------------------------------------------
+
+Gateway 的完整配置位于 \texttt{\textasciitilde{}/.openclaw/openclaw.json} 的 \texttt{gateway} 节点下。
+以下是一个典型配置示例：
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    mode: "local",
+    port: 18789,
+    bind: "loopback",
+    auth: {
+      mode: "token",
+      token: "your-secret-token",
+      rateLimit: {
+        maxAttempts: 10,
+        windowMs: 60000,
+        lockoutMs: 300000,
+        exemptLoopback: true
+      }
+    },
+    controlUi: {
+      enabled: true,
+      basePath: "/openclaw"
+    },
+    tailscale: {
+      mode: "off"
+    }
+  }
+}
+\end{lstlisting}
+
+\noindent 关键配置说明：
+
+\begin{center}
+\small
+\begin{tabular}{llp{5cm}}
+\toprule
+\textbf{字段} & \textbf{可选值} & \textbf{说明} \\
+\midrule
+\texttt{mode} & \texttt{local} / \texttt{remote} & \texttt{local} 运行 Gateway，\texttt{remote} 连接远程 Gateway \\
+\texttt{bind} & \texttt{loopback / lan / tailnet / custom} & 网络绑定模式，默认仅本地回环 \\
+\texttt{auth.mode} & \texttt{none / token / password} & 认证方式 \\
+\texttt{controlUi.enabled} & \texttt{true / false} & 是否启用 Web 控制台 \\
+\texttt{tailscale.mode} & \texttt{off / serve / funnel} & Tailscale 集成模式 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{配置热重载}
+
+Gateway 监视配置文件变更并自动应用：
+
+\begin{itemize}
+  \item \textbf{hybrid}（默认）：安全更改热应用，关键更改触发重启
+  \item \textbf{full}：所有更改都触发重启
+  \item \textbf{off}：禁用热重载
+\end{itemize}
+
+\subsection{远程模式}
+
+客户端机器可以配置为\texttt{remote}模式，连接到远程 Gateway：
+
+\begin{lstlisting}[language=json]
+{
+  gateway: {
+    mode: "remote",
+    remote: {
+      url: "ws://gateway.tailnet:18789",
+      transport: "ssh",
+      token: "your-token"
+    }
+  }
+}
+\end{lstlisting}
+
+%----------------------------------------------------------------------
 \section{认证}
+%----------------------------------------------------------------------
+
+Gateway 支持多种认证方式来保护 API 访问和模型调用。
+
+\subsection{Gateway 访问认证}
+
+控制谁可以连接到 Gateway 的 WebSocket 端口：
+
+\begin{itemize}
+  \item \textbf{Token 认证}（推荐）：在 \texttt{gateway.auth.token} 中设置密钥，客户端在 \texttt{connect} 时提供
+  \item \textbf{密码认证}：使用 \texttt{gateway.auth.password} 或环境变量 \texttt{OPENCLAW\_GATEWAY\_PASSWORD}
+  \item \textbf{无认证}：仅适用于完全信任的本地环境
+  \item \textbf{速率限制}：内置暴力破解防护，默认 60 秒内最多 10 次尝试
+\end{itemize}
+
+\subsection{模型认证}
 
 推荐使用 \textbf{Anthropic API 密钥}：
 
 \begin{lstlisting}[language=bash]
+# Set API key as environment variable
 export ANTHROPIC_API_KEY="..."
-# Or store in daemon env file:
+
+# Or store in daemon env file for persistence
 echo 'ANTHROPIC_API_KEY=...' >> ~/.openclaw/.env
+
+# Verify authentication status
+openclaw models status
 \end{lstlisting}
 
-也支持 OAuth 和 setup-token 流程。使用 \texttt{openclaw models status} 验证认证状态。
+\noindent 也支持 \texttt{claude setup-token} 的订阅认证流程和 OAuth 模式。
 
-\section{常用运维命令}
+\subsection{设备配对}
+
+Gateway 使用基于设备的配对机制管理节点访问：
+
+\begin{itemize}
+  \item 新设备首次连接时需要配对审批
+  \item 本地连接（loopback）可自动批准
+  \item 审批后颁发设备令牌，存储在 \texttt{paired.json} 中
+  \item 令牌轮换需要重新审批
+\end{itemize}
+
+%----------------------------------------------------------------------
+\section{Gateway 锁与多实例}
+%----------------------------------------------------------------------
+
+Gateway 采用\textbf{独占 TCP 监听器}机制确保同一端口只运行一个实例：
+
+\begin{itemize}
+  \item 启动时立即绑定 WebSocket 端口，如果端口被占用则快速失败
+  \item 操作系统在进程退出（包括崩溃和 SIGKILL）时自动释放监听器
+  \item 无需额外的锁文件或清理步骤
+\end{itemize}
+
+\noindent 如果需要在同一台机器上运行多个 Gateway 实例（例如救援机器人），
+需使用隔离的配置文件和唯一端口：
 
 \begin{lstlisting}[language=bash]
-openclaw doctor            # Health check
-openclaw status            # Show storage paths & recent sessions
-openclaw models status     # Check model auth
-openclaw gateway --port N  # Start with custom port
+OPENCLAW_CONFIG_PATH=~/.openclaw/rescue.json \
+OPENCLAW_STATE_DIR=~/.openclaw-rescue \
+  openclaw gateway --port 18790
 \end{lstlisting}
+
+%----------------------------------------------------------------------
+\section{健康检查与运维}
+%----------------------------------------------------------------------
+
+\texttt{openclaw doctor} 是 Gateway 的一站式诊断和修复工具，涵盖 19 项检查：
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\scriptsize},
+    check/.style={draw=green!50, fill=green!5, rounded corners=3pt,
+        minimum width=5cm, minimum height=0.55cm, align=left},
+]
+    \node[check] (c1) at (0, 0) {\quad 模型认证状态检查};
+    \node[check] (c2) at (0, -0.7) {\quad Gateway 网关健康检查};
+    \node[check] (c3) at (0, -1.4) {\quad 渠道连接状态探测};
+    \node[check] (c4) at (0, -2.1) {\quad 服务配置审计与修复};
+    \node[check] (c5) at (0, -2.8) {\quad 端口冲突检测};
+
+    \node[check] (c6) at (6.5, 0) {\quad 沙箱 Docker 镜像检查};
+    \node[check] (c7) at (6.5, -0.7) {\quad Skills 状态汇总};
+    \node[check] (c8) at (6.5, -1.4) {\quad 遗留服务迁移清理};
+    \node[check] (c9) at (6.5, -2.1) {\quad 安全配置警告};
+    \node[check] (c10) at (6.5, -2.8) {\quad 工作区备份建议};
+\end{tikzpicture}
+\end{center}
+
+\noindent 常用运维命令：
+
+\begin{lstlisting}[language=bash]
+# One-stop health check and repair
+openclaw doctor
+
+# Auto-accept default fixes (headless/automation)
+openclaw doctor --yes
+
+# Apply recommended repairs without prompts
+openclaw doctor --repair
+
+# Deep scan for extra gateway services
+openclaw doctor --deep
+
+# Check model auth
+openclaw models status
+
+# Show storage paths and recent sessions
+openclaw status
+
+# Gateway health probe
+openclaw gateway health
+
+# Gateway detailed status
+openclaw gateway status
+
+# Debug everything (remote + local probe)
+openclaw gateway probe
+
+# Tail gateway logs in real-time
+openclaw logs --follow
+\end{lstlisting}
+
+%----------------------------------------------------------------------
+\section{设备发现（Bonjour / mDNS）}
+%----------------------------------------------------------------------
+
+Gateway 使用 Bonjour（mDNS / DNS-SD）作为局域网内的便捷发现方式，
+让 macOS 应用和 iOS/Android 节点能够自动找到 Gateway 服务：
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    device/.style={draw=cyan!60, fill=cyan!8, rounded corners=4pt,
+        minimum width=2cm, minimum height=0.8cm, align=center},
+    gw/.style={draw=orange!60, fill=orange!10, rounded corners=6pt,
+        minimum width=3cm, minimum height=1.2cm, align=center, font=\bfseries},
+    wave/.style={draw=orange!40, dashed, thick}
+]
+    \node[gw] (gw) at (0, 0) {Gateway\\{\scriptsize \_openclaw-gw.\_tcp}};
+
+    \node[device] (d1) at (-4, 2) {macOS 应用};
+    \node[device] (d2) at (0, 2.5) {iOS 节点};
+    \node[device] (d3) at (4, 2) {Android 节点};
+
+    % Broadcast waves
+    \draw[wave] (0, 0.7) ellipse (2.5cm and 0.4cm);
+    \draw[wave] (0, 0.9) ellipse (3.5cm and 0.6cm);
+    \draw[wave] (0, 1.1) ellipse (4.5cm and 0.8cm);
+
+    \node[font=\scriptsize\itshape, text=gray] at (5.5, 1.1) {mDNS 广播};
+\end{tikzpicture}
+\end{center}
+
+\noindent mDNS 发现的三种模式：
+
+\begin{itemize}
+  \item \texttt{minimal}（默认）：仅广播基本信息
+  \item \texttt{full}：包含 \texttt{cliPath} + \texttt{sshPort} 等详细信息
+  \item \texttt{off}：完全禁用 mDNS 广播
+\end{itemize}
+
+\noindent 对于跨网络场景（节点与 Gateway 不在同一局域网），可使用 Tailscale 的广域 DNS-SD
+实现相同的发现体验。
+
+%----------------------------------------------------------------------
+\section{本章小结}
+%----------------------------------------------------------------------
+
+本章详细介绍了 Gateway 网关的核心职责和运作机制：
+
+\begin{itemize}
+  \item Gateway 是 OpenClaw 的\textbf{中央调度中心}，承担消息路由、会话管理、智能体运行时、RPC 服务、插件宿主和定时任务六大核心职责
+  \item 每条入站消息触发一次完整的\textbf{智能体循环}（Agent Loop），支持多轮工具调用
+  \item Gateway 使用自定义的 \textbf{WebSocket 协议}，采用 Request/Response/Event 三帧模型通信
+  \item 会话管理遵循\textbf{唯一事实来源}原则，支持灵活的路由规则和隔离策略
+  \item 支持\textbf{前台运行}和\textbf{守护进程}两种模式，以及跨平台的服务管理
+  \item 内置丰富的\textbf{健康检查}和诊断工具，确保系统稳定运行
+\end{itemize}
+
+\noindent Gateway 已经跑起来了，但它调度的"大脑"是谁？下一章我们将深入了解 \textbf{Agent（智能体）}——OpenClaw 的思考和执行单元，了解它如何与 LLM 交互并完成复杂任务。

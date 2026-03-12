@@ -1,5 +1,11 @@
 \chapter{实战：腾讯轻量云服务器部署与使用 OpenClaw}
 
+\vspace{0.5em}
+\noindent\textit{前九章我们系统学习了 OpenClaw 的十大核心概念：Gateway、Agent、Channel、Binding、Session、Plugin、Skill、Memory 和 Sandbox。
+本章将全部知识付诸实践——在腾讯轻量云服务器上从零开始部署 OpenClaw，完成 API 配置、Agent 管理、
+渠道接入等全流程操作。所有命令和输出均来自真实环境，读者可直接参考复现。}
+\vspace{0.5em}
+
 \begin{quote}
 本章基于\textbf{腾讯轻量应用服务器}的实际操作记录，从零开始完成 OpenClaw 的部署、API 配置、Agent 管理，并通过 \texttt{openclaw tui} 交互模式展示日常使用方法。所有命令和输出均来自真实环境，读者可直接参考复现。
 \end{quote}
@@ -1587,7 +1593,6 @@ curl -s https://api.moonshot.cn/v1/models \
   "import sys,json; [print(m['id']) for m in \
   json.load(sys.stdin).get('data',[])]"
 \end{lstlisting}
-\end{lstlisting}
 
 \textbf{DeepSeek 实际模型 ID}：
 
@@ -1728,3 +1733,17 @@ Feishu: ok     # <- 飞书连接正常
 \begin{quote}
 \textbf{提示}：飞书渠道需要在飞书开放平台创建应用，获取 \texttt{appId} 和 \texttt{appSecret}。\texttt{groupPolicy: "open"} 表示允许所有群聊触发 Agent，\texttt{dmPolicy: "open"} 表示允许所有私聊触发。生产环境建议配置 \texttt{allowFrom} 白名单限制访问。
 \end{quote}
+
+\section{本章小结}
+
+本章通过一个完整的实战案例，展示了在腾讯轻量云服务器上从零部署 OpenClaw 的全过程：
+
+\begin{itemize}
+  \item 从服务器环境准备、Node.js 安装到 OpenClaw 部署
+  \item API 密钥配置、模型认证、守护进程设置
+  \item 通过 TUI 交互模式体验 Agent 的完整能力
+  \item 飞书渠道接入与配置
+\end{itemize}
+
+\noindent 至此，本书已经完整覆盖了 OpenClaw 的核心概念与实战操作。希望这份指南能帮助你快速上手 OpenClaw，
+打造属于自己的个人 AI 智能体。

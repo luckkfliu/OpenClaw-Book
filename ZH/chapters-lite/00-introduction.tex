@@ -1,0 +1,548 @@
+\chapter{OpenClaw 简介}
+
+\begin{quote}
+\textit{"去壳！去壳！"} — 大概是一只太空龙虾说的
+\end{quote}
+
+\noindent\textit{本章将带你全面了解 OpenClaw 项目——它是什么、从哪里来、与传统聊天机器人有何本质区别，
+以及其核心设计理念、三层架构和五大组件。读完本章后，你将对 OpenClaw 的定位、架构和能力有清晰的认知，
+为后续深入学习各个组件打下坚实基础。}
+
+\section{OpenClaw 是什么}
+
+OpenClaw 是一款开源的个人 AI 智能体（Personal AI Agent），在 GitHub 上拥有超过 300 万颗星标，
+支持 Windows、macOS、Linux 及云服务器多平台部署。
+
+\vspace{-0.5em}
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    feat/.style={draw=blue!50, fill=blue!5, rounded corners=4pt,
+        minimum width=3.8cm, minimum height=0.7cm, align=center},
+]
+    \node[feat] (f1) at (0, 0) {\textbf{本地优先}\\所有数据本地存储};
+    \node[feat] (f2) at (5, 0) {\textbf{系统级执行}\\Shell / 文件 / 浏览器};
+    \node[feat] (f3) at (0, -1.6) {\textbf{全渠道交互}\\WhatsApp / Telegram / 飞书};
+    \node[feat] (f4) at (5, -1.6) {\textbf{自我进化}\\Skills 热装载 + 自主迭代};
+\end{tikzpicture}
+\end{center}
+
+\noindent \textbf{本质定义}：OpenClaw 是一个 \textbf{TypeScript CLI 应用程序}——它不是 Python 项目，
+不是 Next.js 应用，更不是传统网页应用。它是一个独立运行的进程，具备以下核心能力：
+
+\begin{itemize}
+  \item 在本地设备运行，并启动 Gateway 网关服务处理所有渠道的连接请求
+  \item 调用各类大模型 API（Anthropic、OpenAI、DeepSeek、本地大模型等）
+  \item 本地执行各类工具命令（文件操作、Shell 执行、网络请求、浏览器控制）
+  \item 实现用户在电脑上的各类操作需求
+\end{itemize}
+
+\noindent \textbf{核心定位}：不仅仅是聊天机器人，而是一个能 \textbf{24$\times$7 运行}的个人 AI 助手，
+具备完整的会话管理、并发控制、记忆检索以及丰富工具支持的 \textbf{Agent 运行时环境}。
+
+%----------------------------------------------------------------------
+\section{项目由来}
+%----------------------------------------------------------------------
+
+OpenClaw 的诞生是一个充满趣味的故事。
+
+最初，项目的名字叫做 \textbf{Warelay}——一个作为 WhatsApp Gateway 网关的合理名字。
+它由 \textbf{Peter Steinberger}（@steipete）创建，完成了将聊天应用连接到 AI 智能体的基本工作。
+
+但后来，来了一只\emph{太空龙虾}。
+
+有一段时间，这只龙虾叫做 \textbf{Clawd}，住在 Clawdbot 里。但在 2026 年 1 月，
+Anthropic 发了一封礼貌的邮件要求更名（商标问题）。于是龙虾做了龙虾最擅长的事——
+\textbf{它蜕壳了}。
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    stage/.style={draw=orange!60, fill=orange!10, rounded corners=6pt,
+        minimum width=2.6cm, minimum height=1cm, align=center, font=\small\bfseries},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=gray!60},
+    lbl/.style={font=\scriptsize\itshape, text=gray!70}
+]
+    \node[stage] (s1) at (0,0) {Warelay};
+    \node[stage] (s2) at (4,0) {Clawd\\(Clawdbot)};
+    \node[stage] (s3) at (8,0) {Molty\\(Moltbot)};
+    \node[stage, draw=blue!60, fill=blue!10] (s4) at (12,0) {OpenClaw};
+    \draw[arr] (s1) -- node[above, lbl]{太空龙虾} (s2);
+    \draw[arr] (s2) -- node[above, lbl]{第一次蜕壳} (s3);
+    \draw[arr] (s3) -- node[above, lbl]{最终形态} (s4);
+\end{tikzpicture}
+\end{center}
+
+2026 年 1 月 27 日凌晨 5 点，社区成员聚集在 Discord，
+数百个名字被提议——Shelldon、Pinchy、Thermidor、Lobstar……
+最终 \textbf{OpenClaw} 胜出：
+
+\begin{quote}
+\texttt{OpenClaw = OPEN + CLAW}
+
+\texttt{OPEN} = 开源，向所有人开放
+
+\texttt{CLAW} = 龙虾传承，钳即是法
+
+你的助手，你的机器，你的规则。\end{quote}
+
+%----------------------------------------------------------------------
+\section{与普通聊天机器人的区别}
+%----------------------------------------------------------------------
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{对比维度} & \textbf{普通聊天机器人} & \textbf{OpenClaw} \\
+\midrule
+能力范围 & 只能对话 & 对话 + 执行操作 \\
+运行方式 & 按需调用 & 24$\times$7 持续运行 \\
+数据存储 & 云端 / 第三方 & 本地优先 \\
+交互渠道 & 单一平台 & 多平台统一接入 \\
+记忆能力 & 会话级记忆 & 分层持久记忆 \\
+执行能力 & 无 & Shell / 文件 / 网络 / 浏览器 \\
+扩展能力 & 有限 & Skills 热插拔 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{quote}
+如果把普通聊天机器人比作\textbf{会说话的百科全书}，
+那 OpenClaw 更像是\textbf{会沟通、能调动工具、能记事、还能跨平台办事的全能助理}。
+\end{quote}
+
+%----------------------------------------------------------------------
+\section{核心设计理念}
+%----------------------------------------------------------------------
+
+\subsection*{本地优先（Local-First）架构}
+
+这是 OpenClaw 最根本的设计原则：
+
+\begin{itemize}
+  \item \textbf{数据主权}：所有用户数据（对话记录、文件交互、日志等）均存储在用户本地设备
+  \item \textbf{联网策略}：仅在调用云端大模型 API 时联网，支持切换为本地模型实现零联网运行
+  \item \textbf{隐私安全}：敏感信息不出本地，符合企业级安全要求
+  \item \textbf{离线可用}：支持纯本地模型运行，不依赖网络连接
+\end{itemize}
+
+\subsection*{高度模块化与解耦}
+
+系统采用模块化设计，实现了智能推理、任务编排与交互渠道的彻底分离，
+各组件可独立演进和升级。
+
+%----------------------------------------------------------------------
+\section{三层解耦架构}
+%----------------------------------------------------------------------
+
+OpenClaw 采用高度模块化的三层架构设计：
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+]
+    % Layer 3
+    \node[draw=purple!60, fill=purple!8, rounded corners=6pt,
+        minimum width=12cm, minimum height=1.6cm, align=center] (l3) at (0, 3.6) {
+        \textbf{Layer 3：LLM 大模型层}（智能大脑）\\[2pt]
+        Claude \quad GPT \quad DeepSeek \quad Qwen \quad 本地模型
+    };
+    % Layer 2
+    \node[draw=orange!60, fill=orange!8, rounded corners=6pt,
+        minimum width=12cm, minimum height=1.6cm, align=center] (l2) at (0, 1.6) {
+        \textbf{Layer 2：Gateway 网关层}（神经中枢）\\[2pt]
+        会话管理\quad 消息路由\quad 记忆管理\quad Skills 执行\quad 并发控制
+    };
+    % Layer 1
+    \node[draw=cyan!60, fill=cyan!8, rounded corners=6pt,
+        minimum width=12cm, minimum height=1.6cm, align=center] (l1) at (0, -0.4) {
+        \textbf{Layer 1：Channels 渠道层}（交互入口）\\[2pt]
+        Telegram\quad WhatsApp\quad 飞书\quad 钉钉\quad Discord\quad iMessage
+    };
+
+    % Arrows
+    \draw[-{Stealth[length=2.5mm]}, thick, draw=gray!50]
+        ([yshift=-2pt]l3.south) -- ([yshift=2pt]l2.north);
+    \draw[-{Stealth[length=2.5mm]}, thick, draw=gray!50]
+        ([yshift=-2pt]l2.south) -- ([yshift=2pt]l1.north);
+\end{tikzpicture}
+\end{center}
+
+\noindent 三层解耦的核心优势：
+
+\begin{enumerate}
+  \item \textbf{安全隔离}：执行层默认运行在 Docker 沙箱中，高风险操作被严格限制
+  \item \textbf{灵活集成}：支持多模型切换、多平台接入、多技能扩展
+  \item \textbf{独立演进}：各层可独立升级维护，互不干扰
+\end{enumerate}
+
+%----------------------------------------------------------------------
+\section{五大核心组件}
+%----------------------------------------------------------------------
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+    comp/.style={draw=blue!50, fill=blue!5, rounded corners=6pt,
+        minimum width=2.4cm, minimum height=1.8cm, align=center},
+    gw/.style={draw=orange!60, fill=orange!10, rounded corners=8pt,
+        minimum width=3cm, minimum height=2cm, align=center, font=\bfseries},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=gray!50}
+]
+    % Center: Gateway
+    \node[gw] (gw) at (0,0) {Gateway\\{\small 网关}\\{\scriptsize 中央调度}};
+
+    % Surrounding components
+    \node[comp] (agent) at (-4, 2) {Agent\\{\scriptsize 智能体}\\{\scriptsize 大脑与执行}};
+    \node[comp] (ch) at (4, 2) {Channels\\{\scriptsize 渠道}\\{\scriptsize 协议翻译}};
+    \node[comp] (skill) at (-4, -2) {Skills/Tools\\{\scriptsize 技能/工具}\\{\scriptsize 能力扩展}};
+    \node[comp] (mem) at (4, -2) {Memory\\{\scriptsize 记忆}\\{\scriptsize 持久记忆}};
+
+    % Arrows
+    \draw[arr, <->] (gw) -- (agent);
+    \draw[arr, <->] (gw) -- (ch);
+    \draw[arr, <->] (gw) -- (skill);
+    \draw[arr, <->] (gw) -- (mem);
+\end{tikzpicture}
+\end{center}
+
+\subsection*{Gateway（网关）—— 中央神经系统}
+
+Gateway 是系统的总调度中心，类似于机场的"航空管制塔"：
+
+\begin{itemize}
+  \item \textbf{统一接入}：作为后台进程持续运行，维持与所有聊天平台的长连接
+  \item \textbf{消息路由}：决策每条消息应发给哪个 Agent
+  \item \textbf{会话持久化}：跟踪每个对话的上下文和历史记录
+  \item \textbf{多 Agent 协调}：隔离不同 Agent 的数据，防止"串线"
+\end{itemize}
+
+\subsection*{Agent（智能体）—— 大脑与执行单元}
+
+Agent 是实际的执行者，其核心工作循环为：
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\scriptsize},
+    sbox/.style={draw=blue!40, fill=blue!5, rounded corners=3pt,
+        minimum width=1.8cm, minimum height=0.6cm, align=center},
+    arr/.style={-{Stealth[length=2mm]}, thick, draw=gray!50}
+]
+    \node[sbox] (s1) at (0,0) {接收消息};
+    \node[sbox] (s2) at (2.5,0) {加载上下文};
+    \node[sbox] (s3) at (5,0) {调用 LLM};
+    \node[sbox] (s4a) at (8, 0.5) {文本回复};
+    \node[sbox] (s4b) at (8, -0.5) {工具调用};
+    \node[sbox] (s5) at (10.5, -0.5) {执行工具};
+
+    \draw[arr] (s1) -- (s2);
+    \draw[arr] (s2) -- (s3);
+    \draw[arr] (s3) -- (s4a);
+    \draw[arr] (s3) -- (s4b);
+    \draw[arr] (s4b) -- (s5);
+    \draw[arr, bend right=30] (s5) to (s3);
+\end{tikzpicture}
+\end{center}
+
+\subsection*{Channels（渠道）—— 协议翻译官}
+
+渠道层连接外部平台与内部系统，已集成平台包括：
+
+\begin{itemize}
+  \item \textbf{即时通讯}：WhatsApp、Telegram、Slack、Discord、Signal
+  \item \textbf{办公协作}：飞书、钉钉、Microsoft Teams
+  \item \textbf{原生集成}：iMessage（macOS）
+  \item \textbf{协议支持}：HTTP / WebSocket / MQTT 等 6 种协议
+\end{itemize}
+
+\subsection*{Skills/Tools（技能/工具）—— 能力扩展层}
+
+Skills 采用分层管理机制：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{层级} & \textbf{路径} & \textbf{说明} \\
+\midrule
+内置 Skills & \texttt{bundled/} & 系统自带基础能力 \\
+共享 Skills & \texttt{\textasciitilde{}/.openclaw/skills/} & 所有 Agent 共享的公共工具箱 \\
+专属 Skills & \texttt{<workspace>/skills/} & 仅特定 Agent 可用 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Memory（记忆）—— 持久化记忆系统}
+
+\begin{itemize}
+  \item 将重要信息写入本地 Markdown 文件，用户可直接查看、编辑和备份
+  \item 分层记忆：每日日志 + 长期记忆
+  \item 支持向量检索（sqlite-vec）和全文搜索（SQLite FTS5）
+\end{itemize}
+
+%----------------------------------------------------------------------
+\section{四大核心系统}
+%----------------------------------------------------------------------
+
+OpenClaw 的核心能力源于四大系统的紧密协作：
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\small},
+]
+    \node[draw=blue!60, fill=blue!8, rounded corners=6pt,
+        minimum width=2.8cm, minimum height=2.8cm, align=center] (d) at (0, 0) {
+        \textbf{对话系统}\\[3pt]
+        {\scriptsize 多轮对话}\\
+        {\scriptsize 上下文管理}\\
+        {\scriptsize 压缩策略}\\
+        {\scriptsize 流式响应}
+    };
+    \node[draw=green!60, fill=green!8, rounded corners=6pt,
+        minimum width=2.8cm, minimum height=2.8cm, align=center] (m) at (3.5, 0) {
+        \textbf{记忆系统}\\[3pt]
+        {\scriptsize 长期记忆}\\
+        {\scriptsize 每日日志}\\
+        {\scriptsize 混合检索}\\
+        {\scriptsize 自动压缩}
+    };
+    \node[draw=orange!60, fill=orange!8, rounded corners=6pt,
+        minimum width=2.8cm, minimum height=2.8cm, align=center] (t) at (7, 0) {
+        \textbf{工具系统}\\[3pt]
+        {\scriptsize Shell 执行}\\
+        {\scriptsize 文件操作}\\
+        {\scriptsize 网络请求}\\
+        {\scriptsize 浏览器控制}
+    };
+    \node[draw=purple!60, fill=purple!8, rounded corners=6pt,
+        minimum width=2.8cm, minimum height=2.8cm, align=center] (s) at (10.5, 0) {
+        \textbf{技能系统}\\[3pt]
+        {\scriptsize 热装载}\\
+        {\scriptsize 自动编写}\\
+        {\scriptsize 自主迭代}\\
+        {\scriptsize 社区共享}
+    };
+\end{tikzpicture}
+\end{center}
+
+\begin{enumerate}
+  \item \textbf{对话系统}：管理多渠道消息接入、多轮对话、上下文组装与压缩
+  \item \textbf{记忆系统}：基于 Markdown 文件的透明化、可控的记忆机制
+  \item \textbf{工具系统}：内置丰富的本地工具（Shell、文件、网络、浏览器等）
+  \item \textbf{技能系统}：模块化能力扩展，支持热装载和自主迭代
+\end{enumerate}
+
+%----------------------------------------------------------------------
+\section{技术栈}
+%----------------------------------------------------------------------
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{组件} & \textbf{技术选型} \\
+\midrule
+运行时 & Node.js v24.x \\
+开发语言 & TypeScript \\
+数据存储 & 本地文件系统（Markdown + JSONL） \\
+向量索引 & sqlite-vec（SQLite 向量扩展） \\
+全文搜索 & SQLite FTS5 \\
+通信协议 & HTTP / WebSocket / MQTT \\
+容器化 & Docker 沙箱（可选） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%----------------------------------------------------------------------
+\section{工作原理}
+%----------------------------------------------------------------------
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.5cm,
+    every node/.style={font=\small},
+    box/.style={draw=blue!50, fill=blue!5, rounded corners=4pt, minimum width=2.8cm, minimum height=0.7cm, align=center},
+    gw/.style={draw=orange!60, fill=orange!10, rounded corners=6pt, minimum width=3.5cm, minimum height=1cm, align=center, font=\bfseries},
+    arr/.style={-{Stealth[length=2.5mm]}, thick, draw=gray!60}
+]
+    % Left: Chat apps
+    \node[box] (wa) {WhatsApp};
+    \node[box, below=of wa] (tg) {Telegram};
+    \node[box, below=of tg] (dc) {Discord};
+    \node[box, below=of dc] (im) {iMessage};
+
+    % Center: Gateway
+    \node[gw, right=2cm of $(tg)!0.5!(dc)$] (gw) {Gateway\\网关};
+
+    % Right: Outputs
+    \node[box, right=2cm of gw, yshift=0.8cm] (agent) {AI Agent};
+    \node[box, right=2cm of gw, yshift=-0.8cm] (web) {Web UI};
+
+    % Arrows
+    \foreach \src in {wa, tg, dc, im} {
+        \draw[arr] (\src) -- (gw);
+    }
+    \draw[arr] (gw) -- (agent);
+    \draw[arr] (gw) -- (web);
+\end{tikzpicture}
+\end{center}
+
+Gateway 网关是会话、路由和渠道连接的\textbf{唯一事实来源}。
+用户从任意渠道发送消息后，Gateway 负责路由、会话管理和智能体调度，
+最终将 AI 响应回传到对应的聊天平台。
+
+%----------------------------------------------------------------------
+\section{完整协作流程}
+%----------------------------------------------------------------------
+
+以用户在 Telegram 上说\textit{"帮我整理桌面文件"}为例，完整流程如下：
+
+\begin{center}
+\begin{tikzpicture}[
+    every node/.style={font=\scriptsize},
+    sbox/.style={draw=blue!40, fill=blue!5, rounded corners=4pt,
+        minimum width=10cm, minimum height=0.65cm, align=left},
+    num/.style={circle, draw=orange!60, fill=orange!10, font=\scriptsize\bfseries,
+        minimum size=0.5cm, inner sep=0pt},
+]
+    \node[num] (n1) at (0, 0) {1};
+    \node[sbox, right=0.3cm of n1] (s1) {Channels：接收 Telegram 消息 → 翻译为内部格式 → 发送给 Gateway};
+
+    \node[num] (n2) at (0, -0.9) {2};
+    \node[sbox, right=0.3cm of n2] (s2) {Gateway：识别消息来源 → 确认用户权限 → 路由给对应 Agent};
+
+    \node[num] (n3) at (0, -1.8) {3};
+    \node[sbox, right=0.3cm of n3] (s3) {Agent：加载历史和记忆 → 调用 LLM 理解意图 → 决策使用文件整理 Skills};
+
+    \node[num] (n4) at (0, -2.7) {4};
+    \node[sbox, right=0.3cm of n4] (s4) {Skills/Tools：执行创建文件夹、移动文件等实际操作};
+
+    \node[num] (n5) at (0, -3.6) {5};
+    \node[sbox, right=0.3cm of n5] (s5) {Agent：获取执行结果 → 写入 Memory → 返回给 Gateway};
+
+    \node[num] (n6) at (0, -4.5) {6};
+    \node[sbox, right=0.3cm of n6] (s6) {Channels：将结果翻译成 Telegram 格式 → 推送给用户};
+\end{tikzpicture}
+\end{center}
+
+%----------------------------------------------------------------------
+\section{核心概念速览}
+%----------------------------------------------------------------------
+
+OpenClaw 由以下核心组件构成，后续章节将逐一详解：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{概念} & \textbf{说明} & \textbf{配置路径} \\
+\midrule
+Gateway & AI 网关核心，WS/HTTP 服务器 & \texttt{gateway.*} \\
+Agent & AI 助手实例，绑定模型/技能 & \texttt{agents.list[]} \\
+Channel & 聊天平台适配器 & \texttt{channels.<name>.*} \\
+Binding & 用户/群组到 Agent 的路由 & \texttt{agents.list[].bindings[]} \\
+Session & 一次会话，含上下文历史 & \texttt{session.*} \\
+Plugin & 扩展模块，注册工具/渠道/Hook & \texttt{plugins.entries.*} \\
+Skill & Agent 技能（工具+系统提示） & \texttt{skills.entries.*} \\
+Memory & 长期记忆，向量+全文搜索 & \texttt{memorySearch.*} \\
+Sandbox & Docker 沙箱隔离执行 & \texttt{agents.defaults.sandbox.*} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%----------------------------------------------------------------------
+\section{快速开始}
+%----------------------------------------------------------------------
+
+\subsection*{第一步：安装 OpenClaw}
+
+\begin{lstlisting}[language=bash]
+npm install -g openclaw@latest
+\end{lstlisting}
+
+\subsection*{第二步：运行新手引导}
+
+\begin{lstlisting}[language=bash]
+openclaw onboard --install-daemon
+\end{lstlisting}
+
+新手引导向导会自动配置：
+\begin{itemize}
+  \item 模型/认证（推荐 OAuth 或 API 密钥）
+  \item 渠道登录（WhatsApp、Telegram 等）
+  \item 守护进程（systemd/launchd 开机自启）
+\end{itemize}
+
+\subsection*{第三步：启动 Gateway}
+
+\begin{lstlisting}[language=bash]
+openclaw channels login
+openclaw gateway --port 18789
+\end{lstlisting}
+
+打开浏览器访问 \texttt{http://127.0.0.1:18789/} 即可开始聊天。
+
+\subsection*{最快体验：Control UI}
+
+无需任何渠道配置，直接用浏览器聊天：
+
+\begin{lstlisting}[language=bash]
+openclaw dashboard
+\end{lstlisting}
+
+\subsection*{认证配置}
+
+\begin{lstlisting}[language=bash]
+export ANTHROPIC_API_KEY="..."
+openclaw models status
+\end{lstlisting}
+
+或将密钥写入守护进程配置：
+
+\begin{lstlisting}[language=bash]
+cat >> ~/.openclaw/.env <<'EOF'
+ANTHROPIC_API_KEY=...
+EOF
+\end{lstlisting}
+
+\subsection*{验证安装}
+
+\begin{lstlisting}[language=bash]
+openclaw models status
+openclaw doctor
+\end{lstlisting}
+
+%----------------------------------------------------------------------
+\section{配置文件}
+%----------------------------------------------------------------------
+
+配置文件位于 \texttt{\textasciitilde{}/.openclaw/openclaw.json}（JSON5 格式）。
+
+\begin{lstlisting}[language=json]
+{
+  channels: {
+    whatsapp: {
+      allowFrom: ["+15555550123"],
+      groups: { "*": { requireMention: true } }
+    }
+  },
+  messages: {
+    groupChat: { mentionPatterns: ["@openclaw"] }
+  }
+}
+\end{lstlisting}
+
+如果你\textbf{不做任何修改}，OpenClaw 将使用内置的 Pi 二进制文件以 RPC 模式运行，并按发送者创建独立会话。
+
+%----------------------------------------------------------------------
+\section{本章小结}
+%----------------------------------------------------------------------
+
+本章从宏观视角介绍了 OpenClaw 的核心概念和整体架构：
+
+\begin{itemize}
+  \item OpenClaw 是一个\textbf{本地优先}的开源个人 AI 智能体，支持多平台、多渠道、24$\times$7 运行
+  \item 项目经历了从 Warelay 到 OpenClaw 的多次蜕变，社区共创了这个名字
+  \item 三层解耦架构（LLM 层、Gateway 层、Channels 层）确保了灵活性和可维护性
+  \item 五大核心组件（Gateway、Agent、Channels、Skills、Memory）各司其职，协同工作
+  \item 四大核心系统（对话、记忆、工具、技能）支撑了智能体的完整能力
+\end{itemize}
+
+\noindent 从下一章开始，我们将逐一深入每个核心组件。首先，让我们走进 OpenClaw 的\textbf{中枢神经系统}——Gateway 网关。

@@ -1,5 +1,10 @@
 \chapter{Skill（技能）}
 
+\vspace{0.5em}
+\noindent\textit{上一章我们了解了 Plugin 插件如何从底层扩展 OpenClaw 的能力。本章将介绍更上层的 Skill（技能）——
+它是教智能体如何使用工具的指令包。我们将了解 Skill 的加载机制、编写格式、门控策略以及 ClawHub 技能市场。}
+\vspace{0.5em}
+
 \section{概述}
 
 Skill（技能）是教智能体如何使用工具的指令包。每个 Skill 是一个包含 \texttt{SKILL.md}（带 YAML frontmatter）的目录，在智能体运行时注入到系统提示中。
@@ -107,3 +112,16 @@ clawhub sync --all              # Scan + publish updates
   \item 高风险工具优先使用沙箱隔离运行
   \item \texttt{skills.entries.*.apiKey} 将秘密注入到宿主机进程（非沙箱）
 \end{itemize}
+
+\section{本章小结}
+
+本章介绍了 Skill 技能的核心机制：
+
+\begin{itemize}
+  \item Skill 是包含 \texttt{SKILL.md} 的\textbf{指令包}，在运行时注入智能体的系统提示
+  \item 三层加载优先级：工作区 > 托管/本地 > 内置
+  \item 支持\textbf{门控过滤}（环境变量、二进制、平台）和\textbf{ClawHub 技能市场}
+  \item 第三方 Skill 应视为不受信任的代码，建议在沙箱中运行
+\end{itemize}
+
+\noindent 智能体现在已经拥有了丰富的技能，但每次对话结束后如何“记住”重要信息？下一章我们将深入了解 Memory（记忆）系统。
